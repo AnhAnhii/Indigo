@@ -2,29 +2,40 @@ import { GoogleGenAI } from "@google/genai";
 
 // Safely retrieve API Key in browser environment (Supports both Vite and Webpack/Node)
 const getApiKey = () => {
+  let apiKey = '';
+  
   try {
     // 1. Try Vite standard (import.meta.env)
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
       // @ts-ignore
-      return import.meta.env.VITE_API_KEY;
-    }
-
-    // 2. Try Node/Webpack standard (process.env)
-    if (typeof process !== 'undefined' && process.env) {
-      return process.env.API_KEY || process.env.REACT_APP_API_KEY || '';
+      apiKey = import.meta.env.VITE_API_KEY;
     }
   } catch (e) {
-    console.warn("Environment variable access error", e);
+    // Ignore Vite access errors
   }
-  return '';
+
+  if (!apiKey) {
+    try {
+      // 2. Try Node/Webpack standard (process.env)
+      // We check typeof process first to avoid ReferenceError in browsers that don't shim it
+      if (typeof process !== 'undefined' && process.env) {
+        apiKey = process.env.API_KEY || process.env.REACT_APP_API_KEY || '';
+      }
+    } catch (e) {
+      console.warn("Environment variable access error", e);
+    }
+  }
+
+  return apiKey;
 };
 
 // Helper to get AI instance safely
 const getAiInstance = () => {
   const apiKey = getApiKey();
   if (!apiKey) {
-      console.warn("API Key not found in environment variables.");
+      // Only warn, don't crash. Let the caller handle the null.
+      console.warn("API Key not found. AI features will be disabled.");
       return null;
   }
   return new GoogleGenAI({ apiKey });
@@ -36,7 +47,7 @@ export const askAiAssistant = async (
 ): Promise<string> => {
   const ai = getAiInstance();
   if (!ai) {
-    return "Lỗi: Chưa cấu hình API Key. Vui lòng kiểm tra biến môi trường (VITE_API_KEY hoặc API_KEY).";
+    return "Lỗi: Chưa cấu hình API Key. Vui lòng kiểm tra biến môi trường (VITE_API_KEY hoặc API_KEY) trên Vercel.";
   }
 
   try {
