@@ -12,7 +12,6 @@ import { TimesheetView } from './components/TimesheetView';
 import { SettingsView } from './components/SettingsView';
 import { KitchenView } from './components/KitchenView';
 import { ServingChecklist } from './components/ServingChecklist';
-import { LoginScreen } from './components/LoginScreen';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
@@ -21,24 +20,22 @@ const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // --- AUTH GUARD ---
-  if (!currentUser) {
-      return <LoginScreen />;
-  }
+  // --- BYPASSED LOGIN SCREEN ---
+  // We now assume currentUser is always set by GlobalContext (Default Admin)
 
   // --- ROLE CHECKER ---
-  const isAdmin = currentUser.role === EmployeeRole.MANAGER;
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
 
   // Redirect if user is on restricted page
   useEffect(() => {
-      if (!isAdmin) {
+      if (!isAdmin && currentUser) {
           const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT];
           if (restrictedViews.includes(currentView)) {
               setCurrentView(AppView.DASHBOARD);
           }
       }
       setIsMobileMenuOpen(false);
-  }, [currentView, isAdmin]);
+  }, [currentView, isAdmin, currentUser]);
 
   const NavItem = ({ view, icon: Icon, label, restricted = false }: { view: AppView; icon: any; label: string, restricted?: boolean }) => {
     // If restricted and user is not admin, hide it
@@ -75,6 +72,8 @@ const AppContent: React.FC = () => {
       default: return <Dashboard onViewChange={setCurrentView} />;
     }
   };
+
+  if (!currentUser) return <div className="flex items-center justify-center h-screen">Đang tải dữ liệu...</div>;
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 font-sans">

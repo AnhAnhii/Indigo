@@ -23,19 +23,19 @@ const getApiKey = () => {
         apiKey = process.env.API_KEY || process.env.REACT_APP_API_KEY || '';
       }
     } catch (e) {
-      console.warn("Environment variable access error", e);
+      // Console warn is safer than error here
     }
   }
 
   return apiKey;
 };
 
-// Helper to get AI instance safely
+// Helper to get AI instance safely - LAZY INITIALIZATION
+// IMPORTANT: Do NOT initialize this at the top level to avoid crashes on Vercel if env vars are missing at build time.
 const getAiInstance = () => {
   const apiKey = getApiKey();
   if (!apiKey) {
-      // Only warn, don't crash. Let the caller handle the null.
-      console.warn("API Key not found. AI features will be disabled.");
+      console.warn("API Key not found. AI features will be disabled. Please check Vercel Environment Variables.");
       return null;
   }
   return new GoogleGenAI({ apiKey });

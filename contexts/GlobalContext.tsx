@@ -108,7 +108,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>(INITIAL_TASKS);
   const [servingGroups, setServingGroups] = useState<ServingGroup[]>(INITIAL_SERVING_GROUPS);
 
-  const [currentUser, setCurrentUser] = useState<Employee | null>(null);
+  // --- BYPASS LOGIN: Set default user to Admin immediately ---
+  const [currentUser, setCurrentUser] = useState<Employee | null>(INITIAL_EMPLOYEES[0]);
 
   const loadData = useCallback(async () => {
       setIsLoading(true);
@@ -120,16 +121,18 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           if (data.settings) setSettings(data.settings);
       }
       
-      // Check Local Storage for logged in user
+      // Check Local Storage for logged in user, OR ensure Admin is set if mock data was used
       const savedUser = localStorage.getItem('currentUser');
       if (savedUser) {
           try {
               const user = JSON.parse(savedUser);
-              // Verify if user still exists in loaded data (optional security check)
               setCurrentUser(user);
           } catch(e) {
               localStorage.removeItem('currentUser');
           }
+      } else {
+          // Ensure we always have a user for testing
+          setCurrentUser(INITIAL_EMPLOYEES[0]);
       }
       
       setIsLoading(false);
@@ -143,7 +146,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const login = (idOrPhone: string, pass: string): boolean => {
       const user = employees.find(e => 
           (e.id === idOrPhone || e.phone === idOrPhone) && 
-          (e.password === pass || (!e.password && pass === '123456')) // Default pass if undefined
+          (e.password === pass || (!e.password && pass === '123456')) 
       );
 
       if (user) {
@@ -155,8 +158,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const logout = () => {
-      setCurrentUser(null);
-      localStorage.removeItem('currentUser');
+      // Disable logout for now to keep system accessible
+      alert("Chế độ Test: Đã tắt chức năng đăng xuất.");
+      // setCurrentUser(null);
+      // localStorage.removeItem('currentUser');
   };
 
   // --- DATA OPERATIONS ---
