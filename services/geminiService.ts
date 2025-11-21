@@ -3,6 +3,8 @@ import { GoogleGenAI } from "@google/genai";
 
 const getApiKey = () => {
   let apiKey = '';
+  
+  // 1. Ưu tiên lấy từ VITE_API_KEY (Chuẩn cho Vercel/Vite)
   try {
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
@@ -11,6 +13,7 @@ const getApiKey = () => {
     }
   } catch (e) {}
 
+  // 2. Fallback sang process.env (Cho các môi trường khác)
   if (!apiKey) {
     try {
       if (typeof process !== 'undefined' && process.env) {
@@ -18,13 +21,15 @@ const getApiKey = () => {
       }
     } catch (e) {}
   }
+  
   return apiKey;
 };
 
 const getAiInstance = () => {
   const apiKey = getApiKey();
   if (!apiKey) {
-      console.warn("API Key not found. AI features will be disabled.");
+      console.error("CRITICAL ERROR: Không tìm thấy API Key. Vui lòng cấu hình VITE_API_KEY trong Vercel Settings.");
+      alert("Lỗi Hệ Thống: Chưa cấu hình API Key AI. Vui lòng liên hệ kỹ thuật viên.");
       return null;
   }
   return new GoogleGenAI({ apiKey });
@@ -42,13 +47,17 @@ export const askAiAssistant = async (prompt: string, contextData: string): Promi
     });
     return response.text || "Lỗi.";
   } catch (error) {
+    console.error("AI Error:", error);
     return "Lỗi kết nối AI.";
   }
 };
 
 export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
     const ai = getAiInstance();
-    if (!ai) return [];
+    if (!ai) {
+        console.error("Aborting image parse: No API instance");
+        return [];
+    }
 
     try {
         const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
@@ -86,7 +95,7 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
                     ]
                 }
             ]
-            Chỉ trả về JSON thuần túy.
+            Chỉ trả về JSON thuần túy. Không thêm markdown block như \`\`\`json.
         `;
 
         const response = await ai.models.generateContent({
@@ -103,13 +112,16 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
         });
 
         const text = response.text || "[]";
-        const jsonMatch = text.match(/\[.*\]/s);
-        const jsonString = jsonMatch ? jsonMatch[0] : text;
+        // Clean potential markdown syntax
+        const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        
+        const jsonMatch = cleanText.match(/\[.*\]/s);
+        const jsonString = jsonMatch ? jsonMatch[0] : cleanText;
         
         try {
             return JSON.parse(jsonString);
         } catch (e) {
-            console.error("JSON Parse Error:", e);
+            console.error("JSON Parse Error:", e, "Raw text:", text);
             return [];
         }
     } catch (error) {
