@@ -1,12 +1,9 @@
 
 // --- CẤU HÌNH LIÊN KẾT GOOGLE SHEET ---
-// Đây là link Web App bạn đã deploy. 
-// Khi deploy lên Vercel, file này sẽ được đóng gói, giúp mọi nhân viên truy cập đều kết nối về đúng Sheet này.
-const HARDCODED_API_URL: string = "https://script.google.com/macros/s/AKfycbwMGxO1gIXvqMfYDMe_uq8K-fXH7frsU_D4vn4tPHjGqXzEZtHuIENGZAYva9yXw4YNfg/exec"; 
+const HARDCODED_API_URL: string = "https://script.google.com/macros/s/AKfycbwAM5CEcW-EnR5ZOyxln-w8iJugwXah1Zt91ptiyGY-1kanetXFzEvhGWyhkebjHi4L/exec"; 
 
 export const sheetService = {
     getApiUrl: () => {
-        // Kiểm tra an toàn để tránh lỗi TypeScript narrowing
         const url = HARDCODED_API_URL as string;
         if (!url || url.length < 10) {
             console.warn("Cảnh báo: Link API Google Sheet chưa hợp lệ.");
@@ -18,88 +15,76 @@ export const sheetService = {
         console.log("API URL (Read-only in code):", url);
     },
 
-    // Lấy toàn bộ dữ liệu khi khởi động App
+    // --- GET ALL DATA ---
     fetchAllData: async () => {
         const url = HARDCODED_API_URL as string;
         if (!url) return null;
-        
         try {
-            // Thêm tham số t để tránh cache trình duyệt
             const response = await fetch(`${url}?action=GET_ALL&t=${Date.now()}`);
             if (!response.ok) throw new Error("Network response was not ok");
             const data = await response.json();
             return data;
         } catch (error) {
-            console.warn("Không thể kết nối Google Sheet (Sẽ dùng dữ liệu mẫu Offline):", error);
+            console.warn("Lỗi kết nối Google Sheet:", error);
             return null;
         }
     },
 
-    // Ghi nhận chấm công (FaceID / QR)
-    logAttendance: async (logData: any) => {
+    // --- GENERIC POST HELPER ---
+    postData: async (action: string, data: any) => {
         const url = HARDCODED_API_URL as string;
         if (!url) return;
         try {
             await fetch(url, {
                 method: 'POST',
-                mode: 'no-cors', // Chế độ no-cors quan trọng để tránh lỗi CORS từ Google
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'LOG_ATTENDANCE',
-                    data: logData
-                })
-            });
-        } catch (error) {
-            console.error("Lỗi ghi chấm công:", error);
-        }
-    },
-
-    // Đăng ký khuôn mặt nhân viên
-    registerFace: async (employeeId: string, faceImageBase64: string) => {
-         const url = HARDCODED_API_URL as string;
-         if (!url) return;
-         try {
-            await fetch(url, {
-                method: 'POST',
                 mode: 'no-cors',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'REGISTER_FACE',
-                    data: { employeeId, image: faceImageBase64 }
-                })
+                body: JSON.stringify({ action, data })
             });
         } catch (error) {
-            console.error("Lỗi đăng ký Face:", error);
+            console.error(`Lỗi gửi action ${action}:`, error);
         }
     },
 
-    // Thêm Khách đoàn mới
-    addServingGroup: async (groupData: any) => {
-        const url = HARDCODED_API_URL as string;
-        if (!url) return;
-        await fetch(url, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'ADD_GROUP',
-                data: groupData
-            })
+    // --- ATTENDANCE ---
+    logAttendance: async (logData: any) => {
+        await sheetService.postData('LOG_ATTENDANCE', logData);
+    },
+
+    // --- EMPLOYEES ---
+    syncEmployee: async (employeeData: any) => {
+        // Ensure allowance is sent
+        await sheetService.postData('SYNC_EMPLOYEE', {
+            ...employeeData,
+            allowance: employeeData.allowance || 0
         });
     },
 
-    // Lưu Cấu hình Hệ thống (Settings) - Giúp đồng bộ cài đặt Wifi/GPS cho mọi nhân viên
+    deleteEmployee: async (id: string) => {
+        await sheetService.postData('DELETE_EMPLOYEE', { id });
+    },
+
+    registerFace: async (employeeId: string, faceImageBase64: string) => {
+         await sheetService.postData('SYNC_EMPLOYEE', { id: employeeId, avatar: faceImageBase64 });
+    },
+
+    // --- SERVING GROUPS ---
+    syncServingGroup: async (groupData: any) => {
+        await sheetService.postData('SYNC_GROUP', groupData);
+    },
+
+    // --- REQUESTS ---
+    syncRequest: async (requestData: any) => {
+        await sheetService.postData('SYNC_REQUEST', requestData);
+    },
+
+    // --- SETTINGS ---
     saveSettings: async (settingsData: any) => {
-        const url = HARDCODED_API_URL as string;
-        if (!url) return;
-        await fetch(url, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                action: 'SAVE_SETTINGS',
-                data: settingsData
-            })
-        });
+        await sheetService.postData('SAVE_SETTINGS', settingsData);
+    },
+
+    // --- HANDOVER ---
+    logHandover: async (handoverData: any) => {
+        await sheetService.postData('LOG_HANDOVER', handoverData);
     }
 };

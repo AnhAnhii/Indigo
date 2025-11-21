@@ -1,36 +1,32 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, MapPin, Wifi, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, QrCode, User, Smartphone } from 'lucide-react';
+import { Camera, MapPin, Wifi, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, Smartphone, ArrowLeft } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { AttendanceStatus, TimesheetLog } from '../types';
 
 export const AttendanceKiosk: React.FC = () => {
-  const { settings, addAttendanceLog, updateAttendanceLog, logs, employees } = useGlobalContext();
-  const [method, setMethod] = useState<'FACE' | 'QR'>('QR'); // Default to QR as requested
-
-  // Camera & Stream Refs
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { settings, addAttendanceLog, updateAttendanceLog, logs, employees, currentUser } = useGlobalContext();
   
   // Flow States
+  const [attendanceMode, setAttendanceMode] = useState<'SELECT' | 'FACE' | 'WIFI_GPS'>('SELECT');
+
+  // Camera & Stream Refs (For Face Mode)
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  
+  // Sub-states
   const [step, setStep] = useState<'IDLE' | 'STARTING_CAMERA' | 'SCANNING' | 'VERIFYING' | 'SUCCESS' | 'ERROR'>('IDLE');
   const [locationStatus, setLocationStatus] = useState<'CHECKING' | 'VALID' | 'INVALID' | 'ERROR'>('CHECKING');
-  const [distance, setDistance] = useState<number>(0);
   const [message, setMessage] = useState("");
-  const [matchScore, setMatchScore] = useState<number>(0);
   const [flash, setFlash] = useState(false);
   
-  // QR Input state (Simulating scanner hardware input)
-  const [qrInput, setQrInput] = useState("");
-  const qrInputRef = useRef<HTMLInputElement>(null);
-
   // Result State for Display
   const [attendanceResult, setAttendanceResult] = useState<{
       employeeName: string;
       type: 'CHECK_IN' | 'CHECK_OUT';
       time: string;
       totalHours?: number;
+      shiftCode?: string;
   } | null>(null);
 
   // --- SIMULATION STATES ---
@@ -71,7 +67,6 @@ export const AttendanceKiosk: React.FC = () => {
           settings.location.latitude,
           settings.location.longitude
         );
-        setDistance(Math.round(dist));
         if (dist <= settings.location.radiusMeters) setLocationStatus('VALID');
         else setLocationStatus('INVALID');
       },
@@ -81,7 +76,7 @@ export const AttendanceKiosk: React.FC = () => {
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, [settings]);
 
-  // 2. CAMERA CONTROL
+  // 2. CAMERA CONTROL (For Face Mode)
   const startCamera = async () => {
     if (isSimulatedCamera) { setStep('SCANNING'); return; }
     try {
@@ -94,8 +89,6 @@ export const AttendanceKiosk: React.FC = () => {
           if (videoRef.current) {
             videoRef.current.srcObject = mediaStream;
             setStep('SCANNING');
-            // Auto-focus input for QR if in QR mode
-            if (method === 'QR') setTimeout(() => qrInputRef.current?.focus(), 500);
           }
       }, 100);
     } catch (err: any) {
@@ -109,9 +102,11 @@ export const AttendanceKiosk: React.FC = () => {
     if (stream) { stream.getTracks().forEach(track => track.stop()); setStream(null); }
   }, [stream]);
 
-  useEffect(() => { return () => stopCamera(); }, [stopCamera]);
+  useEffect(() => { 
+      return () => stopCamera(); 
+  }, [stopCamera]);
 
-  // 3. ATTENDANCE LOGIC
+  // 3. ATTENDANCE LOGIC (CORE)
   const processAttendance = (employeeId: string, verifiedMethod: string) => {
         const employee = employees.find(e => e.id === employeeId);
         if (!employee) {
@@ -121,37 +116,96 @@ export const AttendanceKiosk: React.FC = () => {
         }
 
         const now = new Date();
-        const localDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-        const timeStr = now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'});
+        // FIX: Normalized date for searching in logs
+        const localDateStr = new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'Asia/Ho_Chi_Minh',
+              year: 'numeric', month: '2-digit', day: '2-digit'
+        }).format(now);
+
+        // FIX: Force 24h format to prevent AM/PM calculation errors
+        const timeStr = now.toLocaleTimeString('vi-VN', {
+            hour: '2-digit', 
+            minute:'2-digit', 
+            hour12: false,
+            timeZone: 'Asia/Ho_Chi_Minh'
+        });
+        const currentMinutes = now.getHours() * 60 + now.getMinutes();
         
         const existingLog = logs.find(l => l.employeeName === employee.name && l.date === localDateStr);
         
         let finalStatus: 'CHECK_IN' | 'CHECK_OUT' = 'CHECK_IN';
         let total = 0;
+        let detectedShiftCode = existingLog?.shiftCode || '';
 
         if (existingLog && !existingLog.checkOut) {
-            // CHECK OUT
+            // CHECK OUT LOGIC
             const [inH, inM] = existingLog.checkIn ? existingLog.checkIn.split(':').map(Number) : [0,0];
-            const [outH, outM] = timeStr.split(':').map(Number);
-            total = parseFloat(((outH * 60 + outM - (inH * 60 + inM)) / 60).toFixed(2));
+            const inMinutes = inH * 60 + inM;
+            const rawTotalMinutes = currentMinutes - inMinutes;
+
+            // DEEP LOGIC FIX: Handle Split Shift Break Time
+            const shift = settings.shiftConfigs?.find(s => s.code === detectedShiftCode);
+            let breakDeduction = 0;
+            
+            if (shift && shift.isSplitShift && shift.breakStart && shift.breakEnd) {
+                 const [bStartH, bStartM] = shift.breakStart.split(':').map(Number);
+                 const [bEndH, bEndM] = shift.breakEnd.split(':').map(Number);
+                 const bStartMins = bStartH * 60 + bStartM;
+                 const bEndMins = bEndH * 60 + bEndM;
+
+                 // If work spanned across the entire break
+                 if (inMinutes < bStartMins && currentMinutes > bEndMins) {
+                     breakDeduction = bEndMins - bStartMins;
+                 }
+            }
+
+            total = parseFloat(((rawTotalMinutes - breakDeduction) / 60).toFixed(2));
             if (total < 0) total = 0;
+
+            // Check Early Leave
+            let status = existingLog.status;
+            if (shift) {
+                const [endH, endM] = shift.endTime.split(':').map(Number);
+                const endMinutes = endH * 60 + endM;
+                if (currentMinutes < endMinutes - 15) { 
+                    status = AttendanceStatus.EARLY_LEAVE;
+                }
+            }
 
             const updatedLog: TimesheetLog = {
                 ...existingLog,
                 checkOut: timeStr,
                 totalHours: total,
+                status: status
             };
             updateAttendanceLog(updatedLog);
             finalStatus = 'CHECK_OUT';
         } else {
-            // CHECK IN
-            const startHourRule = parseInt(settings.rules.startHour.split(':')[0]);
-            const hour = now.getHours();
+            // CHECK IN LOGIC
+            let closestShift = settings.shiftConfigs?.[0];
+            let minDiff = Infinity;
+
+            settings.shiftConfigs?.forEach(shift => {
+                const [h, m] = shift.startTime.split(':').map(Number);
+                const shiftStartMins = h * 60 + m;
+                const diff = Math.abs(currentMinutes - shiftStartMins);
+                if (diff < minDiff) {
+                    minDiff = diff;
+                    closestShift = shift;
+                }
+            });
+
+            detectedShiftCode = closestShift?.code || 'N/A';
+            const [sH, sM] = (closestShift?.startTime || '08:00').split(':').map(Number);
+            const shiftStartMinutes = sH * 60 + sM;
+            const allowedLate = settings.rules.allowedLateMinutes || 15;
+
             let status = AttendanceStatus.PRESENT;
             let late = 0;
-            if (hour > startHourRule) {
+
+            if (currentMinutes > shiftStartMinutes + allowedLate) {
                 status = AttendanceStatus.LATE;
-                late = (hour - startHourRule) * 60 + now.getMinutes();
+                late = currentMinutes - shiftStartMinutes;
             }
 
             const newLog: TimesheetLog = {
@@ -163,7 +217,8 @@ export const AttendanceKiosk: React.FC = () => {
                 totalHours: 0,
                 status: status,
                 lateMinutes: late,
-                device: verifiedMethod
+                device: verifiedMethod,
+                shiftCode: detectedShiftCode
             };
             addAttendanceLog(newLog);
             finalStatus = 'CHECK_IN';
@@ -173,89 +228,231 @@ export const AttendanceKiosk: React.FC = () => {
             employeeName: employee.name,
             type: finalStatus,
             time: timeStr,
-            totalHours: total
+            totalHours: total,
+            shiftCode: detectedShiftCode
         });
-        setMatchScore(Math.floor(Math.random() * (99 - 92) + 92));
         setStep('SUCCESS');
-        setTimeout(() => stopCamera(), 500);
+        if (attendanceMode === 'FACE') setTimeout(() => stopCamera(), 500);
   }
 
-  // 4. HANDLERS
+  // 4. FACE HANDLERS
   const handleFaceCapture = () => {
-    // Trigger Flash
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
-    
     setStep('VERIFYING');
-    // Simulating Face Matching Delay
     setTimeout(() => {
-        // In real app: Send image to backend to find employee
-        // Here: We just simulate it works for the FIRST employee found
-        const mockEmpId = employees[0]?.id || '1';
-        
-        let connectionType = 'GPS';
-        if (isSimulatedWifi) connectionType = 'Wifi';
-        processAttendance(mockEmpId, `FaceID (${connectionType})`);
+        // Mock ID for simulation
+        const mockEmpId = currentUser?.id || employees[0]?.id || '1';
+        processAttendance(mockEmpId, `FaceID (AI Verify)`);
     }, 1500);
   };
 
-  const handleQrScan = (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!qrInput) return;
-      
-      setStep('VERIFYING');
+  // 5. WIFI/GPS HANDLERS
+  const handleWifiGpsCheckIn = () => {
+      if (locationStatus !== 'VALID' || !isSimulatedWifi) {
+          alert("Bạn phải ở đúng vị trí VÀ kết nối Wifi nhà hàng!");
+          return;
+      }
+      setStep('VERIFYING'); // Reuse step for loading UI
       setTimeout(() => {
-          // Logic: QR Code content = Employee ID
-          // Simulate scan success
-          // Try to find employee with ID = qrInput
-          const emp = employees.find(e => e.id === qrInput);
-          if (emp) {
-              let connectionType = 'GPS';
-              if (isSimulatedWifi) connectionType = 'Wifi';
-              processAttendance(emp.id, `QR Code (${connectionType})`);
-          } else {
-              setMessage(`Mã QR không hợp lệ: ${qrInput}`);
-              setStep('ERROR');
-          }
-          setQrInput("");
-      }, 800);
+          const mockEmpId = currentUser?.id || employees[0]?.id || '1';
+          processAttendance(mockEmpId, `GPS + Wifi Check`);
+      }, 1000);
   };
 
-  const canCheckIn = locationStatus === 'VALID' || isSimulatedWifi;
+  // Reset function
+  const resetFlow = () => {
+      setStep('IDLE');
+      setAttendanceResult(null);
+      setAttendanceMode('SELECT');
+      stopCamera();
+  }
 
+  // --- RENDER HELPERS ---
+  
+  const renderSelectionScreen = () => (
+      <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in zoom-in">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold text-gray-900">Chọn Phương Thức Chấm Công</h2>
+            <p className="text-gray-500 mt-2">Vui lòng chọn cách thức phù hợp với bạn</p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <button 
+                onClick={() => setAttendanceMode('FACE')}
+                className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center"
+              >
+                  <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-blue-100 transition-colors">
+                      <ScanLine size={48} className="text-blue-600" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Xác minh Khuôn mặt</h3>
+                  <p className="text-gray-500 text-sm">Sử dụng AI Camera để nhận diện. Phù hợp khi dùng máy Kiosk chung.</p>
+              </button>
+
+              <button 
+                onClick={() => setAttendanceMode('WIFI_GPS')}
+                className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center"
+              >
+                  <div className="w-24 h-24 bg-teal-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-teal-100 transition-colors">
+                      <div className="flex relative">
+                          <MapPin size={32} className="text-teal-600 -ml-2" />
+                          <Wifi size={32} className="text-teal-600 -ml-1" />
+                      </div>
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">GPS & Wifi Nhà Hàng</h3>
+                  <p className="text-gray-500 text-sm">Chấm công nhanh trên thiết bị cá nhân. Yêu cầu đúng vị trí & Wifi.</p>
+              </button>
+          </div>
+      </div>
+  );
+
+  const renderResultScreen = () => (
+    <div className="max-w-md mx-auto bg-white rounded-3xl shadow-xl p-8 text-center animate-in zoom-in duration-300 border border-gray-100">
+        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4 mx-auto text-green-600 shadow-green-200 shadow-lg">
+            <CheckCircle size={40} />
+        </div>
+        
+        <h3 className="text-xl font-bold text-gray-900 mb-1">Xin chào, {attendanceResult?.employeeName}</h3>
+        <p className="text-gray-500 mb-6 text-sm">Ghi nhận thành công!</p>
+
+        <div className="bg-gray-50 rounded-xl p-4 w-full mb-6 border border-gray-100 space-y-3">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                <div className="flex items-center space-x-2">
+                        {attendanceResult?.type === 'CHECK_IN' ? (
+                            <div className="p-1.5 bg-teal-100 text-teal-700 rounded-lg"><LogIn size={18}/></div>
+                        ) : (
+                            <div className="p-1.5 bg-orange-100 text-orange-700 rounded-lg"><LogOut size={18}/></div>
+                        )}
+                        <span className="font-bold text-gray-800 text-sm">
+                            {attendanceResult?.type === 'CHECK_IN' ? 'Check-in' : 'Check-out'}
+                        </span>
+                </div>
+                <span className="text-xl font-bold text-indigo-600">{attendanceResult?.time}</span>
+            </div>
+            
+            {attendanceResult?.shiftCode && (
+                <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Ca làm việc:</span>
+                    <span className="font-bold text-gray-900">{attendanceResult.shiftCode}</span>
+                </div>
+            )}
+            {attendanceResult?.totalHours !== undefined && (
+                    <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Tổng giờ làm:</span>
+                    <span className="font-bold text-gray-900">{attendanceResult.totalHours}h</span>
+                </div>
+            )}
+        </div>
+
+        <button 
+            onClick={resetFlow}
+            className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-colors"
+            >
+            Hoàn tất
+        </button>
+    </div>
+  );
+
+  // --- MAIN RENDER ---
+
+  // 1. SELECTION MODE
+  if (attendanceMode === 'SELECT') {
+      return renderSelectionScreen();
+  }
+
+  // 2. SUCCESS SCREEN (Shared)
+  if (step === 'SUCCESS') {
+      return renderResultScreen();
+  }
+
+  // 3. WIFI / GPS MODE
+  if (attendanceMode === 'WIFI_GPS') {
+      const isReady = locationStatus === 'VALID' && isSimulatedWifi;
+
+      return (
+          <div className="max-w-md mx-auto space-y-6 animate-in slide-in-from-right">
+               <button onClick={resetFlow} className="text-gray-500 hover:text-gray-900 flex items-center mb-4">
+                  <ArrowLeft size={20} className="mr-1"/> Quay lại
+              </button>
+
+              <div className="text-center">
+                  <h2 className="text-2xl font-bold text-gray-900">Chấm công GPS & Wifi</h2>
+                  <p className="text-gray-500 text-sm">Vui lòng kết nối Wifi nhà hàng và bật định vị.</p>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                  {/* Location Check */}
+                  <div className={`flex items-center justify-between p-4 rounded-xl border ${locationStatus === 'VALID' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                      <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-full ${locationStatus === 'VALID' ? 'bg-green-200 text-green-700' : 'bg-red-200 text-red-700'}`}>
+                              <MapPin size={20} />
+                          </div>
+                          <div>
+                              <p className={`font-bold text-sm ${locationStatus === 'VALID' ? 'text-green-800' : 'text-red-800'}`}>
+                                  {locationStatus === 'VALID' ? 'Vị trí hợp lệ' : 'Sai vị trí'}
+                              </p>
+                              <p className="text-xs text-gray-500">GPS Bán kính {settings.location.radiusMeters}m</p>
+                          </div>
+                      </div>
+                      {locationStatus === 'VALID' ? <CheckCircle className="text-green-600" size={20}/> : <AlertTriangle className="text-red-500" size={20}/>}
+                  </div>
+
+                  {/* Wifi Check */}
+                  <div className={`flex items-center justify-between p-4 rounded-xl border ${isSimulatedWifi ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                      <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-full ${isSimulatedWifi ? 'bg-green-200 text-green-700' : 'bg-red-200 text-red-700'}`}>
+                              <Wifi size={20} />
+                          </div>
+                          <div>
+                              <p className={`font-bold text-sm ${isSimulatedWifi ? 'text-green-800' : 'text-red-800'}`}>
+                                  {isSimulatedWifi ? 'Wifi hợp lệ' : 'Sai mạng Wifi'}
+                              </p>
+                              <p className="text-xs text-gray-500">Yêu cầu Wifi nội bộ</p>
+                          </div>
+                      </div>
+                      {isSimulatedWifi ? <CheckCircle className="text-green-600" size={20}/> : <AlertTriangle className="text-red-500" size={20}/>}
+                  </div>
+              </div>
+
+              {step === 'VERIFYING' ? (
+                   <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 text-center">
+                       <div className="animate-spin w-10 h-10 border-4 border-teal-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                       <p className="font-bold text-gray-700">Đang xác thực dữ liệu...</p>
+                   </div>
+              ) : (
+                   <button 
+                        onClick={handleWifiGpsCheckIn}
+                        disabled={!isReady}
+                        className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all ${isReady ? 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.02]' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+                   >
+                        Xác nhận Chấm công
+                   </button>
+              )}
+              
+              {/* Dev Tool for Simulation */}
+              <div className="mt-8 pt-4 border-t text-center">
+                  <p className="text-xs text-gray-400 mb-2">Công cụ Test (Giả lập Wifi)</p>
+                  <button 
+                    onClick={() => setIsSimulatedWifi(!isSimulatedWifi)}
+                    className={`text-xs px-3 py-1 rounded border ${isSimulatedWifi ? 'bg-green-100 text-green-700 border-green-300' : 'bg-gray-100 text-gray-500'}`}
+                  >
+                      {isSimulatedWifi ? 'Wifi Connected (Sim)' : 'Wifi Disconnected (Sim)'}
+                  </button>
+              </div>
+          </div>
+      );
+  }
+
+  // 4. FACE ID MODE (Existing UI)
   return (
-    <div className="max-w-lg mx-auto space-y-6">
+    <div className="max-w-lg mx-auto space-y-6 animate-in slide-in-from-right">
+      <button onClick={resetFlow} className="text-gray-500 hover:text-gray-900 flex items-center mb-2">
+          <ArrowLeft size={20} className="mr-1"/> Quay lại
+      </button>
+
       <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900">Máy Chấm Công</h2>
-        <p className="text-gray-500 text-sm">Vui lòng chọn phương thức xác thực</p>
-      </div>
-
-      {/* Status Indicators */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className={`p-3 rounded-xl border flex items-center justify-center space-x-2 transition-colors ${locationStatus === 'VALID' ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-gray-200 text-gray-500'}`}>
-             <MapPin size={16} />
-             <span className="text-xs font-bold">{locationStatus === 'VALID' ? 'GPS Tốt' : 'GPS Xa'}</span>
-        </div>
-        <div className={`p-3 rounded-xl border flex items-center justify-center space-x-2 transition-colors ${isSimulatedWifi ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-gray-200 text-gray-500'}`}>
-             <Wifi size={16} />
-             <span className="text-xs font-bold">{isSimulatedWifi ? 'Wifi OK' : 'No Wifi'}</span>
-        </div>
-      </div>
-
-      {/* Method Tabs */}
-      <div className="bg-gray-100 p-1 rounded-xl flex">
-          <button 
-             onClick={() => { setMethod('QR'); setStep('IDLE'); stopCamera(); }}
-             className={`flex-1 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${method === 'QR' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-              <QrCode size={18}/> QR Code
-          </button>
-          <button 
-             onClick={() => { setMethod('FACE'); setStep('IDLE'); stopCamera(); }}
-             className={`flex-1 py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all ${method === 'FACE' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-          >
-              <ScanLine size={18}/> Face ID
-          </button>
+        <h2 className="text-2xl font-bold text-gray-900">Xác minh Khuôn mặt</h2>
+        <p className="text-gray-500 text-sm">Sử dụng Camera để chấm công</p>
       </div>
 
       <div className="bg-black rounded-3xl shadow-xl border-4 border-gray-100 relative overflow-hidden aspect-[3/4] flex flex-col items-center justify-center group">
@@ -263,38 +460,31 @@ export const AttendanceKiosk: React.FC = () => {
         {/* IDLE STATE */}
         {step === 'IDLE' && (
           <div className="bg-white absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-20">
-             <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 transition-all ${canCheckIn ? 'bg-teal-50 text-teal-600' : 'bg-gray-100 text-gray-300'}`}>
-                {method === 'QR' ? <QrCode size={40} /> : <ScanLine size={40} />}
+             <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-blue-50 text-blue-600`}>
+                <ScanLine size={40} />
              </div>
 
              <h3 className="text-xl font-bold text-gray-900 mb-2">
-                 {method === 'QR' ? 'Quét mã nhân viên' : 'Nhận diện khuôn mặt'}
+                 Nhận diện khuôn mặt
              </h3>
              <p className="text-gray-500 text-sm mb-8 max-w-[240px]">
-               {canCheckIn 
-                ? "Vị trí hợp lệ. Bấm bắt đầu để mở camera." 
-                : "Vui lòng di chuyển vào vị trí hoặc kết nối Wifi."}
+                Đưa khuôn mặt vào khung hình để hệ thống tự động nhận diện.
              </p>
 
              <button 
                onClick={startCamera}
-               disabled={!canCheckIn}
-               className={`w-full py-3 rounded-xl font-bold text-white shadow-lg flex items-center justify-center space-x-2 ${canCheckIn ? 'bg-teal-600 hover:bg-teal-700' : 'bg-gray-300 cursor-not-allowed'}`}
+               className="w-full py-3 rounded-xl font-bold text-white shadow-lg flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700"
              >
                <Camera size={20} />
                <span>Kích hoạt Camera</span>
              </button>
-             
-             <div className="mt-4 flex gap-2">
-                 <button className="text-xs text-gray-400 underline">Vân tay (Sắp ra mắt)</button>
-             </div>
           </div>
         )}
 
         {/* CAMERA LOADING */}
         {step === 'STARTING_CAMERA' && (
            <div className="absolute inset-0 bg-gray-900 flex flex-col items-center justify-center z-20">
-              <div className="w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+              <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
               <p className="text-white font-medium">Đang khởi động...</p>
            </div>
         )}
@@ -311,54 +501,34 @@ export const AttendanceKiosk: React.FC = () => {
             />
             <div className={`absolute inset-0 bg-white z-30 transition-opacity duration-150 pointer-events-none ${flash ? 'opacity-100' : 'opacity-0'}`}></div>
 
-            {/* Overlay UI */}
             <div className="absolute inset-0 z-10 flex flex-col justify-between py-8 px-6 pointer-events-none">
                  <div className="flex justify-center">
                     <div className="bg-black/60 backdrop-blur-md text-white text-xs font-bold px-4 py-1.5 rounded-full flex items-center gap-2">
                         <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                        {step === 'VERIFYING' ? 'Đang xác thực...' : (method === 'QR' ? 'Đưa mã QR vào khung' : 'Giữ khuôn mặt thẳng')}
+                        {step === 'VERIFYING' ? 'Đang xác thực...' : 'Giữ khuôn mặt thẳng'}
                     </div>
                  </div>
 
-                 {/* Scanning Frame */}
                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64">
                     <div className="w-full h-full border-2 border-white/50 rounded-3xl relative overflow-hidden">
                         {step === 'SCANNING' && (
-                             <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-teal-500/0 via-teal-500/20 to-teal-500/0 animate-scan"></div>
+                             <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-blue-500/0 via-blue-500/20 to-blue-500/0 animate-scan"></div>
                         )}
-                        {/* Corners */}
-                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-teal-500 rounded-tl-2xl"></div>
-                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-teal-500 rounded-tr-2xl"></div>
-                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-teal-500 rounded-bl-2xl"></div>
-                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-teal-500 rounded-br-2xl"></div>
+                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-2xl"></div>
+                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-2xl"></div>
+                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-2xl"></div>
+                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-2xl"></div>
                     </div>
                  </div>
 
-                 {/* Bottom Controls */}
                  <div className="flex flex-col items-center gap-4 pointer-events-auto">
-                    {method === 'FACE' && step === 'SCANNING' && (
+                    {step === 'SCANNING' && (
                         <button 
                             onClick={handleFaceCapture}
-                            className="w-16 h-16 bg-white rounded-full border-[6px] border-teal-500/50 hover:border-teal-500 transition-all hover:scale-105 shadow-lg flex items-center justify-center"
+                            className="w-16 h-16 bg-white rounded-full border-[6px] border-blue-500/50 hover:border-blue-500 transition-all hover:scale-105 shadow-lg flex items-center justify-center"
                         >
-                            <div className="w-12 h-12 bg-teal-600 rounded-full"></div>
+                            <div className="w-12 h-12 bg-blue-600 rounded-full"></div>
                         </button>
-                    )}
-                    
-                    {/* QR Code Simulation Input */}
-                    {method === 'QR' && step === 'SCANNING' && (
-                        <form onSubmit={handleQrScan} className="w-full max-w-[200px] relative">
-                            <input 
-                                ref={qrInputRef}
-                                type="text" 
-                                value={qrInput}
-                                onChange={(e) => setQrInput(e.target.value)}
-                                placeholder="Nhập mã test (VD: 1)..."
-                                className="w-full px-4 py-2 rounded-full bg-black/50 text-white border border-white/30 text-center text-sm backdrop-blur-sm outline-none focus:border-teal-500"
-                                autoFocus
-                            />
-                            <Smartphone className="absolute right-3 top-2.5 text-gray-400" size={16}/>
-                        </form>
                     )}
 
                     <button 
@@ -370,48 +540,6 @@ export const AttendanceKiosk: React.FC = () => {
                  </div>
             </div>
           </>
-        )}
-
-        {/* SUCCESS STATE */}
-        {step === 'SUCCESS' && attendanceResult && (
-          <div className="absolute inset-0 bg-white z-20 flex flex-col items-center justify-center p-8 animate-in zoom-in duration-300">
-            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-4 text-green-600 shadow-green-200 shadow-lg">
-              <CheckCircle size={40} />
-            </div>
-            
-            <h3 className="text-xl font-bold text-gray-900 mb-1">Xin chào, {attendanceResult.employeeName}</h3>
-            <p className="text-gray-500 mb-6 text-sm">Chấm công thành công!</p>
-
-            <div className="bg-gray-50 rounded-xl p-4 w-full mb-6 border border-gray-100 space-y-3">
-                <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                    <div className="flex items-center space-x-2">
-                         {attendanceResult.type === 'CHECK_IN' ? (
-                             <div className="p-1.5 bg-teal-100 text-teal-700 rounded-lg"><LogIn size={18}/></div>
-                         ) : (
-                             <div className="p-1.5 bg-orange-100 text-orange-700 rounded-lg"><LogOut size={18}/></div>
-                         )}
-                         <span className="font-bold text-gray-800 text-sm">
-                             {attendanceResult.type === 'CHECK_IN' ? 'Check-in' : 'Check-out'}
-                         </span>
-                    </div>
-                    <span className="text-xl font-bold text-indigo-600">{attendanceResult.time}</span>
-                </div>
-
-                {attendanceResult.totalHours !== undefined && (
-                     <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Tổng giờ làm:</span>
-                        <span className="font-bold text-gray-900">{attendanceResult.totalHours}h</span>
-                    </div>
-                )}
-            </div>
-
-            <button 
-               onClick={() => { setStep('IDLE'); }}
-               className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-gray-800 transition-colors"
-             >
-               Hoàn tất
-             </button>
-          </div>
         )}
 
         {/* ERROR STATE */}
@@ -428,17 +556,11 @@ export const AttendanceKiosk: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Dev Tools */}
-      <div className="border-t border-gray-100 pt-4 mt-4">
-          <div className="flex gap-3">
-            <button onClick={() => setIsSimulatedWifi(!isSimulatedWifi)} className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border flex items-center justify-center gap-2 ${isSimulatedWifi ? 'bg-teal-50 border-teal-200 text-teal-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
-                <Wifi size={14} /> {isSimulatedWifi ? 'Wifi: ON' : 'Wifi: OFF'}
-            </button>
-            <button onClick={() => setIsSimulatedCamera(!isSimulatedCamera)} className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border flex items-center justify-center gap-2 ${isSimulatedCamera ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
-                <Camera size={14} /> {isSimulatedCamera ? 'Cam: Sim' : 'Cam: Real'}
-            </button>
-          </div>
+      
+      <div className="text-center mt-4">
+         <button onClick={() => setIsSimulatedCamera(!isSimulatedCamera)} className={`text-xs px-3 py-1 rounded border ${isSimulatedCamera ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
+            {isSimulatedCamera ? 'Cam: Simulated' : 'Cam: Real Device'}
+         </button>
       </div>
 
       <style>{`

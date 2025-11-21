@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { MoreHorizontal, Phone, Mail, MapPin, X, Edit2, Trash2, History, Calendar, ScanFace, Camera } from 'lucide-react';
+import { MoreHorizontal, Phone, Mail, MapPin, X, Edit2, Trash2, History, Calendar, ScanFace, Camera, Lock, DollarSign, Eye, EyeOff } from 'lucide-react';
 import { EmployeeRole, Employee, TimesheetLog } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
@@ -19,7 +19,10 @@ export const EmployeeList: React.FC = () => {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState(EmployeeRole.WAITER);
-  const [hourlyRate, setHourlyRate] = useState(25000); // Default default rate in VND
+  const [hourlyRate, setHourlyRate] = useState(25000); 
+  const [allowance, setAllowance] = useState(0); // New
+  const [password, setPassword] = useState(''); // New
+  const [showPassword, setShowPassword] = useState(false);
 
   // Face Registration State
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -34,6 +37,8 @@ export const EmployeeList: React.FC = () => {
       setPhone(emp.phone);
       setRole(emp.role);
       setHourlyRate(emp.hourlyRate);
+      setAllowance(emp.allowance || 0);
+      setPassword(''); // Don't show old password, only set new if needed
       setIsModalOpen(true);
   };
 
@@ -44,14 +49,18 @@ export const EmployeeList: React.FC = () => {
       setPhone('');
       setRole(EmployeeRole.WAITER);
       setHourlyRate(25000);
+      setAllowance(0);
+      setPassword('123456'); // Default suggestion
       setIsModalOpen(true);
   }
 
   const handleSaveEmployee = () => {
-      if (!name || !email) return;
+      if (!name) return;
       const empData: Employee = {
           id: editingId || Date.now().toString(),
-          name, email, phone, role, hourlyRate
+          name, email, phone, role, hourlyRate, 
+          allowance,
+          password: password ? password : undefined // Only update password if entered
       };
       if (editingId) updateEmployee(empData);
       else addEmployee(empData);
@@ -96,12 +105,10 @@ export const EmployeeList: React.FC = () => {
           ctx?.drawImage(videoRef.current, 0, 0);
           const base64 = canvas.toDataURL('image/jpeg');
           
-          // Save via Context -> Sheet Service
           if (selectedEmployee) {
               registerEmployeeFace(selectedEmployee.id, base64);
           }
           
-          // Stop Camera
           if (stream) stream.getTracks().forEach(t => t.stop());
           setStream(null);
           setFaceStep('DONE');
@@ -119,7 +126,7 @@ export const EmployeeList: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Danh Sách Nhân Viên</h2>
-          <p className="text-gray-500">Quản lý hồ sơ và quyền truy cập.</p>
+          <p className="text-gray-500">Quản lý hồ sơ, lương thưởng và tài khoản.</p>
         </div>
         <button onClick={openAdd} className="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 font-medium shadow-sm flex items-center">
           + Thêm nhân viên
@@ -162,7 +169,10 @@ export const EmployeeList: React.FC = () => {
               <div className="flex items-center space-x-2"><Mail size={16} className="text-gray-400" /><span className="truncate">{emp.email}</span></div>
             </div>
             <div className="mt-6 pt-4 border-t flex justify-between items-center text-sm">
-               <span className="text-gray-500">Lương: <b className="text-gray-900">{emp.hourlyRate.toLocaleString('vi-VN')}đ</b>/giờ</span>
+               <div>
+                   <p className="text-gray-500 text-xs">Trợ cấp: <b className="text-gray-900">{emp.allowance?.toLocaleString('vi-VN') || 0}đ</b></p>
+                   <p className="text-gray-500 text-xs">Lương: <b className="text-gray-900">{emp.hourlyRate.toLocaleString('vi-VN')}đ</b>/giờ</p>
+               </div>
                <button onClick={() => handleViewHistory(emp)} className="text-teal-600 font-medium hover:underline flex items-center"><History size={14} className="mr-1"/> Xem lịch sử</button>
             </div>
           </div>
@@ -172,20 +182,71 @@ export const EmployeeList: React.FC = () => {
        {/* ADD / EDIT EMPLOYEE MODAL */}
        {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4">
-                <h3 className="font-bold text-gray-900 text-lg">{editingId ? 'Cập Nhật Nhân Sự' : 'Thêm Nhân Sự Mới'}</h3>
-                <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Họ và tên" className="w-full border rounded-lg p-2.5" />
-                <div className="grid grid-cols-2 gap-4">
-                    <select value={role} onChange={(e) => setRole(e.target.value as EmployeeRole)} className="w-full border rounded-lg p-2.5">
-                        {Object.values(EmployeeRole).map(r => <option key={r} value={r}>{r}</option>)}
-                    </select>
-                    <input type="number" value={hourlyRate} onChange={(e) => setHourlyRate(Number(e.target.value))} placeholder="Lương/h (VNĐ)" className="w-full border rounded-lg p-2.5" />
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+                <h3 className="font-bold text-gray-900 text-lg">{editingId ? 'Cập Nhật Hồ Sơ' : 'Thêm Nhân Sự Mới'}</h3>
+                
+                <div className="space-y-3">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Họ và tên</label>
+                        <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="w-full border rounded-lg p-2.5" />
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-1">Vai trò</label>
+                            <select value={role} onChange={(e) => setRole(e.target.value as EmployeeRole)} className="w-full border rounded-lg p-2.5">
+                                {Object.values(EmployeeRole).map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                             <label className="block text-xs font-bold text-gray-500 mb-1">Số điện thoại</label>
+                             <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} className="w-full border rounded-lg p-2.5" />
+                        </div>
+                    </div>
+
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full border rounded-lg p-2.5" />
+
+                    {/* PAYROLL SECTION */}
+                    <div className="bg-teal-50 p-3 rounded-xl border border-teal-100">
+                        <h4 className="text-xs font-bold text-teal-700 mb-2 uppercase flex items-center"><DollarSign size={12} className="mr-1"/> Thiết lập lương thưởng</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-medium text-teal-800 mb-1">Lương giờ (VNĐ)</label>
+                                <input type="number" value={hourlyRate} onChange={(e) => setHourlyRate(Number(e.target.value))} className="w-full border rounded-lg p-2 text-sm" />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-medium text-teal-800 mb-1">Trợ cấp/tháng (VNĐ)</label>
+                                <input type="number" value={allowance} onChange={(e) => setAllowance(Number(e.target.value))} className="w-full border rounded-lg p-2 text-sm" />
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* SECURITY SECTION */}
+                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
+                        <h4 className="text-xs font-bold text-gray-500 mb-2 uppercase flex items-center"><Lock size={12} className="mr-1"/> Bảo mật tài khoản</h4>
+                        <div className="relative">
+                            <input 
+                                type={showPassword ? "text" : "password"} 
+                                value={password} 
+                                onChange={(e) => setPassword(e.target.value)} 
+                                placeholder={editingId ? "Nhập để đổi mật khẩu mới..." : "Mật khẩu đăng nhập"}
+                                className="w-full border rounded-lg p-2 pr-10 text-sm" 
+                            />
+                            <button 
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)} 
+                                className="absolute right-2 top-2 text-gray-400"
+                            >
+                                {showPassword ? <EyeOff size={16}/> : <Eye size={16}/>}
+                            </button>
+                        </div>
+                        {editingId && <p className="text-[10px] text-gray-400 mt-1 ml-1">Để trống nếu không muốn đổi mật khẩu.</p>}
+                    </div>
                 </div>
-                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full border rounded-lg p-2.5" />
-                <input type="text" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Số điện thoại" className="w-full border rounded-lg p-2.5" />
-                <div className="flex justify-end gap-3 pt-2">
-                    <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Hủy</button>
-                    <button onClick={handleSaveEmployee} className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700">{editingId ? 'Lưu' : 'Tạo'}</button>
+
+                <div className="flex justify-end gap-3 pt-2 border-t">
+                    <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg font-medium">Hủy</button>
+                    <button onClick={handleSaveEmployee} className="px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 font-bold">{editingId ? 'Lưu thay đổi' : 'Tạo nhân viên'}</button>
                 </div>
             </div>
         </div>

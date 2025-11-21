@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  CheckCircle, QrCode, ScanLine, Fingerprint, UserPlus, Calendar, LogIn
+  ScanLine, Fingerprint, UserPlus, Calendar, LogIn, CheckCircle
 } from 'lucide-react';
-import { AppView, AttendanceStatus, TimesheetLog } from '../types';
+import { AppView } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
 interface DashboardProps {
@@ -24,7 +24,7 @@ const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn }: any
 );
 
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
-  const { logs, currentUser, addAttendanceLog, updateAttendanceLog, isLoading } = useGlobalContext();
+  const { logs, currentUser, isLoading } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
   useEffect(() => {
@@ -32,7 +32,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
     return () => clearInterval(timer);
   }, []);
 
-  const todayStr = `${currentTime.getFullYear()}-${String(currentTime.getMonth() + 1).padStart(2, '0')}-${String(currentTime.getDate()).padStart(2, '0')}`;
+  // FIX: Use specific formatter to match what Google Sheets/Context returns (VN Date YYYY-MM-DD)
+  // Must match 'Asia/Ho_Chi_Minh' timezone used in GlobalContext
+  const todayStr = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit'
+  }).format(currentTime);
   
   const todayLog = logs.find(log => log.date === todayStr && log.employeeName === currentUser?.name);
   const isCheckedIn = !!todayLog;
@@ -42,45 +49,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const dateDisplay = currentTime.toLocaleDateString('vi-VN', dateOptions);
   const timeDisplay = currentTime.toLocaleTimeString('vi-VN', { hour12: false });
 
-  const handleManualCheckIn = () => {
-      const now = new Date();
-      const timeStr = now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'});
-
-      if (isCheckedOut) { alert("Bạn đã hoàn thành ca làm việc hôm nay rồi!"); return; }
-
-      if (isCheckedIn) {
-          const [inH, inM] = todayLog!.checkIn!.split(':').map(Number);
-          const [outH, outM] = timeStr.split(':').map(Number);
-          let totalHours = parseFloat(((outH * 60 + outM - (inH * 60 + inM)) / 60).toFixed(2));
-          if (totalHours < 0) totalHours = 0;
-
-          const updatedLog: TimesheetLog = { ...todayLog!, checkOut: timeStr, totalHours: totalHours };
-          updateAttendanceLog(updatedLog);
-          alert(`Check-out thành công lúc ${timeStr}`);
-      } else {
-          const hour = now.getHours();
-          let status = AttendanceStatus.PRESENT;
-          let late = 0;
-          if (hour >= 9) { status = AttendanceStatus.LATE; late = (hour - 9) * 60 + now.getMinutes(); }
-
-          const newLog: TimesheetLog = {
-              id: Date.now().toString(),
-              employeeName: currentUser.name,
-              date: todayStr,
-              checkIn: timeStr,
-              checkOut: null,
-              totalHours: 0,
-              status: status,
-              lateMinutes: late,
-              device: 'Thủ công (Web)'
-          };
-          addAttendanceLog(newLog);
-          alert(`Check-in thành công lúc ${timeStr}`);
-      }
-  };
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 relative">
       <div>
           <div className="flex items-center space-x-2 mb-4">
             <Fingerprint className="text-gray-600" size={20}/>
@@ -88,9 +58,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
             {isLoading && <span className="text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded animate-pulse">Đang đồng bộ...</span>}
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <MethodCard title="Thủ Công" sub="Chấm công nhanh" icon={CheckCircle} gradient="bg-gradient-to-br from-indigo-500 to-purple-600" labelBtn="Nhanh nhất" onClick={handleManualCheckIn} />
-              <MethodCard title="QR Code" sub="Quét mã NV" icon={QrCode} gradient="bg-gradient-to-br from-pink-400 to-rose-500" labelBtn="Khuyên dùng" onClick={() => onViewChange(AppView.ATTENDANCE)} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <MethodCard title="Khuôn Mặt" sub="AI Webcam" icon={ScanLine} gradient="bg-gradient-to-br from-cyan-400 to-blue-500" labelBtn="Hiện đại" onClick={() => onViewChange(AppView.ATTENDANCE)} />
               <MethodCard title="Vân Tay" sub="Thiết bị vật lý" icon={Fingerprint} gradient="bg-gradient-to-br from-emerald-400 to-teal-500" labelBtn="Sắp ra mắt" onClick={() => {}} />
               <MethodCard title="Đăng Ký Face" sub="Dữ liệu AI" icon={UserPlus} gradient="bg-gradient-to-br from-orange-400 to-amber-500" labelBtn="Admin" onClick={() => onViewChange(AppView.EMPLOYEES)} />
@@ -128,7 +96,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                                   <td className="px-6 py-4 text-gray-600 font-medium">{log.employeeName}</td>
                                   <td className="px-6 py-4 text-green-600">{log.checkIn}</td>
                                   <td className="px-6 py-4 text-orange-600">{log.checkOut}</td>
-                                  <td className="px-6 py-4 text-gray-400 text-xs">{log.device}</td>
+                                  <td className="px-6 py-4 text-gray-400 text-xs max-w-[150px] truncate" title={log.device}>{log.device}</td>
                               </tr>
                           ))}
                       </tbody>

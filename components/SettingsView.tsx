@@ -2,14 +2,14 @@
 import React, { useState, useEffect } from 'react';
 import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
-import { WifiConfig } from '../types';
+import { WifiConfig, ShiftConfig } from '../types';
 import { sheetService } from '../services/sheetService';
 
 type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE';
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings } = useGlobalContext();
-  const [activeTab, setActiveTab] = useState<SettingsTab>('DATABASE');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('RULES');
   const [localSettings, setLocalSettings] = useState(settings);
   const [newWifiSSID, setNewWifiSSID] = useState('');
   
@@ -46,6 +46,27 @@ export const SettingsView: React.FC = () => {
           wifis: localSettings.wifis.filter(w => w.id !== id)
       });
   };
+  
+  const updateShift = (index: number, field: keyof ShiftConfig, value: any) => {
+      const updatedShifts = [...localSettings.shiftConfigs];
+      updatedShifts[index] = { ...updatedShifts[index], [field]: value };
+      setLocalSettings({
+          ...localSettings,
+          shiftConfigs: updatedShifts
+      });
+  };
+
+  // Safety Check
+  if (!localSettings || !localSettings.rules) {
+      return (
+          <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                  <div className="animate-spin w-8 h-8 border-4 border-teal-500 border-t-transparent rounded-full mx-auto mb-2"></div>
+                  <p className="text-gray-500">Đang tải cấu hình...</p>
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
@@ -66,10 +87,10 @@ export const SettingsView: React.FC = () => {
             {/* Navigation */}
             <div className="col-span-1 space-y-1">
                 <button 
-                    onClick={() => setActiveTab('DATABASE')}
-                    className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'DATABASE' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+                    onClick={() => setActiveTab('RULES')}
+                    className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'RULES' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                    <Database size={18} className="mr-3"/> Kết nối Dữ liệu
+                    <Shield size={18} className="mr-3"/> Ca làm việc & Quy tắc
                 </button>
                 <button 
                     onClick={() => setActiveTab('LOCATION')}
@@ -84,52 +105,98 @@ export const SettingsView: React.FC = () => {
                     <Wifi size={18} className="mr-3"/> Cấu hình Wifi
                 </button>
                 <button 
-                    onClick={() => setActiveTab('RULES')}
-                    className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'RULES' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+                    onClick={() => setActiveTab('DATABASE')}
+                    className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'DATABASE' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                    <Shield size={18} className="mr-3"/> Quy tắc chấm công
+                    <Database size={18} className="mr-3"/> Kết nối Dữ liệu
                 </button>
             </div>
 
             {/* Main Config Area */}
             <div className="col-span-1 md:col-span-3 space-y-6">
                 
-                {/* TAB: DATABASE (READ ONLY) */}
-                {activeTab === 'DATABASE' && (
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
-                        <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
-                            <div className="bg-green-100 p-2 rounded-full text-green-600">
-                                <Database size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-900">Trạng thái kết nối</h3>
-                                <p className="text-sm text-gray-500">Quản lý kết nối đến cơ sở dữ liệu Google Sheets.</p>
-                            </div>
+                {/* TAB: RULES & SHIFTS */}
+                {activeTab === 'RULES' && (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
+                    <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
+                        <div className="bg-orange-100 p-2 rounded-full text-orange-600">
+                            <Shield size={24} />
                         </div>
-
-                        <div className="bg-green-50 border border-green-100 p-4 rounded-lg flex items-center gap-3 mb-6">
-                            <CheckCircle className="text-green-600 shrink-0" size={24} />
-                            <div>
-                                <h4 className="font-bold text-green-900 text-sm">Hệ thống đang kết nối tự động</h4>
-                                <p className="text-xs text-green-700 mt-1">
-                                    API URL đã được cấu hình trong mã nguồn. Mọi thiết bị truy cập sẽ tự động sử dụng kết nối này.
-                                </p>
-                            </div>
-                        </div>
-
                         <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">API Endpoint (Cấu hình trong services/sheetService.ts)</label>
-                            <div className="w-full border bg-gray-50 rounded-lg p-3 text-sm font-mono text-gray-600 break-all">
-                                {sheetUrl || "Chưa tìm thấy URL. Vui lòng kiểm tra file sheetService.ts"}
-                            </div>
-                            <p className="text-xs text-gray-400 mt-2 italic">
-                                Để thay đổi, vui lòng cập nhật biến HARDCODED_API_URL trong mã nguồn và Deploy lại.
-                            </p>
+                            <h3 className="text-lg font-bold text-gray-900">Quy tắc Ca Làm Việc</h3>
+                            <p className="text-sm text-gray-500">Cấu hình thời gian cho các ca C, D, B1, B2.</p>
                         </div>
                     </div>
+
+                    <div className="mb-6">
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Cho phép đi muộn (phút)</label>
+                        <input 
+                            type="number" 
+                            value={localSettings.rules.allowedLateMinutes}
+                            onChange={(e) => setLocalSettings({...localSettings, rules: {...localSettings.rules, allowedLateMinutes: Number(e.target.value)}})}
+                            className="w-full md:w-1/3 border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Áp dụng chung cho tất cả các ca.</p>
+                    </div>
+
+                    <div className="space-y-4">
+                        {localSettings.shiftConfigs.map((shift, idx) => (
+                            <div key={shift.code} className="p-4 border rounded-xl bg-gray-50 hover:bg-white hover:shadow-md transition-all">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h4 className="font-bold text-gray-800 text-lg">{shift.name} ({shift.code})</h4>
+                                    {shift.isSplitShift && <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-1 rounded">Ca Gãy</span>}
+                                </div>
+                                
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">Giờ Bắt Đầu</label>
+                                        <input 
+                                            type="time" 
+                                            value={shift.startTime}
+                                            onChange={(e) => updateShift(idx, 'startTime', e.target.value)}
+                                            className="w-full border rounded-lg p-2 text-sm font-mono"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 block mb-1">Giờ Kết Thúc</label>
+                                        <input 
+                                            type="time" 
+                                            value={shift.endTime}
+                                            onChange={(e) => updateShift(idx, 'endTime', e.target.value)}
+                                            className="w-full border rounded-lg p-2 text-sm font-mono"
+                                        />
+                                    </div>
+                                    
+                                    {shift.isSplitShift && (
+                                        <>
+                                            <div>
+                                                <label className="text-xs font-bold text-purple-500 block mb-1">Nghỉ từ</label>
+                                                <input 
+                                                    type="time" 
+                                                    value={shift.breakStart || ''}
+                                                    onChange={(e) => updateShift(idx, 'breakStart', e.target.value)}
+                                                    className="w-full border border-purple-200 rounded-lg p-2 text-sm font-mono bg-purple-50"
+                                                />
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-purple-500 block mb-1">Nghỉ đến</label>
+                                                <input 
+                                                    type="time" 
+                                                    value={shift.breakEnd || ''}
+                                                    onChange={(e) => updateShift(idx, 'breakEnd', e.target.value)}
+                                                    className="w-full border border-purple-200 rounded-lg p-2 text-sm font-mono bg-purple-50"
+                                                />
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
                 )}
 
-                {/* TAB: LOCATION */}
+                {/* OTHER TABS (LOCATION, WIFI, DATABASE) - KEEP AS IS */}
                 {activeTab === 'LOCATION' && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
                     <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
@@ -185,7 +252,6 @@ export const SettingsView: React.FC = () => {
                 </div>
                 )}
 
-                {/* TAB: WIFI */}
                 {activeTab === 'WIFI' && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
                     <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
@@ -230,62 +296,35 @@ export const SettingsView: React.FC = () => {
                 </div>
                 )}
 
-                {/* TAB: RULES */}
-                {activeTab === 'RULES' && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
-                    <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
-                        <div className="bg-orange-100 p-2 rounded-full text-orange-600">
-                            <Shield size={24} />
-                        </div>
-                        <div>
-                            <h3 className="text-lg font-bold text-gray-900">Quy tắc Chấm công</h3>
-                            <p className="text-sm text-gray-500">Thiết lập giờ làm việc và quy định đi muộn.</p>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Giờ bắt đầu ca</label>
-                            <div className="relative">
-                                <input 
-                                    type="time" 
-                                    value={localSettings.rules.startHour}
-                                    onChange={(e) => setLocalSettings({...localSettings, rules: {...localSettings.rules, startHour: e.target.value}})}
-                                    className="w-full border rounded-lg p-2.5 pl-10 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
-                                />
-                                <Clock className="absolute left-3 top-2.5 text-gray-400" size={16}/>
+                {activeTab === 'DATABASE' && (
+                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
+                        <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
+                            <div className="bg-green-100 p-2 rounded-full text-green-600">
+                                <Database size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">Trạng thái kết nối</h3>
+                                <p className="text-sm text-gray-500">Quản lý kết nối đến cơ sở dữ liệu Google Sheets.</p>
                             </div>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Giờ kết thúc ca</label>
-                            <div className="relative">
-                                <input 
-                                    type="time" 
-                                    value={localSettings.rules.endHour}
-                                    onChange={(e) => setLocalSettings({...localSettings, rules: {...localSettings.rules, endHour: e.target.value}})}
-                                    className="w-full border rounded-lg p-2.5 pl-10 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
-                                />
-                                <Clock className="absolute left-3 top-2.5 text-gray-400" size={16}/>
+
+                        <div className="bg-green-50 border border-green-100 p-4 rounded-lg flex items-center gap-3 mb-6">
+                            <CheckCircle className="text-green-600 shrink-0" size={24} />
+                            <div>
+                                <h4 className="font-bold text-green-900 text-sm">Hệ thống đang kết nối tự động</h4>
+                                <p className="text-xs text-green-700 mt-1">
+                                    API URL đã được cấu hình trong mã nguồn. Mọi thiết bị truy cập sẽ tự động sử dụng kết nối này.
+                                </p>
                             </div>
                         </div>
+
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Cho phép đi muộn (phút)</label>
-                            <input 
-                                type="number" 
-                                value={localSettings.rules.allowedLateMinutes}
-                                onChange={(e) => setLocalSettings({...localSettings, rules: {...localSettings.rules, allowedLateMinutes: Number(e.target.value)}})}
-                                className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
-                            />
+                            <label className="block text-sm font-bold text-gray-700 mb-1">API Endpoint (Cấu hình trong services/sheetService.ts)</label>
+                            <div className="w-full border bg-gray-50 rounded-lg p-3 text-sm font-mono text-gray-600 break-all">
+                                {sheetUrl || "Chưa tìm thấy URL. Vui lòng kiểm tra file sheetService.ts"}
+                            </div>
                         </div>
                     </div>
-
-                    <div className="mt-6 bg-orange-50 p-4 rounded-lg border border-orange-100">
-                        <h4 className="font-bold text-orange-800 text-sm mb-1">Lưu ý quan trọng</h4>
-                        <p className="text-xs text-orange-700">
-                            Nhân viên chấm công sau <b>{localSettings.rules.startHour}</b> cộng thêm <b>{localSettings.rules.allowedLateMinutes} phút</b> sẽ bị tính là <b>Đi muộn</b>.
-                        </p>
-                    </div>
-                </div>
                 )}
 
             </div>

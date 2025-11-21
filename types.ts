@@ -11,6 +11,8 @@ export enum AppView {
   AI_ASSISTANT = 'AI_ASSISTANT',
   KITCHEN = 'KITCHEN',
   SERVING = 'SERVING',
+  HANDOVER = 'HANDOVER',
+  PROFILE = 'PROFILE', // New View
 }
 
 export enum EmployeeRole {
@@ -34,6 +36,7 @@ export interface Employee {
   role: EmployeeRole;
   avatar?: string;
   hourlyRate: number;
+  allowance?: number; // New field
   phone: string;
   email: string;
   password?: string;
@@ -60,14 +63,25 @@ export interface TimesheetLog {
     status: AttendanceStatus;
     lateMinutes: number;
     device: string;
+    shiftCode?: string; 
 }
 
 export enum ShiftType {
-  MORNING = 'Sáng',   // 06:00 - 14:00
-  AFTERNOON = 'Chiều', // 14:00 - 22:00
-  NIGHT = 'Tối',      // 18:00 - 02:00 (Next day)
-  SPLIT = 'Gãy',      // 10:00 - 14:00 & 18:00 - 22:00
+  CA_C = 'Ca C',    
+  CA_D = 'Ca D',    
+  CA_B1 = 'Ca B1',  
+  CA_B2 = 'Ca B2',  
   OFF = 'Nghỉ'
+}
+
+export interface ShiftConfig {
+    code: string;      
+    name: string;
+    startTime: string; 
+    endTime: string;   
+    isSplitShift: boolean; 
+    breakStart?: string;   
+    breakEnd?: string;     
 }
 
 export enum RequestType {
@@ -96,6 +110,16 @@ export interface EmployeeRequest {
   isMine: boolean;
 }
 
+export interface HandoverLog {
+    id: string;
+    date: string;
+    shift: string; // "Ca Sáng", "Ca Chiều"
+    author: string;
+    content: string;
+    type: 'ISSUE' | 'NOTE' | 'VIP';
+    createdAt: string;
+}
+
 export interface WifiConfig {
     id: string;
     name: string;
@@ -104,8 +128,6 @@ export interface WifiConfig {
 }
 
 export interface WorkRule {
-    startHour: string; // "08:00"
-    endHour: string;   // "17:00"
     allowedLateMinutes: number;
 }
 
@@ -120,9 +142,8 @@ export interface SystemSettings {
     location: LocationConfig;
     wifis: WifiConfig[];
     rules: WorkRule;
+    shiftConfigs: ShiftConfig[]; 
 }
-
-// --- KITCHEN & MENU OPS (UPDATED) ---
 
 export interface MenuItem {
     id: string;
@@ -131,7 +152,6 @@ export interface MenuItem {
     price: number;
 }
 
-// New structure for Preparation Checklist
 export interface SauceItem {
     name: string;
     quantity: number;
@@ -147,7 +167,6 @@ export interface PrepTask {
     assignee: string;
 }
 
-// --- SERVING & GROUP OPS ---
 export interface ServingItem {
     id: string;
     name: string;
@@ -164,10 +183,8 @@ export interface ServingGroup {
     startTime: string; 
     items: ServingItem[];
     status: 'ACTIVE' | 'COMPLETED';
-    
-    // Logic Fields
-    tableCount?: number; // Số bàn (x8, 1x5...)
-    prepList?: SauceItem[]; // Checklist nước chấm/đồ dùng
+    tableCount?: number;
+    prepList?: SauceItem[]; 
 }
 
 export const RESTAURANT_LOCATION = {

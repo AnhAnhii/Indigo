@@ -1,12 +1,15 @@
 
 import React, { useState } from 'react';
-import { Check, X, Clock, FileText, User, Filter, Plus, CalendarCheck, ChevronRight } from 'lucide-react';
-import { RequestType, RequestStatus, EmployeeRequest } from '../types';
+import { Check, X, Clock, FileText, User, Filter, Plus, CalendarCheck, ChevronRight, History } from 'lucide-react';
+import { RequestType, RequestStatus, EmployeeRequest, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
 export const RequestManager: React.FC = () => {
   const { requests, addRequest, updateRequestStatus, currentUser } = useGlobalContext();
-  const [activeTab, setActiveTab] = useState<'ALL' | 'MINE' | 'TO_APPROVE'>('TO_APPROVE');
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
+
+  // Nếu là Admin thì mặc định vào tab Duyệt, nhân viên thì mặc định là Mine
+  const [activeTab, setActiveTab] = useState<'ALL' | 'MINE' | 'TO_APPROVE'>(isAdmin ? 'TO_APPROVE' : 'MINE');
   
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -14,19 +17,33 @@ export const RequestManager: React.FC = () => {
   const [newReqDate, setNewReqDate] = useState('');
   const [newReqReason, setNewReqReason] = useState('');
 
+  // LOGIC LỌC ĐƠN CHÍNH XÁC (FIXED)
   const filteredRequests = requests.filter(req => {
+      // Ép kiểu về String để so sánh an toàn (tránh lỗi '2' !== 2)
+      const currentUserId = String(currentUser?.id || '');
+      const reqOwnerId = String(req.employeeId || '');
+      
+      const isMyRequest = reqOwnerId === currentUserId;
+
+      // NẾU KHÔNG PHẢI ADMIN -> CHỈ ĐƯỢC XEM CỦA MÌNH (BẤT KỂ TRẠNG THÁI)
+      if (!isAdmin) return isMyRequest;
+
+      // NẾU LÀ ADMIN
       if (activeTab === 'ALL') return true;
-      if (activeTab === 'MINE') return req.isMine;
-      if (activeTab === 'TO_APPROVE') return !req.isMine && req.status === RequestStatus.PENDING;
+      if (activeTab === 'MINE') return isMyRequest;
+      if (activeTab === 'TO_APPROVE') return !isMyRequest && req.status === RequestStatus.PENDING;
       return true;
+  }).sort((a, b) => {
+      // Sắp xếp đơn mới nhất lên đầu (Dựa vào ID timestamp hoặc Date)
+      return Number(b.id) - Number(a.id);
   });
 
   const handleCreateRequest = () => {
-      if (!newReqDate || !newReqReason) return;
+      if (!newReqDate || !newReqReason || !currentUser) return;
 
       const newReq: EmployeeRequest = {
           id: Date.now().toString(),
-          employeeId: currentUser.id,
+          employeeId: String(currentUser.id), // Đảm bảo lưu dạng String
           employeeName: currentUser.name,
           avatar: currentUser.name.charAt(0),
           type: newReqType,
@@ -55,11 +72,11 @@ export const RequestManager: React.FC = () => {
   const getStatusBadge = (status: RequestStatus) => {
     switch(status) {
       case RequestStatus.APPROVED: 
-        return <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200">Đã duyệt</span>;
+        return <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded border border-green-200 flex items-center"><Check size={12} className="mr-1"/> Đã duyệt</span>;
       case RequestStatus.REJECTED: 
-        return <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200">Từ chối</span>;
+        return <span className="text-xs font-bold text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 flex items-center"><X size={12} className="mr-1"/> Từ chối</span>;
       default: 
-        return <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded border border-yellow-200">Chờ duyệt</span>;
+        return <span className="text-xs font-bold text-yellow-600 bg-yellow-50 px-2 py-1 rounded border border-yellow-200 flex items-center"><Clock size={12} className="mr-1"/> Chờ duyệt</span>;
     }
   };
 
@@ -68,41 +85,53 @@ export const RequestManager: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-gray-900">Quản Lý Đơn Từ</h2>
-          <p className="text-gray-500">Xử lý các yêu cầu của nhân viên.</p>
+          <p className="text-gray-500">
+              {isAdmin ? "Xét duyệt và quản lý các yêu cầu." : "Tạo đơn xin nghỉ, đổi ca và theo dõi lịch sử."}
+          </p>
         </div>
         <button 
             onClick={() => setIsModalOpen(true)}
-            className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg font-medium flex items-center shadow-sm"
+            className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg font-medium flex items-center shadow-sm transition-colors"
         >
             <Plus size={18} className="mr-2"/>
             Tạo đơn mới
         </button>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="bg-white p-1.5 rounded-xl border border-gray-200 flex space-x-1 shadow-sm max-w-md">
-          <button 
-            onClick={() => setActiveTab('ALL')}
-            className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'ALL' ? 'bg-teal-100 text-teal-800 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
-          >
-            Tất cả
-          </button>
-          <button 
-            onClick={() => setActiveTab('MINE')}
-            className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'MINE' ? 'bg-teal-100 text-teal-800 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
-          >
-            Của tôi
-          </button>
-          <button 
-            onClick={() => setActiveTab('TO_APPROVE')}
-            className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all relative ${activeTab === 'TO_APPROVE' ? 'bg-teal-100 text-teal-800 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
-          >
-            Tôi duyệt
-            {requests.filter(r => !r.isMine && r.status === RequestStatus.PENDING).length > 0 && 
-                <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
-            }
-          </button>
-      </div>
+      {/* Tab Navigation - ADMIN ONLY */}
+      {isAdmin && (
+          <div className="bg-white p-1.5 rounded-xl border border-gray-200 flex space-x-1 shadow-sm max-w-md animate-in fade-in">
+              <button 
+                onClick={() => setActiveTab('ALL')}
+                className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'ALL' ? 'bg-teal-100 text-teal-800 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+              >
+                Tất cả
+              </button>
+              <button 
+                onClick={() => setActiveTab('MINE')}
+                className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'MINE' ? 'bg-teal-100 text-teal-800 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+              >
+                Của tôi
+              </button>
+              <button 
+                onClick={() => setActiveTab('TO_APPROVE')}
+                className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all relative ${activeTab === 'TO_APPROVE' ? 'bg-teal-100 text-teal-800 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
+              >
+                Tôi duyệt
+                {requests.filter(r => String(r.employeeId) !== String(currentUser?.id) && r.status === RequestStatus.PENDING).length > 0 && 
+                    <span className="absolute top-1 right-2 w-2 h-2 bg-red-500 rounded-full"></span>
+                }
+              </button>
+          </div>
+      )}
+
+      {/* STAFF HEADER */}
+      {!isAdmin && (
+          <div className="flex items-center space-x-2 text-gray-700 font-bold text-lg border-b pb-2">
+              <History className="text-teal-600" />
+              <h3>Lịch sử đơn của bạn</h3>
+          </div>
+      )}
 
       <div className="grid gap-4">
         {filteredRequests.length === 0 && (
@@ -110,17 +139,24 @@ export const RequestManager: React.FC = () => {
                 <div className="bg-gray-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                     <FileText className="text-gray-300" size={32} />
                 </div>
-                <p className="text-gray-500 font-medium">Không có yêu cầu nào.</p>
+                <p className="text-gray-500 font-medium">Bạn chưa có đơn nào.</p>
+                {!isAdmin && <p className="text-sm text-gray-400 mt-1">Bấm "Tạo đơn mới" để bắt đầu.</p>}
             </div>
         )}
 
         {filteredRequests.map((req) => (
-          <div key={req.id} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-shadow group">
-            <div className="flex justify-between items-start">
+          <div key={req.id} className="bg-white rounded-2xl p-5 border border-gray-100 shadow-sm hover:shadow-md transition-shadow group relative overflow-hidden">
+            {/* Status Strip */}
+            <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${
+                req.status === RequestStatus.APPROVED ? 'bg-green-500' : 
+                req.status === RequestStatus.REJECTED ? 'bg-red-500' : 'bg-yellow-400'
+            }`}></div>
+
+            <div className="flex justify-between items-start pl-3">
                 <div className="flex items-start gap-4">
                     <div className="relative">
                         <div className="w-12 h-12 bg-teal-50 rounded-full flex items-center justify-center text-teal-700 font-bold text-lg border border-teal-100">
-                            {req.avatar}
+                            {req.avatar || req.employeeName.charAt(0)}
                         </div>
                         <div className="absolute -bottom-1 -right-1">
                             {getRequestIcon(req.type)}
@@ -129,14 +165,16 @@ export const RequestManager: React.FC = () => {
                     
                     <div>
                         <h4 className="font-bold text-gray-900 text-lg">{req.type}</h4>
-                        <p className="text-sm text-gray-500 font-medium mb-2">Tạo bởi: <span className="text-gray-800">{req.employeeName}</span> • {req.createdAt}</p>
+                        <p className="text-sm text-gray-500 font-medium mb-2">
+                            Tạo bởi: <span className="text-gray-800">{req.employeeName}</span> • {req.createdAt}
+                        </p>
                         
-                        <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mb-3">
+                        <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mb-3 min-w-[250px]">
                             <div className="flex items-center gap-2 text-sm text-gray-700 mb-1">
                                 <CalendarCheck size={16} className="text-gray-400"/>
-                                <span className="font-semibold">Ngày: {req.date}</span>
+                                <span className="font-semibold">Ngày áp dụng: {req.date}</span>
                             </div>
-                            <p className="text-sm text-gray-600 italic">"{req.reason}"</p>
+                            <p className="text-sm text-gray-600 italic border-t border-gray-200 pt-1 mt-1">"{req.reason}"</p>
                         </div>
                     </div>
                 </div>
@@ -146,8 +184,9 @@ export const RequestManager: React.FC = () => {
                 </div>
             </div>
 
-            {!req.isMine && req.status === RequestStatus.PENDING && (
-                <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end gap-3">
+            {/* ACTION BUTTONS (ADMIN ONLY) */}
+            {isAdmin && String(req.employeeId) !== String(currentUser?.id) && req.status === RequestStatus.PENDING && (
+                <div className="mt-4 pt-4 border-t border-gray-100 flex justify-end gap-3 pl-3">
                     <button 
                         onClick={() => updateRequestStatus(req.id, RequestStatus.REJECTED)}
                         className="px-4 py-2 rounded-lg text-red-600 bg-red-50 hover:bg-red-100 font-semibold text-sm transition-colors"
@@ -201,7 +240,7 @@ export const RequestManager: React.FC = () => {
                         <textarea 
                             value={newReqReason}
                             onChange={(e) => setNewReqReason(e.target.value)}
-                            placeholder="Nhập lý do chi tiết..."
+                            placeholder="Nhập lý do chi tiết (VD: Đi khám bệnh, Nhà có việc...)"
                             rows={3}
                             className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
                         ></textarea>

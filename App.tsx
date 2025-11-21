@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -12,6 +12,9 @@ import { TimesheetView } from './components/TimesheetView';
 import { SettingsView } from './components/SettingsView';
 import { KitchenView } from './components/KitchenView';
 import { ServingChecklist } from './components/ServingChecklist';
+import { HandoverView } from './components/HandoverView';
+import { ProfileView } from './components/ProfileView'; // New
+import { LoginScreen } from './components/LoginScreen';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
@@ -31,6 +34,11 @@ const AppContent: React.FC = () => {
       }
       setIsMobileMenuOpen(false);
   }, [currentView, isAdmin, currentUser]);
+
+  // LOGIN GUARD ENABLED
+  if (!currentUser) {
+      return <LoginScreen />;
+  }
 
   const NavItem = ({ view, icon: Icon, label, restricted = false }: { view: AppView; icon: any; label: string, restricted?: boolean }) => {
     if (restricted && !isAdmin) return null;
@@ -62,12 +70,12 @@ const AppContent: React.FC = () => {
       case AppView.SETTINGS: return isAdmin ? <SettingsView /> : null;
       case AppView.KITCHEN: return <KitchenView />;
       case AppView.SERVING: return <ServingChecklist />;
+      case AppView.HANDOVER: return <HandoverView />;
+      case AppView.PROFILE: return <ProfileView />; // New
       case AppView.AI_ASSISTANT: return isAdmin ? <AiAssistant /> : null;
       default: return <Dashboard onViewChange={setCurrentView} />;
     }
   };
-
-  if (!currentUser) return <div className="flex items-center justify-center h-screen">Đang tải dữ liệu...</div>;
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 font-sans overflow-hidden">
@@ -101,11 +109,12 @@ const AppContent: React.FC = () => {
         <nav className="p-4 space-y-1.5 flex-1 overflow-y-auto no-scrollbar">
           <div className="pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Tổng quan</div>
           <NavItem view={AppView.DASHBOARD} icon={BarChart2} label="Trang chủ" />
+          <NavItem view={AppView.HANDOVER} icon={BookOpen} label="Sổ Giao Ca" />
           <NavItem view={AppView.TIMESHEET} icon={Table} label="Bảng công" />
           <NavItem view={AppView.SCHEDULE} icon={Calendar} label="Lịch làm việc" />
           
           <div className="pt-4 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Vận hành</div>
-          <NavItem view={AppView.ATTENDANCE} icon={Clock} label="Chấm công FaceID" />
+          <NavItem view={AppView.ATTENDANCE} icon={Clock} label="Chấm công" />
           <NavItem view={AppView.SERVING} icon={ClipboardList} label="Ra đồ & Khách đoàn" />
           <NavItem view={AppView.KITCHEN} icon={Utensils} label="Chuẩn bị thực đơn" />
           <NavItem view={AppView.REQUESTS} icon={FileText} label="Đơn từ & Duyệt" />
@@ -127,9 +136,16 @@ const AppContent: React.FC = () => {
                  <span>{lastUpdated}</span>
             </div>
 
-            <div className="flex items-center space-x-3 mb-3">
-                <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold uppercase shrink-0">
-                    {currentUser.avatar && currentUser.avatar.length < 5 ? currentUser.avatar : currentUser.name.charAt(0)}
+            <div 
+                onClick={() => setCurrentView(AppView.PROFILE)}
+                className="flex items-center space-x-3 mb-3 cursor-pointer hover:bg-gray-100 p-2 rounded-lg transition-colors"
+            >
+                <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold uppercase shrink-0 overflow-hidden">
+                    {currentUser.avatar && currentUser.avatar.length > 20 ? (
+                        <img src={currentUser.avatar} alt="Avt" className="w-full h-full object-cover" />
+                    ) : (
+                        currentUser.avatar || currentUser.name.charAt(0)
+                    )}
                 </div>
                 <div className="flex-1 overflow-hidden">
                     <p className="text-sm font-bold text-gray-800 truncate">{currentUser.name}</p>
