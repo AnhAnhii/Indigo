@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -16,17 +16,12 @@ import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
 const AppContent: React.FC = () => {
-  const { currentUser, logout } = useGlobalContext();
+  const { currentUser, logout, lastUpdated, isLoading } = useGlobalContext();
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // --- BYPASSED LOGIN SCREEN ---
-  // We now assume currentUser is always set by GlobalContext (Default Admin)
-
-  // --- ROLE CHECKER ---
   const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
 
-  // Redirect if user is on restricted page
   useEffect(() => {
       if (!isAdmin && currentUser) {
           const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT];
@@ -38,13 +33,12 @@ const AppContent: React.FC = () => {
   }, [currentView, isAdmin, currentUser]);
 
   const NavItem = ({ view, icon: Icon, label, restricted = false }: { view: AppView; icon: any; label: string, restricted?: boolean }) => {
-    // If restricted and user is not admin, hide it
     if (restricted && !isAdmin) return null;
 
     return (
         <button
         onClick={() => setCurrentView(view)}
-        className={`flex items-center space-x-3 w-full px-4 py-3 rounded-lg transition-colors ${
+        className={`flex items-center space-x-3 w-full px-4 py-3 rounded-lg transition-colors shrink-0 ${
             currentView === view
             ? 'bg-teal-600 text-white shadow-md'
             : 'text-gray-600 hover:bg-teal-50 hover:text-teal-700'
@@ -76,25 +70,25 @@ const AppContent: React.FC = () => {
   if (!currentUser) return <div className="flex items-center justify-center h-screen">Đang tải dữ liệu...</div>;
 
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 font-sans">
+    <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 font-sans overflow-hidden">
       {/* Mobile Header */}
-      <div className="md:hidden bg-white border-b p-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
+      <div className="md:hidden bg-white border-b p-4 flex justify-between items-center sticky top-0 z-20 shadow-sm shrink-0">
         <div className="flex items-center space-x-2 font-bold text-xl text-teal-700">
           <ShieldCheck />
           <span>RestaurantSync</span>
         </div>
-        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-gray-600">
+        <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-gray-600 p-1 rounded-md hover:bg-gray-100">
           {isMobileMenuOpen ? <X /> : <Menu />}
         </button>
       </div>
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed inset-y-0 left-0 z-10 w-64 bg-white border-r shadow-lg transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-30 w-64 bg-white border-r shadow-xl transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 flex flex-col h-screen ${
           isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="p-6 border-b flex items-center space-x-3">
+        <div className="p-6 border-b flex items-center space-x-3 shrink-0">
           <div className="p-2 bg-teal-600 rounded-xl text-white shadow-lg shadow-teal-200">
              <ShieldCheck size={24} />
           </div>
@@ -104,7 +98,7 @@ const AppContent: React.FC = () => {
           </div>
         </div>
 
-        <nav className="p-4 space-y-1.5 overflow-y-auto h-[calc(100%-140px)] no-scrollbar">
+        <nav className="p-4 space-y-1.5 flex-1 overflow-y-auto no-scrollbar">
           <div className="pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Tổng quan</div>
           <NavItem view={AppView.DASHBOARD} icon={BarChart2} label="Trang chủ" />
           <NavItem view={AppView.TIMESHEET} icon={Table} label="Bảng công" />
@@ -113,7 +107,7 @@ const AppContent: React.FC = () => {
           <div className="pt-4 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Vận hành</div>
           <NavItem view={AppView.ATTENDANCE} icon={Clock} label="Chấm công FaceID" />
           <NavItem view={AppView.SERVING} icon={ClipboardList} label="Ra đồ & Khách đoàn" />
-          <NavItem view={AppView.KITCHEN} icon={Utensils} label="Bếp & Thực đơn" />
+          <NavItem view={AppView.KITCHEN} icon={Utensils} label="Chuẩn bị thực đơn" />
           <NavItem view={AppView.REQUESTS} icon={FileText} label="Đơn từ & Duyệt" />
           <NavItem view={AppView.PAYROLL} icon={DollarSign} label="Bảng lương" />
           <NavItem view={AppView.EMPLOYEES} icon={Users} label="Nhân sự" restricted={true} />
@@ -127,9 +121,14 @@ const AppContent: React.FC = () => {
           )}
         </nav>
         
-        <div className="absolute bottom-0 w-full p-4 border-t bg-gray-50">
+        <div className="w-full p-4 border-t bg-gray-50 shrink-0">
+            <div className="flex items-center justify-between text-xs text-gray-400 mb-3 px-1">
+                 <span className="flex items-center"><RefreshCw size={10} className={`mr-1 ${isLoading ? 'animate-spin' : ''}`} /> Đồng bộ:</span>
+                 <span>{lastUpdated}</span>
+            </div>
+
             <div className="flex items-center space-x-3 mb-3">
-                <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold uppercase">
+                <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold uppercase shrink-0">
                     {currentUser.avatar && currentUser.avatar.length < 5 ? currentUser.avatar : currentUser.name.charAt(0)}
                 </div>
                 <div className="flex-1 overflow-hidden">
@@ -145,10 +144,14 @@ const AppContent: React.FC = () => {
             </button>
         </div>
       </aside>
+      
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsMobileMenuOpen(false)}></div>
+      )}
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto h-[calc(100vh-64px)] md:h-screen bg-[#f8fafc]">
-        <div className="p-4 md:p-8 max-w-7xl mx-auto">
+      <main className="flex-1 overflow-y-auto h-screen bg-[#f8fafc]">
+        <div className="p-3 md:p-8 max-w-7xl mx-auto pb-24 md:pb-8">
           {renderContent()}
         </div>
       </main>

@@ -1,150 +1,166 @@
 
-import React, { useState } from 'react';
-import { Utensils, CheckSquare, AlertCircle, Coffee, Ban, CheckCircle2, Circle } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { CheckSquare, Utensils, Users, MapPin, CheckCircle2, AlertCircle, ChefHat } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
-import { MenuStatus } from '../types';
 
 export const KitchenView: React.FC = () => {
-  const { menuItems, toggleMenuStatus, prepTasks, togglePrepTask } = useGlobalContext();
-  const [activeTab, setActiveTab] = useState<'MENU' | 'PREP'>('MENU');
+  const { servingGroups, toggleSauceItem } = useGlobalContext();
+  const activeGroups = servingGroups.filter(g => g.status === 'ACTIVE');
 
-  // Categorize Menu Items
-  const categories = Array.from(new Set(menuItems.map(i => i.category)));
-  
-  // Stats for Progress Bar
-  const completedTasks = prepTasks.filter(t => t.isCompleted).length;
-  const totalTasks = prepTasks.length;
-  const progress = Math.round((completedTasks / totalTasks) * 100);
+  // --- LOGIC: AGGREGATE TOTALS ---
+  const preparationTotals = useMemo(() => {
+      const totals: Record<string, { total: number; completed: number; unit: string }> = {};
 
-  const getStatusColor = (status: MenuStatus) => {
-      switch (status) {
-          case MenuStatus.AVAILABLE: return 'bg-green-100 border-green-300 text-green-800';
-          case MenuStatus.LOW_STOCK: return 'bg-yellow-100 border-yellow-300 text-yellow-800';
-          case MenuStatus.SOLD_OUT: return 'bg-red-100 border-red-300 text-red-800 opacity-80 grayscale';
-          default: return 'bg-gray-100';
-      }
-  };
+      activeGroups.forEach(group => {
+          if (group.prepList) {
+              group.prepList.forEach(item => {
+                  if (!totals[item.name]) {
+                      totals[item.name] = { total: 0, completed: 0, unit: item.unit };
+                  }
+                  totals[item.name].total += item.quantity;
+                  if (item.isCompleted) {
+                      totals[item.name].completed += item.quantity;
+                  }
+              });
+          }
+      });
 
-  const getStatusLabel = (status: MenuStatus) => {
-    switch (status) {
-        case MenuStatus.AVAILABLE: return 'Đang bán';
-        case MenuStatus.LOW_STOCK: return 'Sắp hết';
-        case MenuStatus.SOLD_OUT: return 'Hết món';
-    }
-  };
+      // Sort by pending quantity (items with most work left appear first)
+      return Object.entries(totals).sort(([, a], [, b]) => 
+          (b.total - b.completed) - (a.total - a.completed)
+      );
+  }, [activeGroups]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-4 md:space-y-6 pb-20">
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-2">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">Vận Hành Bếp & Thực Đơn</h2>
-          <p className="text-gray-500">Quản lý trạng thái món ăn và công việc đầu ca.</p>
+          <h2 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2">
+             <ChefHat className="text-orange-600" /> Chuẩn Bị Thực Đơn
+          </h2>
+          <p className="text-xs md:text-sm text-gray-500">Tổng hợp đồ dùng, nước chấm cần chuẩn bị.</p>
+        </div>
+        <div className="text-xs font-bold bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg w-fit">
+            {activeGroups.length} đoàn đang chờ
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="bg-white p-1.5 rounded-xl border border-gray-200 flex space-x-1 shadow-sm max-w-md">
-          <button 
-            onClick={() => setActiveTab('MENU')}
-            className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${activeTab === 'MENU' ? 'bg-teal-100 text-teal-800 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
-          >
-            <Utensils size={18} /> Trạng thái Món
-          </button>
-          <button 
-            onClick={() => setActiveTab('PREP')}
-            className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all flex items-center justify-center gap-2 ${activeTab === 'PREP' ? 'bg-teal-100 text-teal-800 shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`}
-          >
-            <CheckSquare size={18} /> Checklist Chuẩn bị
-          </button>
-      </div>
-
-      {activeTab === 'MENU' && (
-        <div className="space-y-8 animate-in fade-in duration-300">
-             <div className="bg-blue-50 border border-blue-100 p-4 rounded-lg flex items-start gap-3">
-                <AlertCircle className="text-blue-600 shrink-0 mt-0.5" size={20} />
-                <div className="text-sm text-blue-800">
-                    <span className="font-bold">Hướng dẫn:</span> Chạm vào thẻ món ăn để thay đổi trạng thái: 
-                    <span className="mx-1 px-2 py-0.5 bg-green-100 rounded text-green-800 font-bold text-xs">Có món</span> → 
-                    <span className="mx-1 px-2 py-0.5 bg-yellow-100 rounded text-yellow-800 font-bold text-xs">Sắp hết</span> → 
-                    <span className="mx-1 px-2 py-0.5 bg-red-100 rounded text-red-800 font-bold text-xs">Hết món (86)</span>
-                </div>
-             </div>
-
-             {categories.map(cat => (
-                 <div key={cat}>
-                     <h3 className="font-bold text-gray-800 mb-4 text-lg flex items-center gap-2">
-                        {cat === 'Đồ Uống' ? <Coffee size={20}/> : <Utensils size={20}/>} 
-                        {cat}
-                     </h3>
-                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {menuItems.filter(item => item.category === cat).map(item => (
-                            <div 
-                                key={item.id}
-                                onClick={() => toggleMenuStatus(item.id)}
-                                className={`relative p-4 rounded-xl border-2 cursor-pointer transition-all hover:shadow-md select-none ${getStatusColor(item.status)}`}
-                            >
-                                <div className="flex justify-between items-start mb-2">
-                                    <div className="font-bold text-lg">{item.name}</div>
-                                    {item.status === MenuStatus.SOLD_OUT && <Ban size={20} className="text-red-600"/>}
-                                </div>
-                                <div className="flex justify-between items-end">
-                                    <span className="font-medium opacity-80">{item.price.toLocaleString()}đ</span>
-                                    <span className="text-xs font-bold uppercase px-2 py-1 bg-white/50 rounded-md backdrop-blur-sm">
-                                        {getStatusLabel(item.status)}
+      {/* --- TOTAL SUMMARY HEADER (MOBILE OPTIMIZED) --- */}
+      {preparationTotals.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-3 md:p-4 overflow-hidden">
+            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-1">
+                <AlertCircle size={12} /> Tổng khối lượng cần làm
+            </h3>
+            
+            {/* Horizontal Scroll Container */}
+            <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 no-scrollbar snap-x">
+                {preparationTotals.map(([name, stats]) => {
+                    const progress = Math.round((stats.completed / stats.total) * 100);
+                    const isDone = progress === 100;
+                    
+                    return (
+                        <div key={name} className={`snap-start shrink-0 min-w-[130px] md:min-w-[160px] p-3 rounded-xl border flex flex-col justify-between transition-all ${isDone ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200 shadow-sm'}`}>
+                            <div>
+                                <div className="flex justify-between items-start mb-1">
+                                    <span className={`text-xs font-bold line-clamp-1 ${isDone ? 'text-green-700' : 'text-gray-700'}`} title={name}>
+                                        {name}
                                     </span>
+                                    {isDone && <CheckCircle2 size={14} className="text-green-600" />}
                                 </div>
-                                {item.status === MenuStatus.SOLD_OUT && (
-                                    <div className="absolute inset-0 bg-white/40 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
-                                        <span className="bg-red-600 text-white px-3 py-1 rounded-full font-bold text-sm shadow-lg -rotate-12 border-2 border-white">HẾT MÓN</span>
-                                    </div>
-                                )}
+                                <div className="flex items-baseline gap-1">
+                                    <span className={`text-2xl font-bold ${isDone ? 'text-green-600' : 'text-gray-900'}`}>
+                                        {stats.total - stats.completed}
+                                    </span>
+                                    <span className="text-[10px] text-gray-400 uppercase">còn lại</span>
+                                </div>
                             </div>
-                        ))}
-                     </div>
-                 </div>
-             ))}
+                            
+                            <div className="mt-2">
+                                <div className="flex justify-between text-[10px] text-gray-400 mb-1">
+                                    <span>Tổng: {stats.total} {stats.unit}</span>
+                                    <span>{progress}%</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div 
+                                        className={`h-full rounded-full transition-all duration-500 ${isDone ? 'bg-green-500' : 'bg-orange-500'}`} 
+                                        style={{ width: `${progress}%` }}
+                                    ></div>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
         </div>
       )}
 
-      {activeTab === 'PREP' && (
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden animate-in fade-in duration-300">
-              <div className="p-6 border-b bg-gray-50">
-                  <div className="flex justify-between items-end mb-2">
-                      <div>
-                          <h3 className="font-bold text-xl text-gray-900">Tiến độ chuẩn bị đầu ca</h3>
-                          <p className="text-gray-500 text-sm">Các công việc cần hoàn thành trước khi mở bán.</p>
-                      </div>
-                      <span className="text-2xl font-bold text-teal-600">{progress}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
-                      <div className="bg-teal-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${progress}%` }}></div>
-                  </div>
+      {/* --- INDIVIDUAL GROUPS LIST --- */}
+      <div className="space-y-4 md:space-y-6 animate-in fade-in duration-300">
+          {activeGroups.length === 0 && (
+              <div className="text-center py-16 bg-white rounded-2xl border border-dashed border-gray-300 mx-4 md:mx-0">
+                 <Utensils className="mx-auto text-gray-300 mb-4" size={48} />
+                 <p className="text-gray-500">Bếp đang rảnh rỗi.</p>
+                 <p className="text-sm text-gray-400">Chưa có đoàn khách nào cần chuẩn bị.</p>
               </div>
+          )}
 
-              <div className="divide-y divide-gray-100">
-                  {prepTasks.map(task => (
-                      <div 
-                        key={task.id} 
-                        onClick={() => togglePrepTask(task.id)}
-                        className={`p-4 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors ${task.isCompleted ? 'bg-gray-50/50' : 'bg-white'}`}
-                      >
-                          <div className="flex items-center gap-4">
-                              <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${task.isCompleted ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 text-transparent'}`}>
-                                  <CheckCircle2 size={16} />
-                              </div>
-                              <div>
-                                  <p className={`font-medium text-base ${task.isCompleted ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{task.task}</p>
-                                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">Phụ trách: {task.assignee}</span>
+          {activeGroups.map(group => (
+              <div key={group.id} className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+                  {/* Group Header */}
+                  <div className="p-3 md:p-4 bg-gray-50 border-b flex flex-col md:flex-row md:justify-between md:items-center gap-2">
+                      <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 shrink-0 rounded-lg bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-lg">
+                              {group.name.charAt(0)}
+                          </div>
+                          <div className="overflow-hidden">
+                              <h3 className="font-bold text-gray-900 truncate text-base md:text-lg">{group.name}</h3>
+                              <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+                                  <span className="flex items-center bg-white px-1.5 py-0.5 rounded border border-gray-200"><MapPin size={10} className="mr-1"/> {group.location}</span>
+                                  <span className="flex items-center bg-white px-1.5 py-0.5 rounded border border-gray-200"><Users size={10} className="mr-1"/> {group.guestCount} pax</span>
+                                  <span className="font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">x{group.tableCount || '?'} bàn</span>
                               </div>
                           </div>
-                          {task.isCompleted && (
-                              <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded">Hoàn thành</span>
-                          )}
                       </div>
-                  ))}
+                      <div className="flex justify-between md:justify-end items-center w-full md:w-auto mt-1 md:mt-0">
+                          <div className="text-xs font-bold bg-white px-3 py-1 rounded-full border border-gray-200 text-gray-600">
+                              Giờ vào: {group.startTime}
+                          </div>
+                      </div>
+                  </div>
+                  
+                  {/* Checklist Grid */}
+                  <div className="p-2 md:p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                      {group.prepList && group.prepList.length > 0 ? (
+                          group.prepList.map((item, idx) => (
+                              <div 
+                                 key={idx} 
+                                 onClick={() => toggleSauceItem(group.id, item.name)}
+                                 className={`p-3 rounded-xl border flex items-center justify-between cursor-pointer active:scale-[0.98] transition-all touch-manipulation ${item.isCompleted ? 'bg-green-50 border-green-200 shadow-none' : 'bg-white border-gray-100 shadow-sm border-b-2 border-b-gray-200'}`}
+                              >
+                                  <div className="flex items-center gap-3 overflow-hidden">
+                                      <div className={`w-6 h-6 shrink-0 rounded border flex items-center justify-center transition-colors ${item.isCompleted ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 bg-white'}`}>
+                                          {item.isCompleted && <CheckCircle2 size={16} />}
+                                      </div>
+                                      <div className="truncate">
+                                          <p className={`font-bold text-sm truncate ${item.isCompleted ? 'text-green-800 line-through opacity-70' : 'text-gray-800'}`}>{item.name}</p>
+                                          <p className="text-[10px] text-gray-500 truncate">{item.note || 'Tiêu chuẩn'}</p>
+                                      </div>
+                                  </div>
+                                  <div className="text-right shrink-0 pl-2">
+                                      <span className={`block font-bold text-lg ${item.isCompleted ? 'text-green-700' : 'text-teal-700'}`}>{item.quantity}</span>
+                                      <span className="text-[10px] text-gray-400 uppercase font-medium">{item.unit}</span>
+                                  </div>
+                              </div>
+                          ))
+                      ) : (
+                          <div className="col-span-full p-4 text-center text-sm text-gray-500 italic">
+                              Đang tính toán hoặc không có đồ cần chuẩn bị...
+                          </div>
+                      )}
+                  </div>
               </div>
-          </div>
-      )}
+          ))}
+      </div>
     </div>
   );
 };

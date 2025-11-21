@@ -10,7 +10,7 @@ export enum AppView {
   SETTINGS = 'SETTINGS',
   AI_ASSISTANT = 'AI_ASSISTANT',
   KITCHEN = 'KITCHEN',
-  SERVING = 'SERVING', // New View
+  SERVING = 'SERVING',
 }
 
 export enum EmployeeRole {
@@ -36,7 +36,7 @@ export interface Employee {
   hourlyRate: number;
   phone: string;
   email: string;
-  password?: string; // New field for Auth
+  password?: string;
 }
 
 export interface AttendanceRecord {
@@ -96,7 +96,6 @@ export interface EmployeeRequest {
   isMine: boolean;
 }
 
-// --- NEW CONFIGURATION TYPES ---
 export interface WifiConfig {
     id: string;
     name: string;
@@ -123,49 +122,54 @@ export interface SystemSettings {
     rules: WorkRule;
 }
 
-// --- KITCHEN & MENU OPS ---
-export enum MenuStatus {
-    AVAILABLE = 'AVAILABLE',
-    LOW_STOCK = 'LOW_STOCK',
-    SOLD_OUT = 'SOLD_OUT'
-}
+// --- KITCHEN & MENU OPS (UPDATED) ---
 
 export interface MenuItem {
     id: string;
     name: string;
     category: string;
     price: number;
-    status: MenuStatus;
-    image?: string;
+}
+
+// New structure for Preparation Checklist
+export interface SauceItem {
+    name: string;
+    quantity: number;
+    unit: string;
+    isCompleted: boolean;
+    note?: string; 
 }
 
 export interface PrepTask {
     id: string;
     task: string;
     isCompleted: boolean;
-    assignee: string; // Role or Person
+    assignee: string;
 }
 
-// --- SERVING & GROUP OPS (NEW) ---
+// --- SERVING & GROUP OPS ---
 export interface ServingItem {
     id: string;
     name: string;
-    totalQuantity: number; // Tổng số lượng phải ra (Ví dụ: 6 đĩa)
-    servedQuantity: number; // Đã ra (Ví dụ: 4 đĩa)
-    unit: string; // Đĩa, Bát, Con...
+    totalQuantity: number; 
+    servedQuantity: number;
+    unit: string;
 }
 
 export interface ServingGroup {
     id: string;
-    name: string; // Tên đoàn: "Đoàn VietTravel"
-    location: string; // Vị trí: "Tầng 2 - VIP 1"
-    guestCount: number; // Số khách
+    name: string; 
+    location: string;
+    guestCount: number; 
     startTime: string; 
     items: ServingItem[];
     status: 'ACTIVE' | 'COMPLETED';
+    
+    // Logic Fields
+    tableCount?: number; // Số bàn (x8, 1x5...)
+    prepList?: SauceItem[]; // Checklist nước chấm/đồ dùng
 }
 
-// Default Constant for initial init (Legacy support if needed)
 export const RESTAURANT_LOCATION = {
   latitude: 21.0285,
   longitude: 105.8542,
