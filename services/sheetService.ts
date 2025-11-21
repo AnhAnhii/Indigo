@@ -1,6 +1,6 @@
 
 // --- CẤU HÌNH LIÊN KẾT (DÁN LINK GOOGLE APPS SCRIPT WEB APP CỦA BẠN VÀO ĐÂY) ---
-const HARDCODED_API_URL = "https://script.google.com/macros/s/AKfycbx2X9.../exec"; 
+const HARDCODED_API_URL = "https://script.google.com/macros/s/AKfycbwMGxO1gIXvqMfYDMe_uq8K-fXH7frsU_D4vn4tPHjGqXzEZtHuIENGZAYva9yXw4YNfg/exec"; 
 // Ví dụ: https://script.google.com/macros/s/AKfycbx.../exec
 
 export const sheetService = {
