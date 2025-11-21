@@ -1,0 +1,9 @@
+{
+  "name": "RestaurantSync AI",
+  "description": "Hệ thống quản lý nhân sự nhà hàng thông minh với tính năng chấm công khuôn mặt, định vị, xếp lịch và trợ lý nhân sự AI Gemini.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation",
+    "microphone"
+  ]
+}
