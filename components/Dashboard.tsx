@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  CheckCircle, QrCode, ScanLine, Fingerprint, UserPlus, Filter, Calendar, LogIn, LogOut
+  CheckCircle, QrCode, ScanLine, Fingerprint, UserPlus, Calendar, LogIn
 } from 'lucide-react';
 import { AppView, AttendanceStatus, TimesheetLog } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -9,6 +9,19 @@ import { useGlobalContext } from '../contexts/GlobalContext';
 interface DashboardProps {
     onViewChange: (view: AppView) => void;
 }
+
+// Move component outside to prevent re-creation on every render
+const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn }: any) => (
+  <div onClick={onClick} className={`relative overflow-hidden rounded-2xl p-6 text-white shadow-lg cursor-pointer transition-transform hover:scale-105 ${gradient}`}>
+      <div className="relative z-10 flex flex-col items-center text-center h-full justify-between space-y-3">
+          <div className="p-3 bg-white/20 rounded-full backdrop-blur-sm"><Icon size={32} /></div>
+          <div><h3 className="font-bold text-lg">{title}</h3><p className="text-xs opacity-90 font-medium">{sub}</p></div>
+          <span className="bg-white text-gray-800 text-xs font-bold px-4 py-1 rounded-full shadow-sm">{labelBtn}</span>
+      </div>
+      <div className="absolute top-0 left-0 w-full h-full bg-white/5 opacity-50"></div>
+      <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
+  </div>
+);
 
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const { logs, currentUser, addAttendanceLog, updateAttendanceLog, isLoading } = useGlobalContext();
@@ -65,18 +78,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
           alert(`Check-in thành công lúc ${timeStr}`);
       }
   };
-
-  const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn }: any) => (
-    <div onClick={onClick} className={`relative overflow-hidden rounded-2xl p-6 text-white shadow-lg cursor-pointer transition-transform hover:scale-105 ${gradient}`}>
-        <div className="relative z-10 flex flex-col items-center text-center h-full justify-between space-y-3">
-            <div className="p-3 bg-white/20 rounded-full backdrop-blur-sm"><Icon size={32} /></div>
-            <div><h3 className="font-bold text-lg">{title}</h3><p className="text-xs opacity-90 font-medium">{sub}</p></div>
-            <span className="bg-white text-gray-800 text-xs font-bold px-4 py-1 rounded-full shadow-sm">{labelBtn}</span>
-        </div>
-        <div className="absolute top-0 left-0 w-full h-full bg-white/5 opacity-50"></div>
-        <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
-    </div>
-  );
 
   return (
     <div className="space-y-8">

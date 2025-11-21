@@ -1,28 +1,42 @@
-
 import { GoogleGenAI } from "@google/genai";
 
-// Safely retrieve API Key in browser environment
+// Safely retrieve API Key in browser environment (Supports both Vite and Webpack/Node)
 const getApiKey = () => {
   try {
-    // Check if process is defined (Node/Bundled env)
+    // 1. Try Vite standard (import.meta.env)
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_KEY;
+    }
+
+    // 2. Try Node/Webpack standard (process.env)
     if (typeof process !== 'undefined' && process.env) {
-      return process.env.API_KEY || '';
+      return process.env.API_KEY || process.env.REACT_APP_API_KEY || '';
     }
   } catch (e) {
-    // Ignore error if process is not defined
+    console.warn("Environment variable access error", e);
   }
   return '';
 };
 
-const apiKey = getApiKey();
-const ai = new GoogleGenAI({ apiKey });
+// Helper to get AI instance safely
+const getAiInstance = () => {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+      console.warn("API Key not found in environment variables.");
+      return null;
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 export const askAiAssistant = async (
   prompt: string, 
   contextData: string
 ): Promise<string> => {
-  if (!apiKey) {
-    return "Lỗi: Chưa cấu hình API Key. Vui lòng kiểm tra cấu hình môi trường.";
+  const ai = getAiInstance();
+  if (!ai) {
+    return "Lỗi: Chưa cấu hình API Key. Vui lòng kiểm tra biến môi trường (VITE_API_KEY hoặc API_KEY).";
   }
 
   try {
@@ -58,22 +72,28 @@ export const askAiAssistant = async (
     return response.text || "Xin lỗi, tôi không thể tạo câu trả lời lúc này.";
   } catch (error) {
     console.error("Gemini API Error:", error);
-    return "Tôi gặp lỗi khi xử lý yêu cầu của bạn. Vui lòng thử lại.";
+    return "Tôi gặp lỗi khi xử lý yêu cầu của bạn. Vui lòng thử lại sau.";
   }
 };
 
 export const analyzeShiftSchedule = async (scheduleData: any): Promise<string> => {
-    if (!apiKey) return "Thiếu API Key.";
+    const ai = getAiInstance();
+    if (!ai) return "Thiếu API Key.";
     
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `Phân tích lịch làm việc này để tìm các vấn đề về thiếu nhân sự vào giờ cao điểm (trưa/tối) hoặc phân bổ Ca Gãy chưa hợp lý, trả lời bằng tiếng Việt: ${JSON.stringify(scheduleData)}`
-    });
-    return response.text || "Không có phân tích nào.";
+    try {
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: `Phân tích lịch làm việc này để tìm các vấn đề về thiếu nhân sự vào giờ cao điểm (trưa/tối) hoặc phân bổ Ca Gãy chưa hợp lý, trả lời bằng tiếng Việt: ${JSON.stringify(scheduleData)}`
+        });
+        return response.text || "Không có phân tích nào.";
+    } catch (error) {
+        return "Lỗi phân tích lịch.";
+    }
 }
 
 export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
-    if (!apiKey) {
+    const ai = getAiInstance();
+    if (!ai) {
         console.warn("Missing API Key for Vision");
         return [];
     }
