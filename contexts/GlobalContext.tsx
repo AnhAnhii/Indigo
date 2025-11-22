@@ -406,8 +406,31 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const completeServingGroup = (groupId: string) => { setServingGroups(prev => prev.map(g => { if (g.id === groupId) { const updated = { ...g, status: 'COMPLETED' as const }; syncGroupState(updated); return updated; } return g; })); };
   const addHandoverLog = (log: HandoverLog) => { setHandoverLogs(prev => [log, ...prev]); sheetService.logHandover(log); }
 
+  // UPDATED LOGIN FUNCTION - FIX PHONE LOGIN
   const login = (idOrPhone: string, pass: string) => { 
-      let user = employees.find(e => (String(e.id) === String(idOrPhone) || e.phone === idOrPhone) && (String(e.password || '123456') === String(pass)));
+      // Normalize input: remove non-digits
+      const inputClean = idOrPhone.replace(/\D/g, '');
+      
+      let user = employees.find(e => {
+          // Check Password
+          if (String(e.password || '123456') !== String(pass)) return false;
+
+          // Check ID (Exact match)
+          if (String(e.id) === idOrPhone) return true;
+
+          // Check Phone
+          // Normalize stored phone from employee data
+          const empPhoneClean = String(e.phone || '').replace(/\D/g, '');
+          
+          // Compare numeric values to ignore leading zeros (e.g. 090 == 90)
+          // Only compare if we have valid digits
+          if (inputClean !== '' && empPhoneClean !== '') {
+              return Number(inputClean) === Number(empPhoneClean);
+          }
+          
+          return false;
+      });
+
       if (!user && idOrPhone === '1' && pass === '123456') user = INITIAL_EMPLOYEES[0];
       if (user) { setCurrentUser(user); return true; }
       return false;
