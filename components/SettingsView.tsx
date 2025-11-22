@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig } from '../types';
 import { sheetService } from '../services/sheetService';
@@ -12,6 +12,8 @@ export const SettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('RULES');
   const [localSettings, setLocalSettings] = useState(settings);
   const [newWifiSSID, setNewWifiSSID] = useState('');
+  const [newWifiBSSID, setNewWifiBSSID] = useState(''); // Added state for BSSID input
+  const [showHelpWifi, setShowHelpWifi] = useState(false); // Help Modal State
   
   const [sheetUrl, setSheetUrl] = useState('');
 
@@ -30,7 +32,7 @@ export const SettingsView: React.FC = () => {
       const newWifi: WifiConfig = {
           id: Date.now().toString(),
           name: newWifiSSID,
-          bssid: 'Unknown',
+          bssid: newWifiBSSID || 'Unknown', // Use real input
           isActive: true
       };
       setLocalSettings({
@@ -38,6 +40,7 @@ export const SettingsView: React.FC = () => {
           wifis: [...localSettings.wifis, newWifi]
       });
       setNewWifiSSID('');
+      setNewWifiBSSID('');
   };
 
   const removeWifi = (id: string) => {
@@ -69,7 +72,7 @@ export const SettingsView: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto">
+    <div className="space-y-8 max-w-5xl mx-auto relative">
         <div className="flex justify-between items-center">
             <div>
                 <h2 className="text-2xl font-bold text-gray-900">Cấu hình hệ thống</h2>
@@ -254,14 +257,22 @@ export const SettingsView: React.FC = () => {
 
                 {activeTab === 'WIFI' && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
-                    <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
-                        <div className="bg-indigo-100 p-2 rounded-full text-indigo-600">
-                            <Wifi size={24} />
+                    <div className="flex items-center justify-between mb-6 pb-4 border-b">
+                        <div className="flex items-center space-x-3">
+                            <div className="bg-indigo-100 p-2 rounded-full text-indigo-600">
+                                <Wifi size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">Wifi Hợp lệ</h3>
+                                <p className="text-sm text-gray-500">Nhập SSID và BSSID để chống giả mạo.</p>
+                            </div>
                         </div>
-                        <div>
-                            <h3 className="text-lg font-bold text-gray-900">Wifi Hợp lệ</h3>
-                            <p className="text-sm text-gray-500">Danh sách Wifi này sẽ được đồng bộ cho toàn bộ nhân viên.</p>
-                        </div>
+                        <button 
+                            onClick={() => setShowHelpWifi(true)}
+                            className="text-teal-600 text-sm font-medium flex items-center hover:underline"
+                        >
+                            <HelpCircle size={16} className="mr-1"/> Cách lấy BSSID?
+                        </button>
                     </div>
 
                     <div className="space-y-3 mb-6">
@@ -271,7 +282,7 @@ export const SettingsView: React.FC = () => {
                                  <Wifi size={20} className="text-teal-600 mr-3"/>
                                  <div>
                                      <p className="font-bold text-gray-800 text-sm">{wifi.name}</p>
-                                     <p className="text-xs text-gray-500">BSSID: {wifi.bssid}</p>
+                                     <p className="text-xs text-gray-500 font-mono bg-gray-100 px-1 rounded">BSSID: {wifi.bssid}</p>
                                  </div>
                              </div>
                              <button onClick={() => removeWifi(wifi.id)} className="text-red-500 p-2 hover:bg-red-50 rounded-lg">
@@ -281,16 +292,23 @@ export const SettingsView: React.FC = () => {
                         ))}
                     </div>
                     
-                    <div className="flex gap-2 border-t pt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 border-t pt-4">
                         <input 
                             type="text" 
-                            placeholder="Nhập tên Wifi (SSID)..." 
+                            placeholder="Tên Wifi (SSID)..." 
                             value={newWifiSSID}
                             onChange={(e) => setNewWifiSSID(e.target.value)}
-                            className="flex-1 border rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                            className="border rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
                         />
-                        <button onClick={addWifi} className="bg-gray-900 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center hover:bg-gray-800">
-                            <Plus size={16} className="mr-1"/> Thêm
+                        <input 
+                            type="text" 
+                            placeholder="Địa chỉ MAC (BSSID)..." 
+                            value={newWifiBSSID}
+                            onChange={(e) => setNewWifiBSSID(e.target.value)}
+                            className="border rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none font-mono"
+                        />
+                        <button onClick={addWifi} className="bg-gray-900 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center justify-center hover:bg-gray-800">
+                            <Plus size={16} className="mr-1"/> Thêm Wifi
                         </button>
                     </div>
                 </div>
@@ -329,6 +347,42 @@ export const SettingsView: React.FC = () => {
 
             </div>
         </div>
+
+        {/* BSSID HELP MODAL */}
+        {showHelpWifi && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
+                    <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                        <h3 className="font-bold text-gray-900">Cách lấy BSSID (MAC Address)</h3>
+                        <button onClick={() => setShowHelpWifi(false)}><X size={20} className="text-gray-500"/></button>
+                    </div>
+                    <div className="p-6 text-sm text-gray-700 space-y-4">
+                        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
+                            <p className="font-bold text-blue-800 mb-1">1. Trên máy tính Windows:</p>
+                            <ul className="list-disc pl-5 space-y-1">
+                                <li>Mở <b>Command Prompt</b> (CMD).</li>
+                                <li>Gõ lệnh: <code className="bg-white px-1 rounded font-mono text-xs border">netsh wlan show interfaces</code></li>
+                                <li>Tìm dòng <b>BSSID</b> và copy giá trị đó (VD: 00:11:22:33:44:55).</li>
+                            </ul>
+                        </div>
+                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            <p className="font-bold text-gray-800 mb-1">2. Trên máy Mac (macOS):</p>
+                            <ul className="list-disc pl-5 space-y-1">
+                                <li>Giữ phím <b>Option</b> (Alt) và click vào biểu tượng Wifi trên thanh menu.</li>
+                                <li>Dòng <b>BSSID</b> sẽ hiện ra trong menu.</li>
+                            </ul>
+                        </div>
+                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                            <p className="font-bold text-gray-800 mb-1">3. Trên điện thoại:</p>
+                            <p>Cài đặt ứng dụng <b>Wifi Analyzer</b> (Android) hoặc <b>Network Analyzer</b> (iOS) để xem chi tiết.</p>
+                        </div>
+                    </div>
+                    <div className="p-4 border-t text-right">
+                        <button onClick={() => setShowHelpWifi(false)} className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold">Đã hiểu</button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

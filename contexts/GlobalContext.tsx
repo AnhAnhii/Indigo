@@ -5,7 +5,7 @@ import {
   AttendanceStatus, EmployeeRole, RequestStatus, 
   SystemSettings, MenuItem, PrepTask,
   ServingGroup, ServingItem, SauceItem,
-  HandoverLog
+  HandoverLog, WorkSchedule
 } from '../types';
 import { sheetService } from '../services/sheetService';
 
@@ -35,6 +35,7 @@ interface GlobalContextType {
   servingGroups: ServingGroup[];
   addServingGroup: (group: ServingGroup) => void;
   updateServingGroup: (groupId: string, updates: Partial<ServingGroup>) => void;
+  deleteServingGroup: (groupId: string) => void; // New
   addServingItem: (groupId: string, item: ServingItem) => void;
   updateServingItem: (groupId: string, itemId: string, updates: Partial<ServingItem>) => void;
   deleteServingItem: (groupId: string, itemId: string) => void;
@@ -47,6 +48,10 @@ interface GlobalContextType {
   handoverLogs: HandoverLog[];
   addHandoverLog: (log: HandoverLog) => void;
 
+  // SCHEDULES
+  schedules: WorkSchedule[];
+  assignShift: (employeeId: string, date: string, shiftCode: string) => void;
+
   currentUser: Employee | null;
   login: (idOrPhone: string, pass: string) => boolean;
   logout: () => void;
@@ -57,6 +62,14 @@ interface GlobalContextType {
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
+
+export const useGlobalContext = () => {
+  const context = useContext(GlobalContext);
+  if (context === undefined) {
+    throw new Error('useGlobalContext must be used within a GlobalProvider');
+  }
+  return context;
+};
 
 // MOCK DATA
 const INITIAL_EMPLOYEES: Employee[] = [
@@ -101,6 +114,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
   const [servingGroups, setServingGroups] = useState<ServingGroup[]>([]);
   const [handoverLogs, setHandoverLogs] = useState<HandoverLog[]>([]);
+  const [schedules, setSchedules] = useState<WorkSchedule[]>([]);
   
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
   
@@ -113,8 +127,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const normalizeDate = (dateStr: string) => {
       if (!dateStr) return '';
       try {
-          // Nếu là ISO string có T (ví dụ 2023-11-14T17:00:00.000Z), chuyển về Date rồi format theo VN
-          // Bắt buộc dùng múi giờ Asia/Ho_Chi_Minh để đảm bảo ngày 14 vẫn là 14
           const date = new Date(dateStr);
           return new Intl.DateTimeFormat('en-CA', {
               timeZone: 'Asia/Ho_Chi_Minh',
@@ -123,52 +135,30 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               day: '2-digit'
           }).format(date);
       } catch (e) {
-          // Nếu đã là string YYYY-MM-DD thì giữ nguyên
           return dateStr.split('T')[0];
       }
   };
 
-  // 2. Làm sạch giờ (Fix lỗi 1899-12-29T... và lỗi Tự check-out)
+  // 2. Làm sạch giờ
   const cleanGoogleSheetTime = (val: any): string | null => {
       if (!val) return null;
-      
       const strVal = String(val).trim();
-      
-      // Lọc các giá trị rác gây lỗi tự động check-out
       if (strVal === '' || strVal === '0' || strVal.toLowerCase() === 'null' || strVal.toLowerCase() === 'undefined') {
           return null;
       }
-
-      // Kiểm tra nếu là ngày mặc định của Google Sheet (1899-12-30...)
-      // Nếu giờ là 00:00:00 hoặc T00:00:00.000Z nghĩa là chưa có dữ liệu giờ thực tế
       if (strVal.includes('1899') && (strVal.includes('T00:00:00') || strVal.includes('T00:00:00.000Z'))) {
           return null;
       }
-      
-      // Nếu là chuỗi chứa T (ISO Date), ví dụ: 1899-12-29T17:16:30.000Z
       if (strVal.includes('T')) {
           try {
               const date = new Date(strVal);
-              // Nếu Date không hợp lệ
               if (isNaN(date.getTime())) return null;
-
-              // Lấy giờ theo múi giờ Việt Nam, định dạng 24h (HH:mm)
               return date.toLocaleTimeString('vi-VN', {
-                  hour: '2-digit', 
-                  minute: '2-digit', 
-                  hour12: false,
-                  timeZone: 'Asia/Ho_Chi_Minh'
+                  hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Ho_Chi_Minh'
               });
-          } catch (e) {
-              return null;
-          }
+          } catch (e) { return null; }
       }
-      
-      // Nếu là chuỗi thường, bắt buộc phải có dấu ':' để đảm bảo là định dạng giờ (VD: 17:00)
-      if (strVal.includes(':') && strVal.length >= 4) {
-          return strVal;
-      }
-      
+      if (strVal.includes(':') && strVal.length >= 4) return strVal;
       return null;
   };
 
@@ -182,25 +172,23 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 const parsedEmployees = data.employees.map((e: any) => ({
                     ...e,
                     hourlyRate: Number(e.hourlyRate) || 0,
-                    allowance: Number(e.allowance) || 0, // FIX: Đảm bảo Allowance là số
+                    allowance: Number(e.allowance) || 0,
                     id: String(e.id)
                 }));
                 setEmployees(parsedEmployees);
-                
-                // Cập nhật lại currentUser nếu thông tin (như allowance) thay đổi từ server
                 if (currentUser) {
                     const me = parsedEmployees.find((e: any) => String(e.id) === String(currentUser.id));
                     if (me) setCurrentUser(me);
                 }
             }
 
-            // 2. LOGS (Apply Time Cleaning)
+            // 2. LOGS
             if (data.logs && Array.isArray(data.logs)) {
                 const parsedLogs = data.logs.map((l: any) => ({
                     ...l,
                     date: normalizeDate(l.date),
                     checkIn: cleanGoogleSheetTime(l.checkIn),
-                    checkOut: cleanGoogleSheetTime(l.checkOut), // QUAN TRỌNG: Đã áp dụng hàm lọc chặt chẽ
+                    checkOut: cleanGoogleSheetTime(l.checkOut),
                     lateMinutes: Number(l.lateMinutes) || 0,
                     totalHours: Number(l.totalHours) || 0
                 }));
@@ -211,17 +199,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             if (data.requests && Array.isArray(data.requests)) {
                 setRequests(prevLocalRequests => {
                     const serverRequests = data.requests;
-                    // Giữ lại các request đang pending cục bộ mà chưa lên server
                     const pendingLocal = prevLocalRequests.filter(r => pendingRequestIds.has(r.id));
                     const stillPending = pendingLocal.filter(localReq => !serverRequests.some((serverReq: any) => String(serverReq.id) === String(localReq.id)));
                     return [...stillPending, ...serverRequests];
                 });
-                
                 setPendingRequestIds(prev => {
                     const newSet = new Set(prev);
-                    data.requests.forEach((r: any) => {
-                        if (newSet.has(r.id)) newSet.delete(r.id);
-                    });
+                    data.requests.forEach((r: any) => { if (newSet.has(r.id)) newSet.delete(r.id); });
                     return newSet;
                 });
             }
@@ -229,6 +213,15 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             // 4. OTHER DATA
             if (data.servingGroups) setServingGroups(data.servingGroups);
             if (data.handoverLogs) setHandoverLogs(data.handoverLogs);
+            
+            // 5. SCHEDULES (Mới)
+            if (data.schedules && Array.isArray(data.schedules)) {
+                const parsedSchedules = data.schedules.map((s: any) => ({
+                    ...s,
+                    date: normalizeDate(s.date)
+                }));
+                setSchedules(parsedSchedules);
+            }
             
             if (data.settings) {
                const raw = data.settings;
@@ -254,8 +247,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const intervalId = setInterval(() => loadData(), 60000);
       return () => clearInterval(intervalId);
   }, []);
-
-  // ... (Giữ nguyên phần logic Prep List, Add Employee, etc.)
 
   const generatePrepList = (group: ServingGroup): SauceItem[] => {
       const prepList: SauceItem[] = [];
@@ -313,11 +304,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const addEmployee = (e: Employee) => {
-      const empWithDefaults = {
-          ...e,
-          password: e.password || '123456',
-          allowance: Number(e.allowance) || 0
-      };
+      const empWithDefaults = { ...e, password: e.password || '123456', allowance: Number(e.allowance) || 0 };
       setEmployees(p => [...p, empWithDefaults]);
       sheetService.syncEmployee(empWithDefaults);
   };
@@ -325,9 +312,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const updateEmployee = (e: Employee) => {
       const cleanEmp = { ...e, allowance: Number(e.allowance) || 0 };
       setEmployees(p => p.map(x => x.id === e.id ? { ...x, ...cleanEmp } : x));
-      if (currentUser && currentUser.id === e.id) {
-          setCurrentUser(prev => prev ? { ...prev, ...cleanEmp } : prev);
-      }
+      if (currentUser && currentUser.id === e.id) setCurrentUser(prev => prev ? { ...prev, ...cleanEmp } : prev);
       sheetService.syncEmployee(cleanEmp);
   };
 
@@ -338,19 +323,32 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const registerEmployeeFace = (id: string, img: string) => {
       const updated = employees.find(e => e.id === id);
-      if (updated) {
-          const newEmp = { ...updated, avatar: img };
-          updateEmployee(newEmp);
-      }
+      if (updated) { const newEmp = { ...updated, avatar: img }; updateEmployee(newEmp); }
   };
 
   const changePassword = (id: string, newPass: string) => {
       const updated = employees.find(e => e.id === id);
-      if (updated) {
-          const newEmp = { ...updated, password: newPass };
-          updateEmployee(newEmp);
-      }
+      if (updated) { const newEmp = { ...updated, password: newPass }; updateEmployee(newEmp); }
   }
+
+  const assignShift = (employeeId: string, date: string, shiftCode: string) => {
+      const newSchedule: WorkSchedule = {
+          id: `${employeeId}_${date}`,
+          employeeId,
+          date,
+          shiftCode
+      };
+      
+      // Optimistic UI Update
+      setSchedules(prev => {
+          // Remove old shift for that day if exists
+          const filtered = prev.filter(s => !(s.employeeId === employeeId && s.date === date));
+          return [...filtered, newSchedule];
+      });
+      
+      // Sync to Backend
+      sheetService.syncSchedule(newSchedule);
+  };
 
   const addAttendanceLog = (l: TimesheetLog) => { setLogs(p => [l, ...p]); sheetService.logAttendance(l); };
   const updateAttendanceLog = (l: TimesheetLog) => { setLogs(p => p.map(x => x.id === l.id ? l : x)); sheetService.logAttendance(l); };
@@ -364,8 +362,20 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const updateRequestStatus = (id: string, s: RequestStatus) => { setRequests(p => p.map(x => { if (x.id === id) { const updated = { ...x, status: s }; sheetService.syncRequest(updated); return updated; } return x; })); };
   const updateSettings = (s: SystemSettings) => { setSettings(s); sheetService.saveSettings(s); };
   const syncGroupState = (group: ServingGroup) => { sheetService.syncServingGroup(group); }
-  const addServingGroup = (group: ServingGroup) => { const prepList = generatePrepList(group); const groupWithPrep = { ...group, prepList }; setServingGroups(prev => [groupWithPrep, ...prev]); syncGroupState(groupWithPrep); };
+  
+  const addServingGroup = (group: ServingGroup) => { 
+      const prepList = generatePrepList(group); 
+      const groupWithData = { 
+          ...group, 
+          prepList,
+          date: group.date || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' })
+      }; 
+      setServingGroups(prev => [groupWithData, ...prev]); 
+      syncGroupState(groupWithData); 
+  };
+
   const updateServingGroup = (groupId: string, updates: Partial<ServingGroup>) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updatedGroup = { ...g, ...updates }; if (updates.items || updates.guestCount || updates.tableCount || updates.name) { updatedGroup.prepList = generatePrepList(updatedGroup); } syncGroupState(updatedGroup); return updatedGroup; })); };
+  const deleteServingGroup = (groupId: string) => { setServingGroups(prev => prev.filter(g => g.id !== groupId)); sheetService.deleteServingGroup(groupId); };
   const addServingItem = (groupId: string, item: ServingItem) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updatedGroup = { ...g, items: [...g.items, item] }; updatedGroup.prepList = generatePrepList(updatedGroup); syncGroupState(updatedGroup); return updatedGroup; })); };
   const updateServingItem = (groupId: string, itemId: string, updates: Partial<ServingItem>) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const newItems = g.items.map(i => i.id === itemId ? { ...i, ...updates } : i); const updatedGroup = { ...g, items: newItems }; updatedGroup.prepList = generatePrepList(updatedGroup); syncGroupState(updatedGroup); return updatedGroup; })); };
   const deleteServingItem = (groupId: string, itemId: string) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updatedGroup = { ...g, items: g.items.filter(i => i.id !== itemId) }; updatedGroup.prepList = generatePrepList(updatedGroup); syncGroupState(updatedGroup); return updatedGroup; })); };
@@ -392,23 +402,16 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       requests, addRequest, updateRequestStatus,
       settings, updateSettings,
       menuItems: [], prepTasks, togglePrepTask,
-      servingGroups, addServingGroup, updateServingGroup,
+      servingGroups, addServingGroup, updateServingGroup, deleteServingGroup,
       addServingItem, updateServingItem, deleteServingItem,
       incrementServedItem, decrementServedItem, completeServingGroup,
       toggleSauceItem,
       handoverLogs, addHandoverLog,
+      schedules, assignShift, // NEW
       currentUser, login, logout,
       isLoading, lastUpdated, reloadData: loadData
     }}>
       {children}
     </GlobalContext.Provider>
   );
-};
-
-export const useGlobalContext = () => {
-  const context = useContext(GlobalContext);
-  if (context === undefined) {
-    throw new Error('useGlobalContext must be used within a GlobalProvider');
-  }
-  return context;
 };

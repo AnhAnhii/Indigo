@@ -1,54 +1,100 @@
 
-import React from 'react';
-import { Calendar as CalendarIcon, Sunrise, Sunset, Moon, Layers, Clock } from 'lucide-react';
-import { ShiftType, Employee } from '../types';
+import React, { useState, useMemo } from 'react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, Sunrise, Sunset, Moon, X } from 'lucide-react';
+import { ShiftType, Employee, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
 export const ScheduleView: React.FC = () => {
-  const { employees, settings } = useGlobalContext();
-  const weekDays = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+  const { employees, settings, schedules, assignShift, currentUser } = useGlobalContext();
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
+
+  // State for current week view
+  const [currentDate, setCurrentDate] = useState(new Date());
   
-  // Phân ca tự động (Demo Logic)
-  const getShiftForEmployee = (emp: Employee, dayIndex: number): ShiftType => {
-      if (dayIndex === 6) return ShiftType.OFF; // Chủ nhật nghỉ (Demo)
+  // State for editing Modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCell, setEditingCell] = useState<{ empId: string, dateStr: string, empName: string, currentShift: string } | null>(null);
+
+  // Helper: Get 7 days of the current week (Starting Monday)
+  const weekDays = useMemo(() => {
+      const startOfWeek = new Date(currentDate);
+      const day = startOfWeek.getDay(); // 0 (Sun) - 6 (Sat)
       
-      // Phân ca dựa trên vai trò để hiển thị đầy đủ các loại ca
-      if (emp.role === 'Quản lý') return ShiftType.CA_C;
-      if (emp.role === 'Bếp trưởng') return ShiftType.CA_D;
-      if (emp.role === 'Pha chế') return ShiftType.CA_B1;
-      
-      // Phục vụ xoay ca
-      const idNum = parseInt(emp.id) || 0;
-      if ((idNum + dayIndex) % 2 === 0) return ShiftType.CA_B2;
-      return ShiftType.CA_C;
+      // Adjust to make Monday (1) the first day
+      const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); 
+      startOfWeek.setDate(diff);
+
+      const days = [];
+      for (let i = 0; i < 7; i++) {
+          const d = new Date(startOfWeek);
+          d.setDate(startOfWeek.getDate() + i);
+          days.push(d);
+      }
+      return days;
+  }, [currentDate]);
+
+  const handlePrevWeek = () => {
+      const newDate = new Date(currentDate);
+      newDate.setDate(newDate.getDate() - 7);
+      setCurrentDate(newDate);
   }
 
-  const shifts = employees.map(emp => ({
-      name: emp.name,
-      role: emp.role,
-      shiftTypes: weekDays.map((_, idx) => getShiftForEmployee(emp, idx))
-  }));
+  const handleNextWeek = () => {
+      const newDate = new Date(currentDate);
+      newDate.setDate(newDate.getDate() + 7);
+      setCurrentDate(newDate);
+  }
 
-  // Lấy thông tin giờ từ Settings để hiển thị
+  const formatDateKey = (date: Date) => {
+      return new Intl.DateTimeFormat('en-CA', {
+          timeZone: 'Asia/Ho_Chi_Minh',
+          year: 'numeric', month: '2-digit', day: '2-digit'
+      }).format(date);
+  }
+
+  const getShift = (empId: string, date: Date) => {
+      const dateStr = formatDateKey(date);
+      const schedule = schedules.find(s => s.employeeId === empId && s.date === dateStr);
+      return schedule ? schedule.shiftCode : 'OFF'; // Default to OFF
+  }
+
+  const handleCellClick = (emp: Employee, date: Date) => {
+      if (!isAdmin) return;
+      const dateStr = formatDateKey(date);
+      const currentShift = getShift(emp.id, date);
+      setEditingCell({
+          empId: emp.id,
+          empName: emp.name,
+          dateStr: dateStr,
+          currentShift
+      });
+      setIsModalOpen(true);
+  }
+
+  const handleSelectShift = (shiftCode: string) => {
+      if (editingCell) {
+          assignShift(editingCell.empId, editingCell.dateStr, shiftCode);
+          setIsModalOpen(false);
+          setEditingCell(null);
+      }
+  }
+
+  // Visual Helpers
   const getShiftLabel = (code: string) => {
+      if (code === 'OFF') return 'Nghỉ';
       const conf = settings.shiftConfigs?.find(s => s.code === code);
-      if (!conf) return '';
+      if (!conf) return code;
       if (conf.isSplitShift) return `${conf.startTime}-${conf.breakStart} & ${conf.breakEnd}-${conf.endTime}`;
       return `${conf.startTime} - ${conf.endTime}`;
   };
 
-  const getShiftStyle = (type: ShiftType) => {
-    switch (type) {
-      case ShiftType.CA_C:
-        return { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200', icon: Layers, label: getShiftLabel('Ca C') };
-      case ShiftType.CA_D:
-        return { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200', icon: Sunrise, label: getShiftLabel('Ca D') };
-      case ShiftType.CA_B1:
-        return { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', icon: Sunset, label: getShiftLabel('Ca B1') };
-      case ShiftType.CA_B2:
-        return { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200', icon: Moon, label: getShiftLabel('Ca B2') };
-      default:
-        return { bg: 'bg-gray-50', text: 'text-gray-400', border: 'border-gray-100', icon: null, label: 'Nghỉ' };
+  const getShiftStyle = (code: string) => {
+    switch (code) {
+      case 'Ca C': return { bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200', icon: Layers };
+      case 'Ca D': return { bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200', icon: Sunrise };
+      case 'Ca B1': return { bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', icon: Sunset };
+      case 'Ca B2': return { bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200', icon: Moon };
+      default: return { bg: 'bg-gray-50', text: 'text-gray-400', border: 'border-gray-100', icon: null };
     }
   };
 
@@ -56,61 +102,63 @@ export const ScheduleView: React.FC = () => {
     <div className="space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <div>
-                <h2 className="text-2xl font-bold text-gray-900">Lịch Phân Ca Nhà Hàng</h2>
-                <p className="text-gray-500 text-sm">Tự động phân bổ theo quy tắc Ca C, D, B1, B2.</p>
+                <h2 className="text-2xl font-bold text-gray-900">Lịch Phân Ca</h2>
+                <p className="text-gray-500 text-sm">
+                    {isAdmin ? "Click vào ô để xếp ca cho nhân viên." : "Xem lịch làm việc hàng tuần."}
+                </p>
             </div>
-            <div className="flex space-x-2">
-                <button className="bg-white border border-gray-300 px-3 py-2 rounded-lg text-gray-700 font-medium text-sm hover:bg-gray-50">Tuần Trước</button>
-                <button className="bg-indigo-600 text-white border border-indigo-600 px-3 py-2 rounded-lg font-medium text-sm hover:bg-indigo-700">Xuất bản lịch</button>
+            
+            {/* Week Navigation */}
+            <div className="flex items-center bg-white rounded-lg border shadow-sm p-1">
+                <button onClick={handlePrevWeek} className="p-2 hover:bg-gray-100 rounded-md text-gray-600"><ChevronLeft size={20}/></button>
+                <div className="px-4 font-bold text-gray-700 text-sm flex items-center">
+                    <CalendarIcon size={16} className="mr-2 text-teal-600"/>
+                    {weekDays[0].toLocaleDateString('vi-VN', {day: '2-digit', month: '2-digit'})} - {weekDays[6].toLocaleDateString('vi-VN', {day: '2-digit', month: '2-digit'})}
+                </div>
+                <button onClick={handleNextWeek} className="p-2 hover:bg-gray-100 rounded-md text-gray-600"><ChevronRight size={20}/></button>
             </div>
-        </div>
-
-        {/* Legend */}
-        <div className="flex flex-wrap gap-3 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
-            {[ShiftType.CA_C, ShiftType.CA_D, ShiftType.CA_B1, ShiftType.CA_B2].map(type => {
-                const style = getShiftStyle(type);
-                const Icon = style.icon as any;
-                return (
-                    <div key={type} className={`flex items-center space-x-2 px-3 py-2 rounded-lg text-xs font-bold border ${style.bg} ${style.text} ${style.border}`}>
-                        <Icon size={16} />
-                        <div className="flex flex-col">
-                            <span>{type}</span>
-                            <span className="text-[10px] font-medium opacity-80">{style.label}</span>
-                        </div>
-                    </div>
-                )
-            })}
         </div>
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-            <div className="min-w-[800px]">
+            <div className="min-w-[900px]">
+                {/* Header Row */}
                 <div className="grid grid-cols-8 border-b bg-gray-50">
                     <div className="p-4 font-semibold text-gray-600 text-sm uppercase tracking-wider">Nhân viên</div>
-                    {weekDays.map(day => (
-                        <div key={day} className="p-4 font-semibold text-gray-600 text-center border-l text-sm uppercase tracking-wider">{day}</div>
+                    {weekDays.map((day, idx) => (
+                        <div key={idx} className={`p-3 font-semibold text-center border-l text-sm uppercase tracking-wider ${idx === 6 ? 'text-red-600 bg-red-50/50' : 'text-gray-600'}`}>
+                            <div>{['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'][idx]}</div>
+                            <div className="text-xs font-normal mt-1">{day.getDate()}/{day.getMonth()+1}</div>
+                        </div>
                     ))}
                 </div>
                 
-                {shifts.map((staff, idx) => (
-                    <div key={idx} className="grid grid-cols-8 border-b last:border-0 hover:bg-gray-50 transition-colors">
-                        <div className="p-4 font-medium text-gray-900 flex flex-col justify-center text-sm">
-                            <span>{staff.name}</span>
-                            <span className="text-xs text-gray-500 font-normal">{staff.role}</span>
+                {/* Employee Rows */}
+                {employees.map((emp) => (
+                    <div key={emp.id} className="grid grid-cols-8 border-b last:border-0 hover:bg-gray-50 transition-colors group">
+                        <div className="p-4 font-medium text-gray-900 flex flex-col justify-center text-sm sticky left-0 bg-white group-hover:bg-gray-50 z-10 border-r md:static md:border-r-0">
+                            <span>{emp.name}</span>
+                            <span className="text-xs text-gray-500 font-normal">{emp.role}</span>
                         </div>
-                        {staff.shiftTypes.map((type, dayIdx) => {
-                            const style = getShiftStyle(type);
+                        
+                        {weekDays.map((day, idx) => {
+                            const shiftCode = getShift(emp.id, day);
+                            const style = getShiftStyle(shiftCode);
                             const Icon = style.icon;
+                            
                             return (
-                                <div key={dayIdx} className="border-l p-1 sm:p-2 h-24">
-                                    <div className={`w-full h-full rounded-lg flex flex-col items-center justify-center text-xs font-medium border transition-all hover:scale-[1.02] hover:shadow-md cursor-pointer ${style.bg} ${style.text} ${style.border}`}>
+                                <div key={idx} className="border-l p-1 sm:p-2 h-24 relative">
+                                    <div 
+                                        onClick={() => handleCellClick(emp, day)}
+                                        className={`w-full h-full rounded-lg flex flex-col items-center justify-center text-xs font-medium border transition-all ${isAdmin ? 'cursor-pointer hover:shadow-md hover:scale-[1.02]' : ''} ${style.bg} ${style.text} ${style.border}`}
+                                    >
                                         {Icon ? (
                                             <>
                                                 <Icon size={18} className="mb-1 opacity-80"/>
-                                                <span className="font-bold">{type}</span>
-                                                <span className="text-[9px] text-center mt-0.5 px-1 leading-tight opacity-80">{style.label}</span>
+                                                <span className="font-bold">{shiftCode}</span>
+                                                <span className="text-[9px] text-center mt-0.5 px-1 leading-tight opacity-80">{getShiftLabel(shiftCode)}</span>
                                             </>
                                         ) : (
-                                            <span className="text-gray-300">--</span>
+                                            <span className="text-gray-300 text-[10px] uppercase font-bold">Nghỉ</span>
                                         )}
                                     </div>
                                 </div>
@@ -120,6 +168,45 @@ export const ScheduleView: React.FC = () => {
                 ))}
             </div>
         </div>
+
+        {/* ASSIGN SHIFT MODAL */}
+        {isModalOpen && editingCell && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in zoom-in duration-200">
+                    <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+                        <div>
+                            <h3 className="font-bold text-gray-900">Xếp Ca Làm Việc</h3>
+                            <p className="text-xs text-gray-500">{editingCell.empName} • {editingCell.dateStr}</p>
+                        </div>
+                        <button onClick={() => setIsModalOpen(false)}><X size={20} className="text-gray-500 hover:text-gray-800"/></button>
+                    </div>
+                    <div className="p-4 grid gap-3">
+                        <button 
+                            onClick={() => handleSelectShift('OFF')}
+                            className={`p-3 rounded-xl border flex items-center justify-between hover:bg-gray-50 ${editingCell.currentShift === 'OFF' ? 'border-gray-400 bg-gray-100 ring-1 ring-gray-400' : 'border-gray-200'}`}
+                        >
+                            <span className="font-bold text-gray-600">Nghỉ (OFF)</span>
+                        </button>
+
+                        {settings.shiftConfigs.map(shift => (
+                            <button 
+                                key={shift.code}
+                                onClick={() => handleSelectShift(shift.code)}
+                                className={`p-3 rounded-xl border flex items-center justify-between hover:bg-gray-50 transition-all ${editingCell.currentShift === shift.code ? 'border-teal-500 bg-teal-50 ring-1 ring-teal-500' : 'border-gray-200'}`}
+                            >
+                                <div>
+                                    <div className="font-bold text-gray-800">{shift.name}</div>
+                                    <div className="text-xs text-gray-500 mt-1">
+                                        {shift.isSplitShift ? `${shift.startTime}-${shift.breakStart} & ${shift.breakEnd}-${shift.endTime}` : `${shift.startTime} - ${shift.endTime}`}
+                                    </div>
+                                </div>
+                                {editingCell.currentShift === shift.code && <div className="w-3 h-3 rounded-full bg-teal-500"></div>}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

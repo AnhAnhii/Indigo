@@ -1,6 +1,6 @@
 
 // --- CẤU HÌNH LIÊN KẾT GOOGLE SHEET ---
-const HARDCODED_API_URL: string = "https://script.google.com/macros/s/AKfycbwAM5CEcW-EnR5ZOyxln-w8iJugwXah1Zt91ptiyGY-1kanetXFzEvhGWyhkebjHi4L/exec"; 
+const HARDCODED_API_URL: string = "https://script.google.com/macros/s/AKfycbyvvVN6jTx3HGONBGfge7OXHD7IXkL2xTCP97qnxNtHO72efA5s4TVBknGpyOCmWa4w/exec"; 
 
 export const sheetService = {
     getApiUrl: () => {
@@ -73,6 +73,10 @@ export const sheetService = {
         await sheetService.postData('SYNC_GROUP', groupData);
     },
 
+    deleteServingGroup: async (id: string) => {
+        await sheetService.postData('DELETE_GROUP', { id });
+    },
+
     // --- REQUESTS ---
     syncRequest: async (requestData: any) => {
         await sheetService.postData('SYNC_REQUEST', requestData);
@@ -86,5 +90,10 @@ export const sheetService = {
     // --- HANDOVER ---
     logHandover: async (handoverData: any) => {
         await sheetService.postData('LOG_HANDOVER', handoverData);
+    },
+
+    // --- SCHEDULES ---
+    syncSchedule: async (scheduleData: any) => {
+        await sheetService.postData('SYNC_SCHEDULE', scheduleData);
     }
 };

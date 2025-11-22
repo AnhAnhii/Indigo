@@ -84,6 +84,14 @@ export interface ShiftConfig {
     breakEnd?: string;     
 }
 
+// NEW: Lịch làm việc cụ thể (Assigned Shift)
+export interface WorkSchedule {
+    id: string;
+    employeeId: string;
+    date: string; // YYYY-MM-DD
+    shiftCode: string; // Code from ShiftConfig or 'OFF'
+}
+
 export enum RequestType {
   LEAVE = 'Xin nghỉ phép',
   SHIFT_SWAP = 'Xin đổi ca',
@@ -181,6 +189,7 @@ export interface ServingGroup {
     location: string;
     guestCount: number; 
     startTime: string; 
+    date: string; // Added date field for History
     items: ServingItem[];
     status: 'ACTIVE' | 'COMPLETED';
     tableCount?: number;

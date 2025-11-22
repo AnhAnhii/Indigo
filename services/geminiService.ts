@@ -29,7 +29,8 @@ const getAiInstance = () => {
   const apiKey = getApiKey();
   if (!apiKey) {
       console.error("CRITICAL ERROR: Không tìm thấy API Key. Vui lòng cấu hình VITE_API_KEY trong Vercel Settings.");
-      alert("Lỗi Hệ Thống: Chưa cấu hình API Key AI. Vui lòng liên hệ kỹ thuật viên.");
+      // alert("Lỗi Hệ Thống: Chưa cấu hình API Key AI. Vui lòng liên hệ kỹ thuật viên."); 
+      // Comment alert to prevent spamming user if key is missing
       return null;
   }
   return new GoogleGenAI({ apiKey });
@@ -63,39 +64,48 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
         const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
         const prompt = `
-            Bạn là Captain nhà hàng chuyên xử lý thực đơn viết tay.
+            Bạn là Captain (Đội trưởng) nhà hàng chuyên xử lý Order viết tay.
             
-            NHIỆM VỤ: Trích xuất dữ liệu từ ảnh thực đơn viết tay.
+            NHIỆM VỤ: Trích xuất dữ liệu JSON từ ảnh thực đơn.
             
-            QUY TẮC ĐỌC SỐ BÀN (QUAN TRỌNG NHẤT):
-            - Tìm các ký hiệu như "x8", "x 8" ở đầu tờ giấy hoặc cạnh số khách. Đó là TỔNG SỐ BÀN.
-            - Tìm các phép chia bàn như "1 x 5", "7 x 4" (nghĩa là 1 bàn 5 và 7 bàn 4). TỔNG SỐ BÀN = 1 + 7 = 8.
-            - Nếu tìm thấy thông tin này, hãy điền vào trường "tableCount".
+            1. XÁC ĐỊNH VỊ TRÍ / SỐ BÀN (QUAN TRỌNG - LOCATION):
+            - Nhìn vào PHẦN ĐẦU (Header) của tờ giấy.
+            - Tìm các mã bàn viết tay thường là: A1, A2, B1, B2, C1, C2...
+            - Nếu có dải bàn gộp, hãy lấy toàn bộ. Ví dụ: "A1 (1->5)", "B2 (1-4)", "C1 + C2".
+            - Nếu không xác định được dải số, chỉ cần lấy mã khu vực (VD: "A1", "B2").
+            - Điền vào trường "location".
 
-            QUY TẮC ĐỌC PAX (KHÁCH):
-            - Tìm dòng chứa chữ "Pax". Ví dụ "33 pax Do Thái".
-            - "guestCount": 33.
-            - "groupName": Trích xuất toàn bộ dòng này ("33 pax Do Thái") để hệ thống xử lý loại khách sau này.
-            - BỎ QUA các dòng tên công ty hoặc tên người ở dòng dưới (ví dụ "Mr.Hiep (VN247)" -> Đừng quan tâm).
+            2. XÁC ĐỊNH SỐ LƯỢNG BÀN (TABLE COUNT):
+            - Tìm ký hiệu nhân số lượng bàn như "x8", "x 8", "8 bàn".
+            - Tìm các phép chia bàn như "1 x 5" (1 bàn 5), "3 x 4" (3 bàn 4).
+            - Tính tổng số bàn. Ví dụ "1x5 + 3x4" => tableCount = 4. "x8" => tableCount = 8.
+            - Điền vào trường "tableCount".
 
-            QUY TẮC MÓN ĂN:
-            - BỎ QUA dòng bắt đầu bằng "NB:", "N.B", "Lưu ý" (Ví dụ "NB: Lẩu gà & tầm" là ghi chú bếp, không phải món khách gọi).
-            - Món Chung (Lẩu, Gà, Cá, Rau...): Nếu không ghi số lượng, mặc định số lượng = TỔNG SỐ BÀN.
-            - Món Riêng (Súp, Suất...): Số lượng = TỔNG SỐ KHÁCH.
-            
-            OUTPUT JSON FORMAT:
+            3. XÁC ĐỊNH KHÁCH (PAX):
+            - Tìm dòng chứa chữ "Pax" (VD: "33 pax Do Thái").
+            - Tách số khách vào "guestCount" (VD: 33).
+            - Lấy toàn bộ dòng đó vào "groupName" để sau này phân tích loại khách (Âu/Á/Hàn...).
+            - BỎ QUA tên người dẫn đoàn hoặc tên công ty (VD: Mr.Hiep, VN247...).
+
+            4. DANH SÁCH MÓN ĂN:
+            - BỎ QUA tuyệt đối các dòng: "NB:", "N.B", "Lưu ý", "Nội bộ".
+            - Món Chung (Lẩu, Gà, Cá, Rau, Mẹt...): Nếu không ghi số lượng cụ thể, Số lượng = TABLE COUNT.
+            - Món Riêng (Súp, Suất, Bát...): Số lượng = GUEST COUNT.
+            - Món có số lượng cụ thể (VD: "4 Khoai"): Số lượng = 4.
+
+            OUTPUT JSON FORMAT (Array of objects):
             [
                 {
                     "groupName": "33 pax Do Thái",
-                    "location": "Vị trí/Phòng",
+                    "location": "A1 (1->5)", 
                     "guestCount": 33,
-                    "tableCount": 8, (Số bàn tìm được)
+                    "tableCount": 8,
                     "items": [
                         { "name": "Khoai lang chiên", "quantity": 4, "unit": "Đĩa" }
                     ]
                 }
             ]
-            Chỉ trả về JSON thuần túy. Không thêm markdown block như \`\`\`json.
+            Chỉ trả về JSON.
         `;
 
         const response = await ai.models.generateContent({
@@ -112,16 +122,29 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
         });
 
         const text = response.text || "[]";
-        // Clean potential markdown syntax
-        const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        // Logic trích xuất JSON thông minh từ lời dẫn của AI
+        let jsonString = text;
         
-        const jsonMatch = cleanText.match(/\[.*\]/s);
-        const jsonString = jsonMatch ? jsonMatch[0] : cleanText;
+        // 1. Thử tìm mảng JSON [ ... ]
+        const arrayMatch = text.match(/\[\s*\{.*\}\s*\]/s);
+        if (arrayMatch) {
+            jsonString = arrayMatch[0];
+        } else {
+            // 2. Nếu không thấy mảng, thử tìm object { ... } và bọc vào mảng
+            const objectMatch = text.match(/\{.*\}/s);
+            if (objectMatch) {
+                jsonString = `[${objectMatch[0]}]`;
+            } else {
+                // 3. Cố gắng clean markdown
+                jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
+            }
+        }
         
         try {
             return JSON.parse(jsonString);
         } catch (e) {
-            console.error("JSON Parse Error:", e, "Raw text:", text);
+            console.error("JSON Parse Error:", e);
+            console.log("Raw AI Text:", text);
             return [];
         }
     } catch (error) {

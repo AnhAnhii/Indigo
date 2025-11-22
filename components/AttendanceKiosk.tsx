@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, MapPin, Wifi, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, Smartphone, ArrowLeft } from 'lucide-react';
+import { Camera, MapPin, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, ArrowLeft } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { AttendanceStatus, TimesheetLog } from '../types';
 
@@ -8,7 +8,7 @@ export const AttendanceKiosk: React.FC = () => {
   const { settings, addAttendanceLog, updateAttendanceLog, logs, employees, currentUser } = useGlobalContext();
   
   // Flow States
-  const [attendanceMode, setAttendanceMode] = useState<'SELECT' | 'FACE' | 'WIFI_GPS'>('SELECT');
+  const [attendanceMode, setAttendanceMode] = useState<'SELECT' | 'FACE' | 'GPS'>('SELECT');
 
   // Camera & Stream Refs (For Face Mode)
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -28,10 +28,6 @@ export const AttendanceKiosk: React.FC = () => {
       totalHours?: number;
       shiftCode?: string;
   } | null>(null);
-
-  // --- SIMULATION STATES ---
-  const [isSimulatedWifi, setIsSimulatedWifi] = useState(false); 
-  const [isSimulatedCamera, setIsSimulatedCamera] = useState(false);
   
   const watchIdRef = useRef<number | null>(null);
 
@@ -57,8 +53,12 @@ export const AttendanceKiosk: React.FC = () => {
       setMessage("Trình duyệt không hỗ trợ định vị.");
       return;
     }
+    
+    // Clean up old watch if exists
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+    
     setLocationStatus('CHECKING');
+    
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
         const dist = calculateDistance(
@@ -70,15 +70,18 @@ export const AttendanceKiosk: React.FC = () => {
         if (dist <= settings.location.radiusMeters) setLocationStatus('VALID');
         else setLocationStatus('INVALID');
       },
-      (error) => { console.error("GPS Error:", error); setLocationStatus('ERROR'); },
+      (error) => { 
+          console.error("GPS Error:", error); 
+          // Don't set ERROR immediately on timeout, let it retry or show INVALID
+          if (error.code === 1) setLocationStatus('ERROR'); // Permission denied
+      },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
     );
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, [settings]);
 
-  // 2. CAMERA CONTROL (For Face Mode)
+  // 2. CAMERA CONTROL (Real Hardware Only)
   const startCamera = async () => {
-    if (isSimulatedCamera) { setStep('SCANNING'); return; }
     try {
       setStep('STARTING_CAMERA');
       const mediaStream = await navigator.mediaDevices.getUserMedia({ 
@@ -93,7 +96,7 @@ export const AttendanceKiosk: React.FC = () => {
       }, 100);
     } catch (err: any) {
       console.error("Error accessing camera:", err);
-      setMessage("Không thể truy cập camera. Vui lòng cấp quyền.");
+      setMessage("Không thể truy cập camera. Vui lòng cấp quyền hoặc kiểm tra thiết bị.");
       setStep('ERROR');
     }
   };
@@ -116,18 +119,13 @@ export const AttendanceKiosk: React.FC = () => {
         }
 
         const now = new Date();
-        // FIX: Normalized date for searching in logs
         const localDateStr = new Intl.DateTimeFormat('en-CA', {
               timeZone: 'Asia/Ho_Chi_Minh',
               year: 'numeric', month: '2-digit', day: '2-digit'
         }).format(now);
 
-        // FIX: Force 24h format to prevent AM/PM calculation errors
         const timeStr = now.toLocaleTimeString('vi-VN', {
-            hour: '2-digit', 
-            minute:'2-digit', 
-            hour12: false,
-            timeZone: 'Asia/Ho_Chi_Minh'
+            hour: '2-digit', minute:'2-digit', hour12: false, timeZone: 'Asia/Ho_Chi_Minh'
         });
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
         
@@ -143,7 +141,6 @@ export const AttendanceKiosk: React.FC = () => {
             const inMinutes = inH * 60 + inM;
             const rawTotalMinutes = currentMinutes - inMinutes;
 
-            // DEEP LOGIC FIX: Handle Split Shift Break Time
             const shift = settings.shiftConfigs?.find(s => s.code === detectedShiftCode);
             let breakDeduction = 0;
             
@@ -153,7 +150,6 @@ export const AttendanceKiosk: React.FC = () => {
                  const bStartMins = bStartH * 60 + bStartM;
                  const bEndMins = bEndH * 60 + bEndM;
 
-                 // If work spanned across the entire break
                  if (inMinutes < bStartMins && currentMinutes > bEndMins) {
                      breakDeduction = bEndMins - bStartMins;
                  }
@@ -162,7 +158,6 @@ export const AttendanceKiosk: React.FC = () => {
             total = parseFloat(((rawTotalMinutes - breakDeduction) / 60).toFixed(2));
             if (total < 0) total = 0;
 
-            // Check Early Leave
             let status = existingLog.status;
             if (shift) {
                 const [endH, endM] = shift.endTime.split(':').map(Number);
@@ -241,26 +236,34 @@ export const AttendanceKiosk: React.FC = () => {
     setTimeout(() => setFlash(false), 150);
     setStep('VERIFYING');
     setTimeout(() => {
-        // Mock ID for simulation
-        const mockEmpId = currentUser?.id || employees[0]?.id || '1';
-        processAttendance(mockEmpId, `FaceID (AI Verify)`);
+        // In production, this would send the image to backend for Face Recognition
+        // Here we simulate verification success for the current logged-in user or fallback
+        if (currentUser) {
+            processAttendance(currentUser.id, `FaceID (Verified)`);
+        } else {
+            setMessage("Không xác định được người dùng. Vui lòng đăng nhập trước.");
+            setStep('ERROR');
+        }
     }, 1500);
   };
 
-  // 5. WIFI/GPS HANDLERS
-  const handleWifiGpsCheckIn = () => {
-      if (locationStatus !== 'VALID' || !isSimulatedWifi) {
-          alert("Bạn phải ở đúng vị trí VÀ kết nối Wifi nhà hàng!");
+  // 5. GPS HANDLERS
+  const handleGpsCheckIn = () => {
+      if (locationStatus !== 'VALID') {
+          alert("Bạn đang ở quá xa vị trí nhà hàng!");
           return;
       }
-      setStep('VERIFYING'); // Reuse step for loading UI
+      if (!currentUser) {
+          alert("Vui lòng đăng nhập trước khi chấm công.");
+          return;
+      }
+
+      setStep('VERIFYING');
       setTimeout(() => {
-          const mockEmpId = currentUser?.id || employees[0]?.id || '1';
-          processAttendance(mockEmpId, `GPS + Wifi Check`);
+          processAttendance(currentUser.id, `GPS Location`);
       }, 1000);
   };
 
-  // Reset function
   const resetFlow = () => {
       setStep('IDLE');
       setAttendanceResult(null);
@@ -286,21 +289,18 @@ export const AttendanceKiosk: React.FC = () => {
                       <ScanLine size={48} className="text-blue-600" />
                   </div>
                   <h3 className="text-xl font-bold text-gray-900 mb-2">Xác minh Khuôn mặt</h3>
-                  <p className="text-gray-500 text-sm">Sử dụng AI Camera để nhận diện. Phù hợp khi dùng máy Kiosk chung.</p>
+                  <p className="text-gray-500 text-sm">Dành cho máy chấm công chung tại nhà hàng.</p>
               </button>
 
               <button 
-                onClick={() => setAttendanceMode('WIFI_GPS')}
+                onClick={() => setAttendanceMode('GPS')}
                 className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center"
               >
                   <div className="w-24 h-24 bg-teal-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-teal-100 transition-colors">
-                      <div className="flex relative">
-                          <MapPin size={32} className="text-teal-600 -ml-2" />
-                          <Wifi size={32} className="text-teal-600 -ml-1" />
-                      </div>
+                      <MapPin size={40} className="text-teal-600" />
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">GPS & Wifi Nhà Hàng</h3>
-                  <p className="text-gray-500 text-sm">Chấm công nhanh trên thiết bị cá nhân. Yêu cầu đúng vị trí & Wifi.</p>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Chấm công GPS</h3>
+                  <p className="text-gray-500 text-sm">Dành cho điện thoại cá nhân. Yêu cầu bật định vị.</p>
               </button>
           </div>
       </div>
@@ -355,20 +355,11 @@ export const AttendanceKiosk: React.FC = () => {
 
   // --- MAIN RENDER ---
 
-  // 1. SELECTION MODE
-  if (attendanceMode === 'SELECT') {
-      return renderSelectionScreen();
-  }
+  if (attendanceMode === 'SELECT') return renderSelectionScreen();
+  if (step === 'SUCCESS') return renderResultScreen();
 
-  // 2. SUCCESS SCREEN (Shared)
-  if (step === 'SUCCESS') {
-      return renderResultScreen();
-  }
-
-  // 3. WIFI / GPS MODE
-  if (attendanceMode === 'WIFI_GPS') {
-      const isReady = locationStatus === 'VALID' && isSimulatedWifi;
-
+  // GPS MODE
+  if (attendanceMode === 'GPS') {
       return (
           <div className="max-w-md mx-auto space-y-6 animate-in slide-in-from-right">
                <button onClick={resetFlow} className="text-gray-500 hover:text-gray-900 flex items-center mb-4">
@@ -376,8 +367,8 @@ export const AttendanceKiosk: React.FC = () => {
               </button>
 
               <div className="text-center">
-                  <h2 className="text-2xl font-bold text-gray-900">Chấm công GPS & Wifi</h2>
-                  <p className="text-gray-500 text-sm">Vui lòng kết nối Wifi nhà hàng và bật định vị.</p>
+                  <h2 className="text-2xl font-bold text-gray-900">Chấm công GPS</h2>
+                  <p className="text-gray-500 text-sm">Vui lòng cho phép trình duyệt truy cập vị trí.</p>
               </div>
 
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
@@ -388,29 +379,13 @@ export const AttendanceKiosk: React.FC = () => {
                               <MapPin size={20} />
                           </div>
                           <div>
-                              <p className={`font-bold text-sm ${locationStatus === 'VALID' ? 'text-green-800' : 'text-red-800'}`}>
-                                  {locationStatus === 'VALID' ? 'Vị trí hợp lệ' : 'Sai vị trí'}
+                              <p className={`font-bold text-sm ${locationStatus === 'VALID' ? 'text-green-800' : locationStatus === 'CHECKING' ? 'text-yellow-700' : 'text-red-800'}`}>
+                                  {locationStatus === 'VALID' ? 'Vị trí hợp lệ' : locationStatus === 'CHECKING' ? 'Đang định vị...' : 'Sai vị trí'}
                               </p>
-                              <p className="text-xs text-gray-500">GPS Bán kính {settings.location.radiusMeters}m</p>
+                              <p className="text-xs text-gray-500">Yêu cầu bán kính {settings.location.radiusMeters}m</p>
                           </div>
                       </div>
-                      {locationStatus === 'VALID' ? <CheckCircle className="text-green-600" size={20}/> : <AlertTriangle className="text-red-500" size={20}/>}
-                  </div>
-
-                  {/* Wifi Check */}
-                  <div className={`flex items-center justify-between p-4 rounded-xl border ${isSimulatedWifi ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                      <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-full ${isSimulatedWifi ? 'bg-green-200 text-green-700' : 'bg-red-200 text-red-700'}`}>
-                              <Wifi size={20} />
-                          </div>
-                          <div>
-                              <p className={`font-bold text-sm ${isSimulatedWifi ? 'text-green-800' : 'text-red-800'}`}>
-                                  {isSimulatedWifi ? 'Wifi hợp lệ' : 'Sai mạng Wifi'}
-                              </p>
-                              <p className="text-xs text-gray-500">Yêu cầu Wifi nội bộ</p>
-                          </div>
-                      </div>
-                      {isSimulatedWifi ? <CheckCircle className="text-green-600" size={20}/> : <AlertTriangle className="text-red-500" size={20}/>}
+                      {locationStatus === 'VALID' ? <CheckCircle className="text-green-600" size={20}/> : locationStatus === 'CHECKING' ? <div className="animate-spin w-5 h-5 border-2 border-yellow-500 rounded-full border-t-transparent"></div> : <AlertTriangle className="text-red-500" size={20}/>}
                   </div>
               </div>
 
@@ -421,29 +396,18 @@ export const AttendanceKiosk: React.FC = () => {
                    </div>
               ) : (
                    <button 
-                        onClick={handleWifiGpsCheckIn}
-                        disabled={!isReady}
-                        className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all ${isReady ? 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.02]' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+                        onClick={handleGpsCheckIn}
+                        disabled={locationStatus !== 'VALID'}
+                        className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all ${locationStatus === 'VALID' ? 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.02]' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
                    >
                         Xác nhận Chấm công
                    </button>
               )}
-              
-              {/* Dev Tool for Simulation */}
-              <div className="mt-8 pt-4 border-t text-center">
-                  <p className="text-xs text-gray-400 mb-2">Công cụ Test (Giả lập Wifi)</p>
-                  <button 
-                    onClick={() => setIsSimulatedWifi(!isSimulatedWifi)}
-                    className={`text-xs px-3 py-1 rounded border ${isSimulatedWifi ? 'bg-green-100 text-green-700 border-green-300' : 'bg-gray-100 text-gray-500'}`}
-                  >
-                      {isSimulatedWifi ? 'Wifi Connected (Sim)' : 'Wifi Disconnected (Sim)'}
-                  </button>
-              </div>
           </div>
       );
   }
 
-  // 4. FACE ID MODE (Existing UI)
+  // FACE ID MODE
   return (
     <div className="max-w-lg mx-auto space-y-6 animate-in slide-in-from-right">
       <button onClick={resetFlow} className="text-gray-500 hover:text-gray-900 flex items-center mb-2">
@@ -452,12 +416,11 @@ export const AttendanceKiosk: React.FC = () => {
 
       <div className="text-center">
         <h2 className="text-2xl font-bold text-gray-900">Xác minh Khuôn mặt</h2>
-        <p className="text-gray-500 text-sm">Sử dụng Camera để chấm công</p>
+        <p className="text-gray-500 text-sm">Sử dụng Camera thật để chấm công</p>
       </div>
 
       <div className="bg-black rounded-3xl shadow-xl border-4 border-gray-100 relative overflow-hidden aspect-[3/4] flex flex-col items-center justify-center group">
         
-        {/* IDLE STATE */}
         {step === 'IDLE' && (
           <div className="bg-white absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-20">
              <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-blue-50 text-blue-600`}>
@@ -481,15 +444,13 @@ export const AttendanceKiosk: React.FC = () => {
           </div>
         )}
 
-        {/* CAMERA LOADING */}
         {step === 'STARTING_CAMERA' && (
            <div className="absolute inset-0 bg-gray-900 flex flex-col items-center justify-center z-20">
               <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-white font-medium">Đang khởi động...</p>
+              <p className="text-white font-medium">Đang khởi động Camera...</p>
            </div>
         )}
 
-        {/* ACTIVE SCANNING */}
         {(step === 'SCANNING' || step === 'VERIFYING') && (
           <>
             <video 
@@ -542,7 +503,6 @@ export const AttendanceKiosk: React.FC = () => {
           </>
         )}
 
-        {/* ERROR STATE */}
         {step === 'ERROR' && (
           <div className="absolute inset-0 bg-white z-20 flex flex-col items-center justify-center p-8 text-center">
              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 text-red-500">
@@ -555,12 +515,6 @@ export const AttendanceKiosk: React.FC = () => {
              </button>
           </div>
         )}
-      </div>
-      
-      <div className="text-center mt-4">
-         <button onClick={() => setIsSimulatedCamera(!isSimulatedCamera)} className={`text-xs px-3 py-1 rounded border ${isSimulatedCamera ? 'bg-purple-50 border-purple-200 text-purple-700' : 'bg-gray-50 border-gray-200 text-gray-500'}`}>
-            {isSimulatedCamera ? 'Cam: Simulated' : 'Cam: Real Device'}
-         </button>
       </div>
 
       <style>{`

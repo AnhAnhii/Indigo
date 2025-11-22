@@ -84,11 +84,6 @@ export const LoginScreen: React.FC = () => {
                </form>
            )}
         </div>
-
-        {/* Footer */}
-        <div className="p-6 text-center bg-gray-50 text-xs text-gray-400 border-t border-gray-100">
-           Mật khẩu mặc định: <span className="font-mono font-bold text-gray-600">123456</span>
-        </div>
       </div>
     </div>
   );
