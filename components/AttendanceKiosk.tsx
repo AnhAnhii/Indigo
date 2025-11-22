@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Camera, MapPin, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, ArrowLeft } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { AttendanceStatus, TimesheetLog } from '../types';
+import { verifyFaceIdentity } from '../services/geminiService';
 
 export const AttendanceKiosk: React.FC = () => {
   const { settings, addAttendanceLog, updateAttendanceLog, logs, employees, currentUser } = useGlobalContext();
@@ -67,20 +68,45 @@ export const AttendanceKiosk: React.FC = () => {
           settings.location.latitude,
           settings.location.longitude
         );
-        if (dist <= settings.location.radiusMeters) setLocationStatus('VALID');
-        else setLocationStatus('INVALID');
+        if (dist <= settings.location.radiusMeters) {
+            setLocationStatus('VALID');
+            setMessage(""); // Clear error if valid
+        } else {
+            setLocationStatus('INVALID');
+            setMessage(`Bạn đang ở cách vị trí cho phép ${Math.round(dist)}m (Yêu cầu < ${settings.location.radiusMeters}m)`);
+        }
       },
       (error) => { 
-          console.error("GPS Error:", error); 
-          // Don't set ERROR immediately on timeout, let it retry or show INVALID
-          if (error.code === 1) setLocationStatus('ERROR'); // Permission denied
+          console.error(`GPS Error: ${error.code} - ${error.message}`);
+          
+          if (error.code === 1) { // PERMISSION_DENIED
+              setLocationStatus('ERROR');
+              setMessage("Vui lòng cấp quyền truy cập vị trí cho trình duyệt và thử lại.");
+          } else if (error.code === 2) { // POSITION_UNAVAILABLE
+              // Often transient, keep checking but warn user
+              // setLocationStatus('ERROR'); 
+              setMessage("Không thể xác định vị trí. Vui lòng kiểm tra GPS/Wifi.");
+          } else if (error.code === 3) { // TIMEOUT
+              console.warn("GPS Timeout - Retrying...");
+              // Don't set ERROR, let it retry
+          } else {
+              setLocationStatus('ERROR');
+              setMessage(`Lỗi định vị: ${error.message}`);
+          }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
     );
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, [settings]);
 
   // 2. CAMERA CONTROL (Real Hardware Only)
+  // Robust Camera Handling Logic
+  useEffect(() => {
+      if (stream && videoRef.current) {
+          videoRef.current.srcObject = stream;
+      }
+  }, [stream]);
+
   const startCamera = async () => {
     try {
       setStep('STARTING_CAMERA');
@@ -88,12 +114,8 @@ export const AttendanceKiosk: React.FC = () => {
         video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } 
       });
       setStream(mediaStream);
-      setTimeout(() => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = mediaStream;
-            setStep('SCANNING');
-          }
-      }, 100);
+      // We do NOT set 'SCANNING' here anymore. 
+      // We wait for the video 'onCanPlay' event to ensure stream is actually ready.
     } catch (err: any) {
       console.error("Error accessing camera:", err);
       setMessage("Không thể truy cập camera. Vui lòng cấp quyền hoặc kiểm tra thiết bị.");
@@ -102,14 +124,17 @@ export const AttendanceKiosk: React.FC = () => {
   };
 
   const stopCamera = useCallback(() => {
-    if (stream) { stream.getTracks().forEach(track => track.stop()); setStream(null); }
+    if (stream) { 
+        stream.getTracks().forEach(track => track.stop()); 
+        setStream(null); 
+    }
   }, [stream]);
 
   useEffect(() => { 
       return () => stopCamera(); 
   }, [stopCamera]);
 
-  // 3. ATTENDANCE LOGIC (CORE)
+  // 3. ATTENDANCE LOGIC (CORE - FIXED)
   const processAttendance = (employeeId: string, verifiedMethod: string) => {
         const employee = employees.find(e => e.id === employeeId);
         if (!employee) {
@@ -119,6 +144,7 @@ export const AttendanceKiosk: React.FC = () => {
         }
 
         const now = new Date();
+        // Ensure Date matches GlobalContext format
         const localDateStr = new Intl.DateTimeFormat('en-CA', {
               timeZone: 'Asia/Ho_Chi_Minh',
               year: 'numeric', month: '2-digit', day: '2-digit'
@@ -129,15 +155,20 @@ export const AttendanceKiosk: React.FC = () => {
         });
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
         
-        const existingLog = logs.find(l => l.employeeName === employee.name && l.date === localDateStr);
-        
+        // CRITICAL FIX: Prioritize finding an OPEN log (no checkOut) for today.
+        const openLog = logs.find(l => 
+            l.employeeName === employee.name && 
+            l.date === localDateStr && 
+            !l.checkOut
+        );
+
         let finalStatus: 'CHECK_IN' | 'CHECK_OUT' = 'CHECK_IN';
         let total = 0;
-        let detectedShiftCode = existingLog?.shiftCode || '';
+        let detectedShiftCode = openLog?.shiftCode || '';
 
-        if (existingLog && !existingLog.checkOut) {
-            // CHECK OUT LOGIC
-            const [inH, inM] = existingLog.checkIn ? existingLog.checkIn.split(':').map(Number) : [0,0];
+        if (openLog) {
+            // --- CHECK OUT LOGIC (Processing the Open Log) ---
+            const [inH, inM] = openLog.checkIn ? openLog.checkIn.split(':').map(Number) : [0,0];
             const inMinutes = inH * 60 + inM;
             const rawTotalMinutes = currentMinutes - inMinutes;
 
@@ -150,6 +181,8 @@ export const AttendanceKiosk: React.FC = () => {
                  const bStartMins = bStartH * 60 + bStartM;
                  const bEndMins = bEndH * 60 + bEndM;
 
+                 // If shift spans across the break time, deduct it (Morning to Evening case)
+                 // If it's just a segment (Morning only or Evening only), logic below handles it naturally
                  if (inMinutes < bStartMins && currentMinutes > bEndMins) {
                      breakDeduction = bEndMins - bStartMins;
                  }
@@ -158,17 +191,29 @@ export const AttendanceKiosk: React.FC = () => {
             total = parseFloat(((rawTotalMinutes - breakDeduction) / 60).toFixed(2));
             if (total < 0) total = 0;
 
-            let status = existingLog.status;
+            let status = openLog.status;
             if (shift) {
-                const [endH, endM] = shift.endTime.split(':').map(Number);
-                const endMinutes = endH * 60 + endM;
-                if (currentMinutes < endMinutes - 15) { 
+                // Logic về sớm: Check nếu ra trước giờ về quy định
+                // Với ca gãy, ta cần xem đây là ca sáng hay ca tối
+                let targetEndTimeMinutes = 0;
+                if (shift.isSplitShift && shift.breakStart && currentMinutes < (16 * 60)) {
+                    // Nếu đang ở buổi sáng (trước 16:00), thì giờ về chuẩn là breakStart (14:00)
+                    const [bsH, bsM] = shift.breakStart.split(':').map(Number);
+                    targetEndTimeMinutes = bsH * 60 + bsM;
+                } else {
+                    // Nếu là buổi tối hoặc ca thường, giờ về chuẩn là endTime
+                    const [endH, endM] = shift.endTime.split(':').map(Number);
+                    targetEndTimeMinutes = endH * 60 + endM;
+                }
+
+                // Nếu về sớm hơn 15 phút
+                if (currentMinutes < targetEndTimeMinutes - 15) { 
                     status = AttendanceStatus.EARLY_LEAVE;
                 }
             }
 
             const updatedLog: TimesheetLog = {
-                ...existingLog,
+                ...openLog,
                 checkOut: timeStr,
                 totalHours: total,
                 status: status
@@ -176,14 +221,26 @@ export const AttendanceKiosk: React.FC = () => {
             updateAttendanceLog(updatedLog);
             finalStatus = 'CHECK_OUT';
         } else {
-            // CHECK IN LOGIC
+            // --- CHECK IN LOGIC (New Session) ---
             let closestShift = settings.shiftConfigs?.[0];
             let minDiff = Infinity;
 
             settings.shiftConfigs?.forEach(shift => {
+                // Calculate distance to Start Time
                 const [h, m] = shift.startTime.split(':').map(Number);
                 const shiftStartMins = h * 60 + m;
-                const diff = Math.abs(currentMinutes - shiftStartMins);
+                const diffStart = Math.abs(currentMinutes - shiftStartMins);
+
+                let diff = diffStart;
+
+                // For Split Shift, also check distance to Break End (Afternoon Start)
+                if (shift.isSplitShift && shift.breakEnd) {
+                    const [bh, bm] = shift.breakEnd.split(':').map(Number);
+                    const breakEndMins = bh * 60 + bm;
+                    const diffBreak = Math.abs(currentMinutes - breakEndMins);
+                    if (diffBreak < diff) diff = diffBreak;
+                }
+
                 if (diff < minDiff) {
                     minDiff = diff;
                     closestShift = shift;
@@ -191,8 +248,24 @@ export const AttendanceKiosk: React.FC = () => {
             });
 
             detectedShiftCode = closestShift?.code || 'N/A';
-            const [sH, sM] = (closestShift?.startTime || '08:00').split(':').map(Number);
-            const shiftStartMinutes = sH * 60 + sM;
+            
+            // LOGIC TÍNH GIỜ VÀO CHUẨN (TARGET START TIME)
+            // Mặc định là giờ bắt đầu ca (08:00)
+            let [sH, sM] = (closestShift?.startTime || '08:00').split(':').map(Number);
+            let shiftStartMinutes = sH * 60 + sM;
+
+            // QUAN TRỌNG: Nếu là Ca Gãy và giờ hiện tại gần giờ làm chiều (sau 15:30)
+            // Thì mốc so sánh sẽ là giờ Break End (17:00) chứ không phải 08:00 nữa
+            if (closestShift?.isSplitShift && closestShift.breakEnd) {
+                const [beH, beM] = closestShift.breakEnd.split(':').map(Number);
+                const breakEndMins = beH * 60 + beM;
+                
+                // Nếu đang check-in vào buổi chiều (ví dụ từ 15:30 trở đi)
+                if (currentMinutes > (breakEndMins - 90)) {
+                    shiftStartMinutes = breakEndMins;
+                }
+            }
+
             const allowedLate = settings.rules.allowedLateMinutes || 15;
 
             let status = AttendanceStatus.PRESENT;
@@ -231,26 +304,68 @@ export const AttendanceKiosk: React.FC = () => {
   }
 
   // 4. FACE HANDLERS
-  const handleFaceCapture = () => {
+  const handleFaceCapture = async () => {
+    if (!currentUser) {
+        setMessage("Không tìm thấy người dùng đang đăng nhập.");
+        setStep('ERROR');
+        return;
+    }
+
+    // Check if user has a registered face
+    if (!currentUser.avatar || currentUser.avatar.length < 100) {
+        setMessage("Bạn chưa đăng ký khuôn mặt (Face ID). Vui lòng vào trang Cá nhân để đăng ký trước.");
+        setStep('ERROR');
+        return;
+    }
+
+    if (!videoRef.current) return;
+
+    // CAPTURE IMAGE
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
     setStep('VERIFYING');
-    setTimeout(() => {
-        // In production, this would send the image to backend for Face Recognition
-        // Here we simulate verification success for the current logged-in user or fallback
-        if (currentUser) {
-            processAttendance(currentUser.id, `FaceID (Verified)`);
-        } else {
-            setMessage("Không xác định được người dùng. Vui lòng đăng nhập trước.");
-            setStep('ERROR');
+
+    try {
+        const canvas = document.createElement('canvas');
+        // RESIZE CAPTURE FOR AI (Optimization)
+        const MAX_WIDTH = 400;
+        const scale = MAX_WIDTH / videoRef.current.videoWidth;
+        canvas.width = MAX_WIDTH;
+        canvas.height = videoRef.current.videoHeight * scale;
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+            // Compress slightly
+            const capturedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+            // CALL AI VERIFICATION
+            const result = await verifyFaceIdentity(capturedBase64, currentUser.avatar);
+
+            // THRESHOLD CHECK: Chỉ chấp nhận nếu match=true VÀ confidence >= 75%
+            // Điều này chặn các trường hợp AI "ảo giác" với hình ảnh không phải mặt người
+            if (result.match && result.confidence >= 75) {
+                processAttendance(currentUser.id, `FaceID (AI Confidence: ${result.confidence}%)`);
+            } else {
+                setMessage(result.confidence === 0 
+                    ? "Không tìm thấy khuôn mặt! Vui lòng đứng trước camera." 
+                    : `Khuôn mặt không khớp (Độ tin cậy: ${result.confidence}%). Vui lòng thử lại.`);
+                setStep('ERROR');
+            }
         }
-    }, 1500);
+    } catch (e) {
+        console.error(e);
+        setMessage("Lỗi xử lý hình ảnh.");
+        setStep('ERROR');
+    }
   };
 
   // 5. GPS HANDLERS
   const handleGpsCheckIn = () => {
       if (locationStatus !== 'VALID') {
-          alert("Bạn đang ở quá xa vị trí nhà hàng!");
+          // More descriptive alert
+          if (locationStatus === 'ERROR') alert("Lỗi: Không thể xác định vị trí. Vui lòng bật GPS.");
+          else alert(`Bạn đang ở ngoài phạm vi cho phép. ${message}`);
           return;
       }
       if (!currentUser) {
@@ -281,20 +396,10 @@ export const AttendanceKiosk: React.FC = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <button 
-                onClick={() => setAttendanceMode('FACE')}
-                className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center"
-              >
-                  <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-blue-100 transition-colors">
-                      <ScanLine size={48} className="text-blue-600" />
-                  </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Xác minh Khuôn mặt</h3>
-                  <p className="text-gray-500 text-sm">Dành cho máy chấm công chung tại nhà hàng.</p>
-              </button>
-
+              {/* Only GPS is active based on previous request "Remove Face ID option... leaving only GPS/Wifi" */}
               <button 
                 onClick={() => setAttendanceMode('GPS')}
-                className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center"
+                className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center md:col-span-2"
               >
                   <div className="w-24 h-24 bg-teal-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-teal-100 transition-colors">
                       <MapPin size={40} className="text-teal-600" />
@@ -382,7 +487,9 @@ export const AttendanceKiosk: React.FC = () => {
                               <p className={`font-bold text-sm ${locationStatus === 'VALID' ? 'text-green-800' : locationStatus === 'CHECKING' ? 'text-yellow-700' : 'text-red-800'}`}>
                                   {locationStatus === 'VALID' ? 'Vị trí hợp lệ' : locationStatus === 'CHECKING' ? 'Đang định vị...' : 'Sai vị trí'}
                               </p>
-                              <p className="text-xs text-gray-500">Yêu cầu bán kính {settings.location.radiusMeters}m</p>
+                              <p className="text-xs text-gray-500">
+                                  {message ? message : `Yêu cầu bán kính ${settings.location.radiusMeters}m`}
+                              </p>
                           </div>
                       </div>
                       {locationStatus === 'VALID' ? <CheckCircle className="text-green-600" size={20}/> : locationStatus === 'CHECKING' ? <div className="animate-spin w-5 h-5 border-2 border-yellow-500 rounded-full border-t-transparent"></div> : <AlertTriangle className="text-red-500" size={20}/>}
@@ -407,124 +514,5 @@ export const AttendanceKiosk: React.FC = () => {
       );
   }
 
-  // FACE ID MODE
-  return (
-    <div className="max-w-lg mx-auto space-y-6 animate-in slide-in-from-right">
-      <button onClick={resetFlow} className="text-gray-500 hover:text-gray-900 flex items-center mb-2">
-          <ArrowLeft size={20} className="mr-1"/> Quay lại
-      </button>
-
-      <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900">Xác minh Khuôn mặt</h2>
-        <p className="text-gray-500 text-sm">Sử dụng Camera thật để chấm công</p>
-      </div>
-
-      <div className="bg-black rounded-3xl shadow-xl border-4 border-gray-100 relative overflow-hidden aspect-[3/4] flex flex-col items-center justify-center group">
-        
-        {step === 'IDLE' && (
-          <div className="bg-white absolute inset-0 flex flex-col items-center justify-center p-6 text-center z-20">
-             <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 bg-blue-50 text-blue-600`}>
-                <ScanLine size={40} />
-             </div>
-
-             <h3 className="text-xl font-bold text-gray-900 mb-2">
-                 Nhận diện khuôn mặt
-             </h3>
-             <p className="text-gray-500 text-sm mb-8 max-w-[240px]">
-                Đưa khuôn mặt vào khung hình để hệ thống tự động nhận diện.
-             </p>
-
-             <button 
-               onClick={startCamera}
-               className="w-full py-3 rounded-xl font-bold text-white shadow-lg flex items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700"
-             >
-               <Camera size={20} />
-               <span>Kích hoạt Camera</span>
-             </button>
-          </div>
-        )}
-
-        {step === 'STARTING_CAMERA' && (
-           <div className="absolute inset-0 bg-gray-900 flex flex-col items-center justify-center z-20">
-              <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-white font-medium">Đang khởi động Camera...</p>
-           </div>
-        )}
-
-        {(step === 'SCANNING' || step === 'VERIFYING') && (
-          <>
-            <video 
-                ref={videoRef} 
-                autoPlay 
-                muted 
-                className="absolute inset-0 w-full h-full object-cover transform scale-x-[-1]"
-                playsInline
-            />
-            <div className={`absolute inset-0 bg-white z-30 transition-opacity duration-150 pointer-events-none ${flash ? 'opacity-100' : 'opacity-0'}`}></div>
-
-            <div className="absolute inset-0 z-10 flex flex-col justify-between py-8 px-6 pointer-events-none">
-                 <div className="flex justify-center">
-                    <div className="bg-black/60 backdrop-blur-md text-white text-xs font-bold px-4 py-1.5 rounded-full flex items-center gap-2">
-                        <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                        {step === 'VERIFYING' ? 'Đang xác thực...' : 'Giữ khuôn mặt thẳng'}
-                    </div>
-                 </div>
-
-                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64">
-                    <div className="w-full h-full border-2 border-white/50 rounded-3xl relative overflow-hidden">
-                        {step === 'SCANNING' && (
-                             <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-blue-500/0 via-blue-500/20 to-blue-500/0 animate-scan"></div>
-                        )}
-                        <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-blue-500 rounded-tl-2xl"></div>
-                        <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-blue-500 rounded-tr-2xl"></div>
-                        <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-blue-500 rounded-bl-2xl"></div>
-                        <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-blue-500 rounded-br-2xl"></div>
-                    </div>
-                 </div>
-
-                 <div className="flex flex-col items-center gap-4 pointer-events-auto">
-                    {step === 'SCANNING' && (
-                        <button 
-                            onClick={handleFaceCapture}
-                            className="w-16 h-16 bg-white rounded-full border-[6px] border-blue-500/50 hover:border-blue-500 transition-all hover:scale-105 shadow-lg flex items-center justify-center"
-                        >
-                            <div className="w-12 h-12 bg-blue-600 rounded-full"></div>
-                        </button>
-                    )}
-
-                    <button 
-                        onClick={() => { stopCamera(); setStep('IDLE'); }} 
-                        className="text-white text-sm font-medium shadow-black/50 drop-shadow-md hover:opacity-80"
-                    >
-                        Hủy bỏ
-                    </button>
-                 </div>
-            </div>
-          </>
-        )}
-
-        {step === 'ERROR' && (
-          <div className="absolute inset-0 bg-white z-20 flex flex-col items-center justify-center p-8 text-center">
-             <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-4 text-red-500">
-               <AlertTriangle size={32} />
-             </div>
-             <h3 className="text-lg font-bold text-gray-900 mb-2">Thất bại</h3>
-             <p className="text-gray-500 text-sm mb-6">{message}</p>
-             <button onClick={() => setStep('IDLE')} className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg font-medium">
-               Thử lại
-             </button>
-          </div>
-        )}
-      </div>
-
-      <style>{`
-        @keyframes scan {
-            0% { top: 0; opacity: 0; }
-            50% { opacity: 1; }
-            100% { top: 100%; opacity: 0; }
-        }
-        .animate-scan { animation: scan 2s linear infinite; }
-      `}</style>
-    </div>
-  );
+  return null;
 };

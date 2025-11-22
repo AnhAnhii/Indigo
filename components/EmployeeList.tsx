@@ -20,8 +20,8 @@ export const EmployeeList: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState(EmployeeRole.WAITER);
   const [hourlyRate, setHourlyRate] = useState(25000); 
-  const [allowance, setAllowance] = useState(0); // New
-  const [password, setPassword] = useState(''); // New
+  const [allowance, setAllowance] = useState(0); 
+  const [password, setPassword] = useState(''); 
   const [showPassword, setShowPassword] = useState(false);
 
   // Face Registration State
@@ -38,7 +38,7 @@ export const EmployeeList: React.FC = () => {
       setRole(emp.role);
       setHourlyRate(emp.hourlyRate);
       setAllowance(emp.allowance || 0);
-      setPassword(''); // Don't show old password, only set new if needed
+      setPassword(''); 
       setIsModalOpen(true);
   };
 
@@ -50,7 +50,7 @@ export const EmployeeList: React.FC = () => {
       setRole(EmployeeRole.WAITER);
       setHourlyRate(25000);
       setAllowance(0);
-      setPassword('123456'); // Default suggestion
+      setPassword('123456'); 
       setIsModalOpen(true);
   }
 
@@ -60,7 +60,7 @@ export const EmployeeList: React.FC = () => {
           id: editingId || Date.now().toString(),
           name, email, phone, role, hourlyRate, 
           allowance,
-          password: password ? password : undefined // Only update password if entered
+          password: password ? password : undefined 
       };
       if (editingId) updateEmployee(empData);
       else addEmployee(empData);
@@ -99,11 +99,17 @@ export const EmployeeList: React.FC = () => {
   const captureFace = () => {
       if (videoRef.current) {
           const canvas = document.createElement('canvas');
-          canvas.width = videoRef.current.videoWidth;
-          canvas.height = videoRef.current.videoHeight;
+          // RESIZE LOGIC: Giảm kích thước ảnh để vừa với giới hạn Google Sheet (50k ký tự)
+          const MAX_WIDTH = 400;
+          const scale = MAX_WIDTH / videoRef.current.videoWidth;
+          canvas.width = MAX_WIDTH;
+          canvas.height = videoRef.current.videoHeight * scale;
+          
           const ctx = canvas.getContext('2d');
-          ctx?.drawImage(videoRef.current, 0, 0);
-          const base64 = canvas.toDataURL('image/jpeg');
+          ctx?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          
+          // COMPRESSION: Giảm chất lượng xuống 0.6
+          const base64 = canvas.toDataURL('image/jpeg', 0.6);
           
           if (selectedEmployee) {
               registerEmployeeFace(selectedEmployee.id, base64);

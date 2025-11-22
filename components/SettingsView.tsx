@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig } from '../types';
 import { sheetService } from '../services/sheetService';
@@ -14,6 +14,7 @@ export const SettingsView: React.FC = () => {
   const [newWifiSSID, setNewWifiSSID] = useState('');
   const [newWifiBSSID, setNewWifiBSSID] = useState(''); // Added state for BSSID input
   const [showHelpWifi, setShowHelpWifi] = useState(false); // Help Modal State
+  const [isLocating, setIsLocating] = useState(false);
   
   const [sheetUrl, setSheetUrl] = useState('');
 
@@ -57,6 +58,34 @@ export const SettingsView: React.FC = () => {
           ...localSettings,
           shiftConfigs: updatedShifts
       });
+  };
+
+  const handleGetCurrentLocation = () => {
+      if (!navigator.geolocation) {
+          alert("Trình duyệt không hỗ trợ định vị.");
+          return;
+      }
+      setIsLocating(true);
+      navigator.geolocation.getCurrentPosition(
+          (position) => {
+              setLocalSettings({
+                  ...localSettings,
+                  location: {
+                      ...localSettings.location,
+                      latitude: position.coords.latitude,
+                      longitude: position.coords.longitude
+                  }
+              });
+              setIsLocating(false);
+              alert("Đã lấy được tọa độ hiện tại thành công!");
+          },
+          (error) => {
+              console.error(error);
+              alert("Không thể lấy vị trí. Vui lòng kiểm tra quyền truy cập GPS.");
+              setIsLocating(false);
+          },
+          { enableHighAccuracy: true }
+      );
   };
 
   // Safety Check
@@ -199,17 +228,31 @@ export const SettingsView: React.FC = () => {
                 </div>
                 )}
 
-                {/* OTHER TABS (LOCATION, WIFI, DATABASE) - KEEP AS IS */}
+                {/* TAB: LOCATION */}
                 {activeTab === 'LOCATION' && (
                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
-                    <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
-                        <div className="bg-blue-100 p-2 rounded-full text-blue-600">
-                            <Globe size={24} />
+                    <div className="flex items-center justify-between mb-6 pb-4 border-b">
+                        <div className="flex items-center space-x-3">
+                            <div className="bg-blue-100 p-2 rounded-full text-blue-600">
+                                <Globe size={24} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">Vị trí nhà hàng</h3>
+                                <p className="text-sm text-gray-500">Thiết lập bán kính cho phép chấm công GPS.</p>
+                            </div>
                         </div>
-                        <div>
-                            <h3 className="text-lg font-bold text-gray-900">Vị trí nhà hàng</h3>
-                            <p className="text-sm text-gray-500">Thiết lập bán kính cho phép chấm công GPS.</p>
-                        </div>
+                        <button 
+                            onClick={handleGetCurrentLocation}
+                            disabled={isLocating}
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow hover:bg-blue-700 flex items-center"
+                        >
+                            {isLocating ? (
+                                <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                            ) : (
+                                <Crosshair size={16} className="mr-2" />
+                            )}
+                            Lấy tọa độ hiện tại
+                        </button>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -223,32 +266,33 @@ export const SettingsView: React.FC = () => {
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Bán kính (mét)</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Bán kính cho phép (mét)</label>
                             <input 
                                 type="number" 
                                 value={localSettings.location.radiusMeters}
                                 onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, radiusMeters: Number(e.target.value)}})}
                                 className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none" 
                             />
+                            <p className="text-xs text-gray-500 mt-1">Khuyên dùng: 50m - 100m (để bù sai số GPS trong nhà)</p>
                         </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Vĩ độ (Latitude)</label>
+                            <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Vĩ độ (Latitude)</label>
                             <input 
                                 type="number" 
                                 value={localSettings.location.latitude}
                                 onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, latitude: Number(e.target.value)}})}
-                                className="w-full border rounded-lg p-2.5 text-sm bg-gray-50"
+                                className="w-full border rounded-lg p-2.5 text-sm font-mono text-blue-700 bg-white"
                             />
                         </div>
                          <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Kinh độ (Longitude)</label>
+                            <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Kinh độ (Longitude)</label>
                             <input 
                                 type="number" 
                                 value={localSettings.location.longitude}
                                 onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, longitude: Number(e.target.value)}})}
-                                className="w-full border rounded-lg p-2.5 text-sm bg-gray-50" 
+                                className="w-full border rounded-lg p-2.5 text-sm font-mono text-blue-700 bg-white" 
                             />
                         </div>
                     </div>

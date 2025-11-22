@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  ScanLine, Fingerprint, UserPlus, Calendar, LogIn, CheckCircle
+  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint
 } from 'lucide-react';
 import { AppView } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -59,9 +59,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <MethodCard title="Khuôn Mặt" sub="AI Webcam" icon={ScanLine} gradient="bg-gradient-to-br from-cyan-400 to-blue-500" labelBtn="Hiện đại" onClick={() => onViewChange(AppView.ATTENDANCE)} />
-              <MethodCard title="Vân Tay" sub="Thiết bị vật lý" icon={Fingerprint} gradient="bg-gradient-to-br from-emerald-400 to-teal-500" labelBtn="Sắp ra mắt" onClick={() => {}} />
-              <MethodCard title="Đăng Ký Face" sub="Dữ liệu AI" icon={UserPlus} gradient="bg-gradient-to-br from-orange-400 to-amber-500" labelBtn="Admin" onClick={() => onViewChange(AppView.EMPLOYEES)} />
+              <MethodCard 
+                title="Chấm công GPS" 
+                sub="Định vị tại quán" 
+                icon={MapPin} 
+                gradient="bg-gradient-to-br from-emerald-400 to-teal-500" 
+                labelBtn="Hoạt động" 
+                onClick={() => onViewChange(AppView.ATTENDANCE)} 
+              />
+              <MethodCard 
+                title="Đăng Ký Face" 
+                sub="Dữ liệu AI" 
+                icon={UserPlus} 
+                gradient="bg-gradient-to-br from-orange-400 to-amber-500" 
+                labelBtn="Admin" 
+                onClick={() => onViewChange(AppView.EMPLOYEES)} 
+              />
+              {/* Các phương thức FaceID và Vân Tay tạm ẩn do bảo trì */}
           </div>
       </div>
 

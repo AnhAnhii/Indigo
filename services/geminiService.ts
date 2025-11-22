@@ -29,8 +29,6 @@ const getAiInstance = () => {
   const apiKey = getApiKey();
   if (!apiKey) {
       console.error("CRITICAL ERROR: Không tìm thấy API Key. Vui lòng cấu hình VITE_API_KEY trong Vercel Settings.");
-      // alert("Lỗi Hệ Thống: Chưa cấu hình API Key AI. Vui lòng liên hệ kỹ thuật viên."); 
-      // Comment alert to prevent spamming user if key is missing
       return null;
   }
   return new GoogleGenAI({ apiKey });
@@ -152,3 +150,59 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
         return [];
     }
 }
+
+export const verifyFaceIdentity = async (capturedImage: string, referenceImage: string): Promise<{ match: boolean, confidence: number }> => {
+    const ai = getAiInstance();
+    if (!ai) return { match: false, confidence: 0 };
+
+    try {
+        const cleanCaptured = capturedImage.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+        const cleanReference = referenceImage.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+
+        const prompt = `
+            Bạn là chuyên gia an ninh sinh trắc học (Biometric Security).
+            
+            NHIỆM VỤ: Xác thực danh tính từ 2 bức ảnh.
+            - Ảnh 1: Ảnh chụp từ Camera (Captured).
+            - Ảnh 2: Ảnh hồ sơ (Reference).
+
+            QUY TẮC NGHIÊM NGẶT (STRICT RULES):
+            1. BƯỚC 1 - KIỂM TRA ẢNH 1: Nếu Ảnh 1 KHÔNG CÓ khuôn mặt người rõ ràng (VD: chụp cái ghế, bức tường, trần nhà, quá tối, hoặc bị che mặt), HÃY TRẢ VỀ match: false và confidence: 0 NGAY LẬP TỨC. Không được đoán mò.
+            2. BƯỚC 2 - SO SÁNH: Chỉ khi Ảnh 1 có mặt người, mới so sánh với Ảnh 2.
+            
+            OUTPUT JSON ONLY:
+            {
+                "match": boolean, // true nếu cùng một người, false nếu khác người HOẶC không có mặt người
+                "confidence": number // 0-100 (Nếu không có mặt người, trả về 0)
+            }
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: 'image/jpeg', data: cleanCaptured } },
+                        { inlineData: { mimeType: 'image/jpeg', data: cleanReference } }
+                    ]
+                }
+            ]
+        });
+
+        const text = response.text || "{}";
+        const jsonMatch = text.match(/\{.*\}/s);
+        const jsonStr = jsonMatch ? jsonMatch[0] : "{}";
+        const result = JSON.parse(jsonStr);
+
+        return {
+            match: result.match === true,
+            confidence: result.confidence || 0
+        };
+
+    } catch (error) {
+        console.error("Face Verification Error:", error);
+        return { match: false, confidence: 0 };
+    }
+};

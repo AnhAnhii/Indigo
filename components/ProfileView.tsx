@@ -71,11 +71,18 @@ export const ProfileView: React.FC = () => {
   const capturePhoto = () => {
       if (videoRef.current) {
           const canvas = document.createElement('canvas');
-          canvas.width = videoRef.current.videoWidth;
-          canvas.height = videoRef.current.videoHeight;
+          // RESIZE FOR GOOGLE SHEETS STORAGE (Max 50k chars)
+          const MAX_WIDTH = 400;
+          const scale = MAX_WIDTH / videoRef.current.videoWidth;
+          canvas.width = MAX_WIDTH;
+          canvas.height = videoRef.current.videoHeight * scale;
+
           const ctx = canvas.getContext('2d');
-          ctx?.drawImage(videoRef.current, 0, 0);
-          const base64 = canvas.toDataURL('image/jpeg');
+          ctx?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+          
+          // Compress quality 0.6
+          const base64 = canvas.toDataURL('image/jpeg', 0.6);
+          
           registerEmployeeFace(currentUser.id, base64); // Also updates avatar
           stopCamera();
       }

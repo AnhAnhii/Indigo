@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { ClipboardList, Users, MapPin, PlusCircle, MinusCircle, CheckCircle2, Camera, Image as ImageIcon, Loader2, ChevronLeft, X, Edit3, Trash2, Plus, Save, RotateCcw, CheckCheck, History, Calendar } from 'lucide-react';
+import { ClipboardList, Users, MapPin, PlusCircle, MinusCircle, CheckCircle2, Camera, Image as ImageIcon, Loader2, ChevronLeft, X, Edit3, Trash2, Plus, Save, RotateCcw, CheckCheck, History, Calendar, AlertTriangle } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { ServingGroup, ServingItem } from '../types';
 import { parseMenuImage } from '../services/geminiService';
@@ -42,6 +42,9 @@ export const ServingChecklist: React.FC = () => {
   const [editGroupName, setEditGroupName] = useState('');
   const [editGroupLocation, setEditGroupLocation] = useState('');
   const [editGroupPax, setEditGroupPax] = useState(0);
+
+  // --- DELETE CONFIRM MODAL STATE ---
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   // Filter groups
   const activeGroups = servingGroups.filter(g => g.status === 'ACTIVE');
@@ -196,11 +199,16 @@ export const ServingChecklist: React.FC = () => {
   }
 
   // DELETE GROUP
-  const handleDeleteGroup = (e: React.MouseEvent, groupId: string) => {
+  const handleDeleteGroupClick = (e: React.MouseEvent, groupId: string) => {
       e.stopPropagation();
-      if (window.confirm("Bạn có chắc chắn muốn xóa đoàn này không? Hành động không thể hoàn tác.")) {
-          deleteServingGroup(groupId);
-          if (selectedGroupId === groupId) setSelectedGroupId(null);
+      setDeleteConfirmId(groupId);
+  }
+
+  const confirmDeleteGroup = () => {
+      if (deleteConfirmId) {
+          deleteServingGroup(deleteConfirmId);
+          if (selectedGroupId === deleteConfirmId) setSelectedGroupId(null);
+          setDeleteConfirmId(null);
       }
   }
 
@@ -250,15 +258,14 @@ export const ServingChecklist: React.FC = () => {
                     </div>
                   </div>
                   
-                  {!isReadOnly && (
-                      <button 
-                        onClick={(e) => handleDeleteGroup(e, selectedGroup.id)}
-                        className="p-2 text-red-500 hover:bg-red-50 rounded-full"
-                        title="Xóa đoàn này"
-                      >
-                          <Trash2 size={20} />
-                      </button>
-                  )}
+                  {/* ALLOW DELETE IN DETAIL VIEW REGARDLESS OF STATUS */}
+                  <button 
+                    onClick={(e) => handleDeleteGroupClick(e, selectedGroup.id)}
+                    className="p-2 text-red-500 hover:bg-red-50 rounded-full"
+                    title="Xóa đoàn này"
+                  >
+                      <Trash2 size={20} />
+                  </button>
               </div>
 
               {/* Progress Bar */}
@@ -381,7 +388,7 @@ export const ServingChecklist: React.FC = () => {
                   </div>
               )}
 
-              {/* Edit Item Modal - Same as before... */}
+              {/* Edit Item Modal */}
               {isEditItemModalOpen && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
                     <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -448,6 +455,35 @@ export const ServingChecklist: React.FC = () => {
                             <button onClick={handleSaveGroup} className="px-4 py-2 bg-teal-600 text-white font-bold text-sm rounded-lg hover:bg-teal-700 shadow-sm">Lưu thay đổi</button>
                         </div>
                     </div>
+                  </div>
+              )}
+              
+              {/* DELETE CONFIRM MODAL */}
+              {deleteConfirmId && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center animate-in zoom-in duration-200">
+                          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
+                              <AlertTriangle size={32} />
+                          </div>
+                          <h3 className="text-xl font-bold text-gray-900 mb-2">Xóa đoàn khách?</h3>
+                          <p className="text-gray-500 text-sm mb-6">
+                              Bạn có chắc chắn muốn xóa đoàn này không? Hành động này không thể hoàn tác.
+                          </p>
+                          <div className="flex gap-3">
+                              <button 
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+                              >
+                                  Hủy bỏ
+                              </button>
+                              <button 
+                                onClick={confirmDeleteGroup}
+                                className="flex-1 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors shadow-md"
+                              >
+                                  Xóa ngay
+                              </button>
+                          </div>
+                      </div>
                   </div>
               )}
           </div>
@@ -534,16 +570,14 @@ export const ServingChecklist: React.FC = () => {
                     onClick={() => setSelectedGroupId(group.id)}
                     className={`bg-white rounded-2xl p-6 shadow-sm border hover:shadow-md cursor-pointer transition-all group relative ${group.status === 'COMPLETED' ? 'border-green-200 bg-green-50/30' : 'border-gray-200'}`}
                   >
-                      {viewMode === 'ACTIVE' && (
-                          <button 
-                            onClick={(e) => handleDeleteGroup(e, group.id)}
-                            // Fix: Remove opacity-0 group-hover:opacity-100, use visible class
-                            className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors z-10"
-                            title="Xóa đoàn"
-                          >
-                              <Trash2 size={18} />
-                          </button>
-                      )}
+                      {/* ENABLE DELETE FOR ALL GROUPS (ACTIVE OR HISTORY) */}
+                      <button 
+                        onClick={(e) => handleDeleteGroupClick(e, group.id)}
+                        className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors z-10"
+                        title="Xóa đoàn"
+                      >
+                          <Trash2 size={18} />
+                      </button>
 
                       <div className="flex justify-between items-start mb-4">
                           <div className="w-12 h-12 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold">
@@ -584,7 +618,7 @@ export const ServingChecklist: React.FC = () => {
           })}
       </div>
 
-      {/* ADD NEW GROUP MODAL (Kept same as before) */}
+      {/* ADD NEW GROUP MODAL... */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
@@ -708,6 +742,35 @@ export const ServingChecklist: React.FC = () => {
                 </div>
             </div>
         </div>
+      )}
+
+      {/* DELETE CONFIRM MODAL */}
+      {deleteConfirmId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+              <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center animate-in zoom-in duration-200">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
+                      <AlertTriangle size={32} />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Xóa đoàn khách?</h3>
+                  <p className="text-gray-500 text-sm mb-6">
+                      Bạn có chắc chắn muốn xóa đoàn này không? Hành động này không thể hoàn tác.
+                  </p>
+                  <div className="flex gap-3">
+                      <button 
+                        onClick={() => setDeleteConfirmId(null)}
+                        className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors"
+                      >
+                          Hủy bỏ
+                      </button>
+                      <button 
+                        onClick={confirmDeleteGroup}
+                        className="flex-1 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors shadow-md"
+                      >
+                          Xóa ngay
+                      </button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );

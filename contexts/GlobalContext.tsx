@@ -119,6 +119,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
   
   const [pendingRequestIds, setPendingRequestIds] = useState<Set<string>>(new Set());
+  const [deletedGroupIds, setDeletedGroupIds] = useState<Set<string>>(new Set()); // Prevent zombies
+  
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
 
   // --- HELPERS ---
@@ -210,8 +212,20 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 });
             }
 
-            // 4. OTHER DATA
-            if (data.servingGroups) setServingGroups(data.servingGroups);
+            // 4. SERVING GROUPS (With Zombie Protection)
+            if (data.servingGroups && Array.isArray(data.servingGroups)) {
+                const freshGroups = data.servingGroups.filter((g: any) => !deletedGroupIds.has(g.id));
+                setServingGroups(freshGroups);
+                
+                // Cleanup deleted set if items are gone from server
+                setDeletedGroupIds(prev => {
+                    const newSet = new Set(prev);
+                    const serverIds = new Set(data.servingGroups.map((g: any) => g.id));
+                    prev.forEach(id => { if (!serverIds.has(id)) newSet.delete(id); });
+                    return newSet;
+                });
+            }
+
             if (data.handoverLogs) setHandoverLogs(data.handoverLogs);
             
             // 5. SCHEDULES (Mới)
@@ -240,7 +254,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       } finally {
           setIsLoading(false);
       }
-  }, [currentUser, pendingRequestIds]);
+  }, [currentUser, pendingRequestIds, deletedGroupIds]);
 
   useEffect(() => {
       loadData();
@@ -375,7 +389,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const updateServingGroup = (groupId: string, updates: Partial<ServingGroup>) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updatedGroup = { ...g, ...updates }; if (updates.items || updates.guestCount || updates.tableCount || updates.name) { updatedGroup.prepList = generatePrepList(updatedGroup); } syncGroupState(updatedGroup); return updatedGroup; })); };
-  const deleteServingGroup = (groupId: string) => { setServingGroups(prev => prev.filter(g => g.id !== groupId)); sheetService.deleteServingGroup(groupId); };
+  
+  // FIX: Track Deleted IDs locally
+  const deleteServingGroup = (groupId: string) => { 
+      setDeletedGroupIds(prev => new Set(prev).add(groupId)); // Block this ID from reappearing
+      setServingGroups(prev => prev.filter(g => g.id !== groupId)); 
+      sheetService.deleteServingGroup(groupId); 
+  };
+  
   const addServingItem = (groupId: string, item: ServingItem) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updatedGroup = { ...g, items: [...g.items, item] }; updatedGroup.prepList = generatePrepList(updatedGroup); syncGroupState(updatedGroup); return updatedGroup; })); };
   const updateServingItem = (groupId: string, itemId: string, updates: Partial<ServingItem>) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const newItems = g.items.map(i => i.id === itemId ? { ...i, ...updates } : i); const updatedGroup = { ...g, items: newItems }; updatedGroup.prepList = generatePrepList(updatedGroup); syncGroupState(updatedGroup); return updatedGroup; })); };
   const deleteServingItem = (groupId: string, itemId: string) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updatedGroup = { ...g, items: g.items.filter(i => i.id !== itemId) }; updatedGroup.prepList = generatePrepList(updatedGroup); syncGroupState(updatedGroup); return updatedGroup; })); };
