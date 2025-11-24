@@ -1,9 +1,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace
+  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode
 } from 'lucide-react';
-import { AppView } from '../types';
+import { AppView, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
 interface DashboardProps {
@@ -51,6 +51,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const todayLog = logs.find(log => log.date === todayStr && log.employeeName === currentUser?.name);
   const isCheckedIn = !!todayLog;
   const isCheckedOut = todayLog && !!todayLog.checkOut;
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
 
   const dateOptions: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
   const dateDisplay = currentTime.toLocaleDateString('vi-VN', dateOptions);
@@ -59,23 +60,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   return (
     <div className="space-y-8 relative">
       <div>
-          <div className="flex items-center space-x-2 mb-4">
-            <Fingerprint className="text-gray-600" size={20}/>
-            <h2 className="text-lg font-bold text-gray-700">Phương Thức Chấm Công</h2>
-            {isLoading && <span className="text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded animate-pulse">Đang đồng bộ...</span>}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-2">
+                <Fingerprint className="text-gray-600" size={20}/>
+                <h2 className="text-lg font-bold text-gray-700">Phương Thức Chấm Công</h2>
+                {isLoading && <span className="text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded animate-pulse">Đang đồng bộ...</span>}
+            </div>
+            {isAdmin && (
+                <button 
+                    onClick={() => onViewChange(AppView.QR_STATION)}
+                    className="text-xs font-bold text-teal-600 bg-white border border-teal-200 px-3 py-1.5 rounded-lg hover:bg-teal-50 flex items-center shadow-sm"
+                >
+                    <QrCode size={14} className="mr-1"/> Mở Trạm QR
+                </button>
+            )}
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* QR Check-in */}
               <MethodCard 
-                title="Chấm công GPS" 
-                sub="Định vị tại quán" 
-                icon={MapPin} 
-                gradient="bg-gradient-to-br from-emerald-400 to-teal-500" 
-                labelBtn="Hoạt động" 
+                title="Quét Mã QR" 
+                sub="Chính xác tuyệt đối" 
+                icon={QrCode} 
+                gradient="bg-gradient-to-br from-teal-500 to-emerald-600" 
+                labelBtn="Khuyên dùng" 
                 onClick={() => onViewChange(AppView.ATTENDANCE)} 
               />
               
-              {/* Face ID - Enabled */}
+              {/* GPS */}
+              <MethodCard 
+                title="Chấm công GPS" 
+                sub="Định vị Hybrid" 
+                icon={MapPin} 
+                gradient="bg-gradient-to-br from-emerald-400 to-teal-500" 
+                labelBtn="Dự phòng" 
+                onClick={() => onViewChange(AppView.ATTENDANCE)} 
+              />
+              
+              {/* Face ID */}
               <MethodCard 
                 title="Face ID (AI)" 
                 sub="Nhận diện khuôn mặt" 
@@ -85,23 +107,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 onClick={() => onViewChange(AppView.ATTENDANCE)} 
               />
 
-              {/* Fingerprint - Coming Soon */}
+              {/* Voice AI */}
               <MethodCard 
-                title="Vân Tay" 
-                sub="Thiết bị vật lý" 
-                icon={Fingerprint} 
-                gradient="bg-gray-100 text-gray-500 border-2 border-dashed border-gray-300" 
-                labelBtn="Sắp ra mắt" 
-                disabled={true}
-              />
-
-              <MethodCard 
-                title="Đăng Ký Face" 
-                sub="Dữ liệu AI" 
-                icon={UserPlus} 
-                gradient="bg-gradient-to-br from-orange-400 to-amber-500" 
-                labelBtn="Admin" 
-                onClick={() => onViewChange(AppView.EMPLOYEES)} 
+                title="Giọng Nói AI" 
+                sub="Đọc mã xác thực" 
+                icon={Mic} 
+                gradient="bg-gradient-to-br from-purple-500 to-pink-600" 
+                labelBtn="Rảnh tay" 
+                onClick={() => onViewChange(AppView.ATTENDANCE)}
               />
           </div>
       </div>

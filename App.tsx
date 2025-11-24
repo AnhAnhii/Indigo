@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -14,7 +14,8 @@ import { KitchenView } from './components/KitchenView';
 import { ServingChecklist } from './components/ServingChecklist';
 import { HandoverView } from './components/HandoverView';
 import { ProfileView } from './components/ProfileView';
-import { NotificationsView } from './components/NotificationsView'; // New Component
+import { NotificationsView } from './components/NotificationsView'; 
+import { QrStation } from './components/QrStation'; // New Component
 import { LoginScreen } from './components/LoginScreen';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
@@ -33,7 +34,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
       if (!isAdmin && currentUser) {
-          const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT];
+          const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT, AppView.QR_STATION];
           if (restrictedViews.includes(currentView)) {
               setCurrentView(AppView.DASHBOARD);
           }
@@ -44,6 +45,11 @@ const AppContent: React.FC = () => {
   // LOGIN GUARD ENABLED
   if (!currentUser) {
       return <LoginScreen />;
+  }
+
+  // SPECIAL VIEW: QR STATION (FULL SCREEN)
+  if (currentView === AppView.QR_STATION && isAdmin) {
+      return <QrStation onBack={() => setCurrentView(AppView.DASHBOARD)} />;
   }
 
   const NavItem = ({ view, icon: Icon, label, restricted = false, badge = 0 }: { view: AppView; icon: any; label: string, restricted?: boolean, badge?: number }) => {
@@ -83,7 +89,7 @@ const AppContent: React.FC = () => {
       case AppView.SERVING: return <ServingChecklist />;
       case AppView.HANDOVER: return <HandoverView />;
       case AppView.PROFILE: return <ProfileView />;
-      case AppView.NOTIFICATIONS: return <NotificationsView onViewChange={setCurrentView} />; // New View
+      case AppView.NOTIFICATIONS: return <NotificationsView onViewChange={setCurrentView} />;
       case AppView.AI_ASSISTANT: return isAdmin ? <AiAssistant /> : null;
       default: return <Dashboard onViewChange={setCurrentView} />;
     }
@@ -178,6 +184,7 @@ const AppContent: React.FC = () => {
           {isAdmin && (
             <>
             <div className="pt-4 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Hệ thống</div>
+            <NavItem view={AppView.QR_STATION} icon={QrCode} label="Mở Trạm QR Code" restricted={true} />
             <NavItem view={AppView.SETTINGS} icon={Settings} label="Cấu hình" restricted={true} />
             <NavItem view={AppView.AI_ASSISTANT} icon={MessageSquare} label="Trợ lý AI Gemini" restricted={true} />
             </>

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2 } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig } from '../types';
 import { sheetService } from '../services/sheetService';
@@ -11,9 +11,12 @@ export const SettingsView: React.FC = () => {
   const { settings, updateSettings } = useGlobalContext();
   const [activeTab, setActiveTab] = useState<SettingsTab>('RULES');
   const [localSettings, setLocalSettings] = useState(settings);
+  
+  // Wifi State
   const [newWifiSSID, setNewWifiSSID] = useState('');
   const [newWifiBSSID, setNewWifiBSSID] = useState(''); 
-  const [showHelpWifi, setShowHelpWifi] = useState(false); 
+  const [editingWifiId, setEditingWifiId] = useState<string | null>(null);
+
   const [isLocating, setIsLocating] = useState(false);
   const [locatingProgress, setLocatingProgress] = useState(0);
   
@@ -29,27 +32,62 @@ export const SettingsView: React.FC = () => {
       alert("Đã lưu cấu hình hệ thống lên Cloud!");
   }
 
-  const addWifi = () => {
-      if (!newWifiSSID) return;
-      const newWifi: WifiConfig = {
-          id: Date.now().toString(),
-          name: newWifiSSID,
-          bssid: newWifiBSSID || 'Unknown',
-          isActive: true
-      };
+  // --- WIFI CRUD ---
+  const handleSaveWifi = () => {
+      if (!newWifiSSID.trim()) {
+          alert("Vui lòng nhập tên Wifi (SSID)");
+          return;
+      }
+
+      let updatedWifis = [...localSettings.wifis];
+
+      if (editingWifiId) {
+          // Update Existing
+          updatedWifis = updatedWifis.map(w => w.id === editingWifiId ? { 
+              ...w, 
+              name: newWifiSSID, 
+              bssid: newWifiBSSID || 'Unknown' 
+          } : w);
+          setEditingWifiId(null);
+      } else {
+          // Add New
+          const newWifi: WifiConfig = {
+              id: Date.now().toString(),
+              name: newWifiSSID,
+              bssid: newWifiBSSID || 'Unknown',
+              isActive: true
+          };
+          updatedWifis.push(newWifi);
+      }
+
       setLocalSettings({
           ...localSettings,
-          wifis: [...localSettings.wifis, newWifi]
+          wifis: updatedWifis
       });
       setNewWifiSSID('');
       setNewWifiBSSID('');
   };
 
-  const removeWifi = (id: string) => {
-      setLocalSettings({
-          ...localSettings,
-          wifis: localSettings.wifis.filter(w => w.id !== id)
-      });
+  const handleEditWifi = (wifi: WifiConfig) => {
+      setNewWifiSSID(wifi.name);
+      setNewWifiBSSID(wifi.bssid === 'Unknown' ? '' : wifi.bssid);
+      setEditingWifiId(wifi.id);
+  };
+
+  const handleDeleteWifi = (id: string) => {
+      if (window.confirm("Bạn có chắc chắn muốn xóa Wifi này?")) {
+          setLocalSettings({
+              ...localSettings,
+              wifis: localSettings.wifis.filter(w => w.id !== id)
+          });
+          if (editingWifiId === id) handleCancelEdit();
+      }
+  };
+
+  const handleCancelEdit = () => {
+      setNewWifiSSID('');
+      setNewWifiBSSID('');
+      setEditingWifiId(null);
   };
   
   const updateShift = (index: number, field: keyof ShiftConfig, value: any) => {
@@ -61,7 +99,7 @@ export const SettingsView: React.FC = () => {
       });
   };
 
-  // SMART LOCATION SAMPLING FOR ADMIN
+  // SMART LOCATION SAMPLING FOR ADMIN (Reference Point)
   const handleGetCurrentLocation = () => {
       if (!navigator.geolocation) {
           alert("Trình duyệt không hỗ trợ định vị.");
@@ -92,18 +130,19 @@ export const SettingsView: React.FC = () => {
               return;
           }
 
+          // ADMIN MUST USE HIGH ACCURACY TO SET THE "TRUTH"
           navigator.geolocation.getCurrentPosition(
               (position) => {
                   samples.push(position.coords);
                   setLocatingProgress(count + 1);
-                  setTimeout(() => collectSample(count + 1), 800); // Delay between samples
+                  setTimeout(() => collectSample(count + 1), 1000); // 1s delay
               },
               (error) => {
                   console.error(error);
-                  alert("Lỗi khi lấy mẫu GPS. Vui lòng thử lại.");
+                  alert("Lỗi khi lấy mẫu GPS: " + error.message);
                   setIsLocating(false);
               },
-              { enableHighAccuracy: true }
+              { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
           );
       };
 
@@ -149,362 +188,281 @@ export const SettingsView: React.FC = () => {
                     onClick={() => setActiveTab('LOCATION')}
                     className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'LOCATION' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                    <MapPin size={18} className="mr-3"/> Địa điểm & GPS
+                    <MapPin size={18} className="mr-3"/> Vị trí nhà hàng
                 </button>
                 <button 
                     onClick={() => setActiveTab('WIFI')}
                     className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'WIFI' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                    <Wifi size={18} className="mr-3"/> Cấu hình Wifi
+                    <Wifi size={18} className="mr-3"/> Wifi Chấm công
                 </button>
-                <button 
+                 <button 
                     onClick={() => setActiveTab('DATABASE')}
                     className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'DATABASE' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                    <Database size={18} className="mr-3"/> Kết nối Dữ liệu
+                    <Database size={18} className="mr-3"/> Kết nối Database
                 </button>
             </div>
 
-            {/* Main Config Area */}
+            {/* Content */}
             <div className="col-span-1 md:col-span-3 space-y-6">
                 
                 {/* TAB: RULES & SHIFTS */}
                 {activeTab === 'RULES' && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
-                    <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
-                        <div className="bg-orange-100 p-2 rounded-full text-orange-600">
-                            <Shield size={24} />
-                        </div>
-                        <div>
-                            <h3 className="text-lg font-bold text-gray-900">Quy tắc & Ca Làm Việc</h3>
-                            <p className="text-sm text-gray-500">Cấu hình thời gian chấm công và ra đồ.</p>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
-                                <Clock size={16}/> Cho phép đi muộn (phút)
-                            </label>
-                            <input 
-                                type="number" 
-                                value={localSettings.rules.allowedLateMinutes}
-                                onChange={(e) => setLocalSettings({...localSettings, rules: {...localSettings.rules, allowedLateMinutes: Number(e.target.value)}})}
-                                className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">Quá thời gian này sẽ tính là Đi muộn.</p>
-                        </div>
-                        
-                        <div className="bg-red-50/50 p-3 rounded-xl border border-red-100">
-                            <label className="block text-sm font-medium text-red-700 mb-1 flex items-center gap-1">
-                                <BellRing size={16}/> Cảnh báo ra đồ muộn sau (phút)
-                            </label>
-                            <input 
-                                type="number" 
-                                value={localSettings.servingConfig?.lateAlertMinutes || 20}
-                                onChange={(e) => setLocalSettings({
-                                    ...localSettings, 
-                                    servingConfig: { ...localSettings.servingConfig, lateAlertMinutes: Number(e.target.value) }
-                                })}
-                                className="w-full border border-red-200 rounded-lg p-2.5 text-sm font-bold text-red-800 focus:ring-2 focus:ring-red-500 outline-none bg-white"
-                            />
-                            <p className="text-xs text-gray-500 mt-1">Đoàn khách chờ quá lâu sẽ hiện cảnh báo Đỏ.</p>
-                        </div>
-                    </div>
-
-                    <div className="space-y-4">
-                        <h4 className="font-bold text-gray-700">Danh sách Ca Làm Việc</h4>
-                        {localSettings.shiftConfigs.map((shift, idx) => (
-                            <div key={shift.code} className="p-4 border rounded-xl bg-gray-50 hover:bg-white hover:shadow-md transition-all">
-                                <div className="flex justify-between items-center mb-3">
-                                    <h4 className="font-bold text-gray-800 text-lg">{shift.name} ({shift.code})</h4>
-                                    {shift.isSplitShift && <span className="bg-purple-100 text-purple-700 text-xs font-bold px-2 py-1 rounded">Ca Gãy</span>}
+                    <div className="space-y-6 animate-in fade-in">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Shield className="mr-2 text-teal-600" size={20}/> Quy định chung</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Số phút cho phép đi muộn</label>
+                                    <div className="relative">
+                                        <Clock className="absolute left-3 top-2.5 text-gray-400" size={18}/>
+                                        <input 
+                                            type="number" 
+                                            value={localSettings.rules.allowedLateMinutes}
+                                            onChange={(e) => setLocalSettings({...localSettings, rules: { ...localSettings.rules, allowedLateMinutes: Number(e.target.value) }})}
+                                            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                                        />
+                                    </div>
+                                    <p className="text-xs text-gray-500 mt-1">Nhân viên đến sau thời gian này sẽ bị tính là "Đi muộn".</p>
                                 </div>
-                                
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 block mb-1">Giờ Bắt Đầu</label>
+                                 <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Cảnh báo ra đồ muộn (Phút)</label>
+                                    <div className="relative">
+                                        <AlertTriangle className="absolute left-3 top-2.5 text-gray-400" size={18}/>
                                         <input 
-                                            type="time" 
-                                            value={shift.startTime}
-                                            onChange={(e) => updateShift(idx, 'startTime', e.target.value)}
-                                            className="w-full border rounded-lg p-2 text-sm font-mono"
+                                            type="number" 
+                                            value={localSettings.servingConfig?.lateAlertMinutes || 15}
+                                            onChange={(e) => setLocalSettings({...localSettings, servingConfig: { ...localSettings.servingConfig, lateAlertMinutes: Number(e.target.value) }})}
+                                            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
                                         />
                                     </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-500 block mb-1">Giờ Kết Thúc</label>
-                                        <input 
-                                            type="time" 
-                                            value={shift.endTime}
-                                            onChange={(e) => updateShift(idx, 'endTime', e.target.value)}
-                                            className="w-full border rounded-lg p-2 text-sm font-mono"
-                                        />
-                                    </div>
-                                    
-                                    {shift.isSplitShift && (
-                                        <>
-                                            <div>
-                                                <label className="text-xs font-bold text-purple-500 block mb-1">Nghỉ từ</label>
-                                                <input 
-                                                    type="time" 
-                                                    value={shift.breakStart || ''}
-                                                    onChange={(e) => updateShift(idx, 'breakStart', e.target.value)}
-                                                    className="w-full border border-purple-200 rounded-lg p-2 text-sm font-mono bg-purple-50"
-                                                />
-                                            </div>
-                                            <div>
-                                                <label className="text-xs font-bold text-purple-500 block mb-1">Nghỉ đến</label>
-                                                <input 
-                                                    type="time" 
-                                                    value={shift.breakEnd || ''}
-                                                    onChange={(e) => updateShift(idx, 'breakEnd', e.target.value)}
-                                                    className="w-full border border-purple-200 rounded-lg p-2 text-sm font-mono bg-purple-50"
-                                                />
-                                            </div>
-                                        </>
-                                    )}
+                                    <p className="text-xs text-gray-500 mt-1">Thời gian tối đa khách phải đợi trước khi hệ thống báo động đỏ.</p>
                                 </div>
                             </div>
-                        ))}
+                        </div>
+
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Clock className="mr-2 text-teal-600" size={20}/> Cấu hình Ca làm việc</h3>
+                            <div className="space-y-4">
+                                {localSettings.shiftConfigs.map((shift, idx) => (
+                                    <div key={idx} className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                                        <div className="flex justify-between items-center mb-3">
+                                            <h4 className="font-bold text-gray-800">{shift.name} ({shift.code})</h4>
+                                            <span className={`text-xs font-bold px-2 py-1 rounded ${shift.isSplitShift ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                {shift.isSplitShift ? 'Ca Gãy' : 'Ca Thông'}
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500">Giờ bắt đầu</label>
+                                                <input type="time" value={shift.startTime} onChange={(e) => updateShift(idx, 'startTime', e.target.value)} className="w-full mt-1 p-1.5 border rounded text-sm font-medium"/>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-gray-500">Giờ kết thúc</label>
+                                                <input type="time" value={shift.endTime} onChange={(e) => updateShift(idx, 'endTime', e.target.value)} className="w-full mt-1 p-1.5 border rounded text-sm font-medium"/>
+                                            </div>
+                                            {shift.isSplitShift && (
+                                                <>
+                                                    <div>
+                                                        <label className="text-xs font-bold text-gray-500">Nghỉ từ</label>
+                                                        <input type="time" value={shift.breakStart} onChange={(e) => updateShift(idx, 'breakStart', e.target.value)} className="w-full mt-1 p-1.5 border rounded text-sm font-medium text-orange-600"/>
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-bold text-gray-500">Đến</label>
+                                                        <input type="time" value={shift.breakEnd} onChange={(e) => updateShift(idx, 'breakEnd', e.target.value)} className="w-full mt-1 p-1.5 border rounded text-sm font-medium text-orange-600"/>
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
                     </div>
-                </div>
                 )}
 
                 {/* TAB: LOCATION */}
                 {activeTab === 'LOCATION' && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
-                    <div className="flex items-center justify-between mb-6 pb-4 border-b">
-                        <div className="flex items-center space-x-3">
-                            <div className="bg-blue-100 p-2 rounded-full text-blue-600">
-                                <Globe size={24} />
+                    <div className="space-y-6 animate-in fade-in">
+                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 className="font-bold text-gray-900 flex items-center"><MapPin className="mr-2 text-teal-600" size={20}/> Tọa độ nhà hàng</h3>
+                                    <p className="text-sm text-gray-500 mt-1">Vị trí gốc để so sánh khi nhân viên chấm công.</p>
+                                </div>
+                                <button 
+                                    onClick={handleGetCurrentLocation}
+                                    disabled={isLocating}
+                                    className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-100 flex items-center"
+                                >
+                                    {isLocating ? <Loader2 className="animate-spin mr-2" size={16}/> : <Crosshair className="mr-2" size={16}/>}
+                                    {isLocating ? `Đang lấy mẫu (${locatingProgress}/5)...` : 'Lấy vị trí hiện tại'}
+                                </button>
                             </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-900">Vị trí nhà hàng</h3>
-                                <p className="text-sm text-gray-500">Thiết lập bán kính cho phép chấm công GPS.</p>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Tên địa điểm</label>
+                                    <input 
+                                        type="text" 
+                                        value={localSettings.location.name}
+                                        onChange={(e) => setLocalSettings({...localSettings, location: { ...localSettings.location, name: e.target.value }})}
+                                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Bán kính cho phép (mét)</label>
+                                    <input 
+                                        type="number" 
+                                        value={localSettings.location.radiusMeters}
+                                        onChange={(e) => setLocalSettings({...localSettings, location: { ...localSettings.location, radiusMeters: Number(e.target.value) }})}
+                                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Vĩ độ (Latitude)</label>
+                                    <input 
+                                        type="number" 
+                                        value={localSettings.location.latitude}
+                                        onChange={(e) => setLocalSettings({...localSettings, location: { ...localSettings.location, latitude: Number(e.target.value) }})}
+                                        className="w-full px-4 py-2 border rounded-lg bg-gray-50 font-mono text-sm"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-gray-700 mb-2">Kinh độ (Longitude)</label>
+                                    <input 
+                                        type="number" 
+                                        value={localSettings.location.longitude}
+                                        onChange={(e) => setLocalSettings({...localSettings, location: { ...localSettings.location, longitude: Number(e.target.value) }})}
+                                        className="w-full px-4 py-2 border rounded-lg bg-gray-50 font-mono text-sm"
+                                    />
+                                </div>
                             </div>
-                        </div>
-                        
-                        {/* UPDATED BUTTON WITH SAMPLING */}
-                        <button 
-                            onClick={handleGetCurrentLocation}
-                            disabled={isLocating}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow hover:bg-blue-700 flex items-center transition-all"
-                        >
-                            {isLocating ? (
-                                <>
-                                    <Loader2 size={16} className="animate-spin mr-2" />
-                                    Lấy mẫu {locatingProgress}/5...
-                                </>
-                            ) : (
-                                <>
-                                    <Crosshair size={16} className="mr-2" />
-                                    Lấy mẫu vị trí (Chính xác cao)
-                                </>
-                            )}
-                        </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Tên địa điểm</label>
-                            <input 
-                                type="text" 
-                                value={localSettings.location.name}
-                                onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, name: e.target.value}})}
-                                className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Bán kính cho phép (mét)</label>
-                            <input 
-                                type="number" 
-                                value={localSettings.location.radiusMeters}
-                                onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, radiusMeters: Number(e.target.value)}})}
-                                className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none" 
-                            />
-                            <p className="text-xs text-gray-500 mt-1">Khuyên dùng: 50m - 100m (để bù sai số GPS trong nhà)</p>
-                        </div>
-                    </div>
-                    
-                    {/* Display Lat/Long more prominently */}
-                    <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 relative overflow-hidden">
-                         {isLocating && <div className="absolute top-0 left-0 w-full h-1 bg-blue-200"><div className="h-full bg-blue-600 transition-all duration-300" style={{width: `${locatingProgress * 20}%`}}></div></div>}
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                             <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Vĩ độ (Latitude)</label>
-                                <input 
-                                    type="number" 
-                                    value={localSettings.location.latitude}
-                                    onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, latitude: Number(e.target.value)}})}
-                                    className="w-full border rounded-lg p-2.5 text-sm font-mono text-blue-700 bg-white"
-                                />
-                            </div>
-                             <div>
-                                <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Kinh độ (Longitude)</label>
-                                <input 
-                                    type="number" 
-                                    value={localSettings.location.longitude}
-                                    onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, longitude: Number(e.target.value)}})}
-                                    className="w-full border rounded-lg p-2.5 text-sm font-mono text-blue-700 bg-white" 
-                                />
-                            </div>
-                        </div>
-                        <p className="text-xs text-gray-400 mt-3 italic">
-                            <InfoIcon size={12} className="inline mr-1"/>
-                            Mẹo: Hãy đứng ở trung tâm quán và bấm "Lấy mẫu vị trí" để hệ thống tự động tính trung bình cộng tọa độ, giảm sai số trôi (GPS Drift).
-                        </p>
-                    </div>
-                </div>
-                )}
-
-                {activeTab === 'WIFI' && (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
-                    <div className="flex items-center justify-between mb-6 pb-4 border-b">
-                        <div className="flex items-center space-x-3">
-                            <div className="bg-indigo-100 p-2 rounded-full text-indigo-600">
-                                <Wifi size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-900">Wifi Hợp lệ</h3>
-                                <p className="text-sm text-gray-500">Nhập SSID và BSSID để chống giả mạo.</p>
-                            </div>
-                        </div>
-                        <button 
-                            onClick={() => setShowHelpWifi(true)}
-                            className="text-teal-600 text-sm font-medium flex items-center hover:underline"
-                        >
-                            <HelpCircle size={16} className="mr-1"/> Cách lấy BSSID?
-                        </button>
-                    </div>
-
-                    <div className="space-y-3 mb-6">
-                        {localSettings.wifis.map(wifi => (
-                         <div key={wifi.id} className="flex items-center justify-between p-3 border rounded-lg bg-gray-50 hover:bg-white hover:shadow-sm transition-all">
-                             <div className="flex items-center">
-                                 <Wifi size={20} className="text-teal-600 mr-3"/>
-                                 <div>
-                                     <p className="font-bold text-gray-800 text-sm">{wifi.name}</p>
-                                     <p className="text-xs text-gray-500 font-mono bg-gray-100 px-1 rounded">BSSID: {wifi.bssid}</p>
-                                 </div>
-                             </div>
-                             <button onClick={() => removeWifi(wifi.id)} className="text-red-500 p-2 hover:bg-red-50 rounded-lg">
-                                 <Trash2 size={18} />
-                             </button>
-                         </div>
-                        ))}
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 border-t pt-4">
-                        <input 
-                            type="text" 
-                            placeholder="Tên Wifi (SSID)..." 
-                            value={newWifiSSID}
-                            onChange={(e) => setNewWifiSSID(e.target.value)}
-                            className="border rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
-                        />
-                        <input 
-                            type="text" 
-                            placeholder="Địa chỉ MAC (BSSID)..." 
-                            value={newWifiBSSID}
-                            onChange={(e) => setNewWifiBSSID(e.target.value)}
-                            className="border rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none font-mono"
-                        />
-                        <button onClick={addWifi} className="bg-gray-900 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center justify-center hover:bg-gray-800">
-                            <Plus size={16} className="mr-1"/> Thêm Wifi
-                        </button>
-                    </div>
-                </div>
-                )}
-
-                {activeTab === 'DATABASE' && (
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 animate-in fade-in duration-200">
-                        <div className="flex items-center space-x-3 mb-6 pb-4 border-b">
-                            <div className="bg-green-100 p-2 rounded-full text-green-600">
-                                <Database size={24} />
-                            </div>
-                            <div>
-                                <h3 className="text-lg font-bold text-gray-900">Trạng thái kết nối</h3>
-                                <p className="text-sm text-gray-500">Quản lý kết nối đến cơ sở dữ liệu Google Sheets.</p>
-                            </div>
-                        </div>
-
-                        <div className="bg-green-50 border border-green-100 p-4 rounded-lg flex items-center gap-3 mb-6">
-                            <CheckCircle className="text-green-600 shrink-0" size={24} />
-                            <div>
-                                <h4 className="font-bold text-green-900 text-sm">Hệ thống đang kết nối tự động</h4>
-                                <p className="text-xs text-green-700 mt-1">
-                                    API URL đã được cấu hình trong mã nguồn. Mọi thiết bị truy cập sẽ tự động sử dụng kết nối này.
+                            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-100 rounded-lg flex items-start">
+                                <AlertTriangle className="text-yellow-600 mr-2 mt-0.5" size={16} />
+                                <p className="text-xs text-yellow-700">
+                                    <strong>Lưu ý quan trọng:</strong> Khi thiết lập vị trí gốc, bạn (Admin) BẮT BUỘC phải đứng ở ngoài trời hoặc gần cửa sổ để điện thoại bắt được <strong>GPS Vệ Tinh (High Accuracy)</strong>. 
+                                    Tuyệt đối không lấy vị trí khi đang ở sâu trong nhà vì sai số sẽ rất lớn, làm mốc so sánh bị sai lệch.
                                 </p>
                             </div>
-                        </div>
+                         </div>
+                    </div>
+                )}
 
-                        <div>
-                            <label className="block text-sm font-bold text-gray-700 mb-1">API Endpoint (Cấu hình trong services/sheetService.ts)</label>
-                            <div className="w-full border bg-gray-50 rounded-lg p-3 text-sm font-mono text-gray-600 break-all">
-                                {sheetUrl || "Chưa tìm thấy URL. Vui lòng kiểm tra file sheetService.ts"}
-                            </div>
+                {/* TAB: WIFI */}
+                {activeTab === 'WIFI' && (
+                    <div className="space-y-6 animate-in fade-in">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                             <div className="flex justify-between items-center mb-4">
+                                <div>
+                                    <h3 className="font-bold text-gray-900 flex items-center"><Wifi className="mr-2 text-teal-600" size={20}/> Danh sách Wifi Chấm công</h3>
+                                    <p className="text-sm text-gray-500 mt-1">Chỉ những Wifi này mới được phép sử dụng cho chế độ "Chấm công Wifi".</p>
+                                </div>
+                             </div>
+
+                             {/* ADD / EDIT FORM */}
+                             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6">
+                                 <h4 className="text-xs font-bold text-gray-500 uppercase mb-3">
+                                     {editingWifiId ? 'Cập nhật thông tin Wifi' : 'Thêm Wifi mới'}
+                                 </h4>
+                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     <div className="relative">
+                                         <Router className="absolute left-3 top-2.5 text-gray-400" size={18}/>
+                                         <input 
+                                            type="text" 
+                                            value={newWifiSSID}
+                                            onChange={(e) => setNewWifiSSID(e.target.value)}
+                                            placeholder="Tên Wifi (SSID) - VD: Coffee_Guest"
+                                            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none text-sm"
+                                         />
+                                     </div>
+                                     <div className="relative">
+                                         <Database className="absolute left-3 top-2.5 text-gray-400" size={18}/>
+                                         <input 
+                                            type="text" 
+                                            value={newWifiBSSID}
+                                            onChange={(e) => setNewWifiBSSID(e.target.value)}
+                                            placeholder="Địa chỉ MAC (BSSID) - Tùy chọn"
+                                            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none text-sm font-mono"
+                                         />
+                                     </div>
+                                 </div>
+                                 <div className="flex justify-end gap-3 mt-4">
+                                     {editingWifiId && (
+                                         <button 
+                                            onClick={handleCancelEdit}
+                                            className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg text-sm font-bold"
+                                         >
+                                             Hủy
+                                         </button>
+                                     )}
+                                     <button 
+                                        onClick={handleSaveWifi}
+                                        disabled={!newWifiSSID.trim()}
+                                        className="px-4 py-2 bg-teal-600 text-white hover:bg-teal-700 rounded-lg text-sm font-bold flex items-center disabled:opacity-50"
+                                     >
+                                         {editingWifiId ? <Save size={16} className="mr-2"/> : <Plus size={16} className="mr-2"/>}
+                                         {editingWifiId ? 'Lưu thay đổi' : 'Thêm Wifi'}
+                                     </button>
+                                 </div>
+                             </div>
+
+                             {/* LIST */}
+                             <div className="space-y-3">
+                                 {localSettings.wifis.length === 0 && (
+                                     <div className="text-center py-8 text-gray-400 text-sm italic">Chưa có Wifi nào được cấu hình.</div>
+                                 )}
+                                 {localSettings.wifis.map(wifi => (
+                                     <div key={wifi.id} className="flex justify-between items-center p-4 bg-white border border-gray-100 rounded-xl shadow-sm hover:border-teal-200 transition-colors group">
+                                         <div className="flex items-center gap-3">
+                                             <div className="w-10 h-10 bg-teal-50 text-teal-600 rounded-full flex items-center justify-center">
+                                                 <Wifi size={20} />
+                                             </div>
+                                             <div>
+                                                 <h4 className="font-bold text-gray-900">{wifi.name}</h4>
+                                                 <p className="text-xs text-gray-500 font-mono">BSSID: {wifi.bssid || 'Unknown'}</p>
+                                             </div>
+                                         </div>
+                                         <div className="flex items-center gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                             <button 
+                                                onClick={() => handleEditWifi(wifi)}
+                                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-full" 
+                                                title="Sửa"
+                                             >
+                                                 <Edit2 size={16} />
+                                             </button>
+                                             <button 
+                                                onClick={() => handleDeleteWifi(wifi.id)}
+                                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-full" 
+                                                title="Xóa"
+                                             >
+                                                 <Trash2 size={16} />
+                                             </button>
+                                         </div>
+                                     </div>
+                                 ))}
+                             </div>
                         </div>
                     </div>
                 )}
 
+                {/* TAB: DATABASE */}
+                {activeTab === 'DATABASE' && (
+                    <div className="space-y-6 animate-in fade-in">
+                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Database className="mr-2 text-teal-600" size={20}/> Kết nối Google Sheet</h3>
+                            <p className="text-sm text-gray-500 mb-4">Hệ thống sử dụng Google Sheet làm cơ sở dữ liệu (Backend). Dán link Web App URL của Apps Script vào đây.</p>
+                            
+                            <div className="bg-gray-100 p-4 rounded-xl font-mono text-xs break-all border border-gray-200 text-gray-600">
+                                {sheetUrl}
+                            </div>
+                            <p className="text-xs text-red-500 mt-2 flex items-center"><AlertTriangle size={12} className="mr-1"/> Link này được cấu hình cứng trong mã nguồn (services/sheetService.ts).</p>
+                         </div>
+                    </div>
+                )}
             </div>
         </div>
-
-        {/* BSSID HELP MODAL */}
-        {showHelpWifi && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-                <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-in zoom-in duration-200 overflow-hidden">
-                    <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
-                        <h3 className="font-bold text-gray-900">Cách lấy BSSID (MAC Address)</h3>
-                        <button onClick={() => setShowHelpWifi(false)}><X size={20} className="text-gray-500"/></button>
-                    </div>
-                    <div className="p-6 text-sm text-gray-700 space-y-4">
-                        <div className="p-3 bg-blue-50 rounded-lg border border-blue-100">
-                            <p className="font-bold text-blue-800 mb-1">1. Trên máy tính Windows:</p>
-                            <ul className="list-disc pl-5 space-y-1">
-                                <li>Mở <b>Command Prompt</b> (CMD).</li>
-                                <li>Gõ lệnh: <code className="bg-white px-1 rounded font-mono text-xs border">netsh wlan show interfaces</code></li>
-                                <li>Tìm dòng <b>BSSID</b> và copy giá trị đó (VD: 00:11:22:33:44:55).</li>
-                            </ul>
-                        </div>
-                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                            <p className="font-bold text-gray-800 mb-1">2. Trên máy Mac (macOS):</p>
-                            <ul className="list-disc pl-5 space-y-1">
-                                <li>Giữ phím <b>Option</b> (Alt) và click vào biểu tượng Wifi trên thanh menu.</li>
-                                <li>Dòng <b>BSSID</b> sẽ hiện ra trong menu.</li>
-                            </ul>
-                        </div>
-                        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                            <p className="font-bold text-gray-800 mb-1">3. Trên điện thoại:</p>
-                            <p>Cài đặt ứng dụng <b>Wifi Analyzer</b> (Android) hoặc <b>Network Analyzer</b> (iOS) để xem chi tiết.</p>
-                        </div>
-                    </div>
-                    <div className="p-4 border-t text-right">
-                        <button onClick={() => setShowHelpWifi(false)} className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold">Đã hiểu</button>
-                    </div>
-                </div>
-            </div>
-        )}
     </div>
   );
 };
-
-// Helper Icon component for SettingsView
-const InfoIcon = ({ size, className }: { size: number, className?: string }) => (
-    <svg 
-        xmlns="http://www.w3.org/2000/svg" 
-        width={size} 
-        height={size} 
-        viewBox="0 0 24 24" 
-        fill="none" 
-        stroke="currentColor" 
-        strokeWidth="2" 
-        strokeLinecap="round" 
-        strokeLinejoin="round" 
-        className={className}
-    >
-        <circle cx="12" cy="12" r="10"></circle>
-        <line x1="12" y1="16" x2="12" y2="12"></line>
-        <line x1="12" y1="8" x2="12.01" y2="8"></line>
-    </svg>
-);

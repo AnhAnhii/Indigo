@@ -13,7 +13,8 @@ export enum AppView {
   SERVING = 'SERVING',
   HANDOVER = 'HANDOVER',
   PROFILE = 'PROFILE',
-  NOTIFICATIONS = 'NOTIFICATIONS', // New View
+  NOTIFICATIONS = 'NOTIFICATIONS',
+  QR_STATION = 'QR_STATION', // NEW: Màn hình phát mã QR tại quán
 }
 
 export enum EmployeeRole {
@@ -190,7 +191,7 @@ export interface PrepTask {
 
 export interface ServingItem {
     id: string;
-    name: string;
+    name: string; 
     totalQuantity: number; 
     servedQuantity: number;
     unit: string;

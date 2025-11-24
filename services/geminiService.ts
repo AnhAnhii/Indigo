@@ -220,3 +220,65 @@ export const verifyFaceIdentity = async (capturedImage: string, referenceImage: 
         return { match: false, confidence: 0, hasFace: false };
     }
 };
+
+export const analyzeVoiceCheckIn = async (audioBase64: string, challengePhrase: string, employeeList: string[]): Promise<{ success: boolean, message: string, detectedName?: string }> => {
+    const ai = getAiInstance();
+    if (!ai) return { success: false, message: "Lỗi cấu hình AI." };
+
+    try {
+        const cleanAudio = audioBase64.split(',')[1] || audioBase64;
+
+        const prompt = `
+            Bạn là hệ thống chấm công bằng giọng nói (Voice Attendance).
+            
+            NHIỆM VỤ:
+            Phân tích đoạn ghi âm người dùng nói để xác thực chấm công.
+            
+            DỮ LIỆU ĐẦU VÀO:
+            1. Challenge Phrase (Mã kiểm tra): "${challengePhrase}" (Người dùng PHẢI đọc đúng cụm từ này).
+            2. Danh sách nhân viên hợp lệ: ${JSON.stringify(employeeList)}.
+
+            QUY TẮC XỬ LÝ:
+            1. Kiểm tra xem người dùng có đọc đúng "Challenge Phrase" không? (Chấp nhận sai sót nhỏ về phát âm nhưng phải đúng từ khóa chính).
+            2. Kiểm tra xem người dùng có xưng tên không? Nếu có, tên đó có nằm trong danh sách nhân viên không? (So sánh gần đúng).
+            3. Xác định ý định: Chấm công, Vào ca, Đi làm, Về, Check out.
+            
+            OUTPUT JSON ONLY:
+            {
+                "isChallengeCorrect": boolean,
+                "detectedName": string | null, // Tên nhân viên nhận diện được (hoặc null)
+                "intent": "CHECK_IN" | "CHECK_OUT" | "UNKNOWN",
+                "confidence": number, // 0-100
+                "reason": "Giải thích ngắn gọn tiếng Việt"
+            }
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: 'audio/webm', data: cleanAudio } } 
+                    ]
+                }
+            ]
+        });
+
+        const text = response.text || "{}";
+        const jsonMatch = text.match(/\{.*\}/s);
+        const jsonStr = jsonMatch ? jsonMatch[0] : "{}";
+        const result = JSON.parse(jsonStr);
+
+        if (result.isChallengeCorrect && result.detectedName && result.confidence > 70) {
+            return { success: true, message: "Xác thực thành công", detectedName: result.detectedName };
+        } else {
+            return { success: false, message: result.reason || "Không nghe rõ hoặc sai mã kiểm tra." };
+        }
+
+    } catch (error) {
+        console.error("Voice Analysis Error:", error);
+        return { success: false, message: "Lỗi phân tích giọng nói." };
+    }
+};
