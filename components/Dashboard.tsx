@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { 
-  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint
+  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace
 } from 'lucide-react';
 import { AppView } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -11,15 +11,22 @@ interface DashboardProps {
 }
 
 // Move component outside to prevent re-creation on every render
-const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn }: any) => (
-  <div onClick={onClick} className={`relative overflow-hidden rounded-2xl p-6 text-white shadow-lg cursor-pointer transition-transform hover:scale-105 ${gradient}`}>
+const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disabled = false }: any) => (
+  <div 
+    onClick={!disabled ? onClick : undefined} 
+    className={`relative overflow-hidden rounded-2xl p-6 text-white shadow-lg transition-transform ${disabled ? 'cursor-not-allowed opacity-90 grayscale-[0.2]' : 'cursor-pointer hover:scale-105'} ${gradient}`}
+  >
       <div className="relative z-10 flex flex-col items-center text-center h-full justify-between space-y-3">
-          <div className="p-3 bg-white/20 rounded-full backdrop-blur-sm"><Icon size={32} /></div>
+          <div className={`p-3 rounded-full backdrop-blur-sm ${disabled ? 'bg-gray-200/20' : 'bg-white/20'}`}><Icon size={32} /></div>
           <div><h3 className="font-bold text-lg">{title}</h3><p className="text-xs opacity-90 font-medium">{sub}</p></div>
-          <span className="bg-white text-gray-800 text-xs font-bold px-4 py-1 rounded-full shadow-sm">{labelBtn}</span>
+          <span className={`text-xs font-bold px-4 py-1 rounded-full shadow-sm ${disabled ? 'bg-gray-200 text-gray-500' : 'bg-white text-gray-800'}`}>{labelBtn}</span>
       </div>
-      <div className="absolute top-0 left-0 w-full h-full bg-white/5 opacity-50"></div>
-      <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
+      {!disabled && (
+        <>
+            <div className="absolute top-0 left-0 w-full h-full bg-white/5 opacity-50"></div>
+            <div className="absolute -bottom-4 -right-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
+        </>
+      )}
   </div>
 );
 
@@ -58,7 +65,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
             {isLoading && <span className="text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded animate-pulse">Đang đồng bộ...</span>}
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <MethodCard 
                 title="Chấm công GPS" 
                 sub="Định vị tại quán" 
@@ -67,6 +74,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 labelBtn="Hoạt động" 
                 onClick={() => onViewChange(AppView.ATTENDANCE)} 
               />
+              
+              {/* Face ID - Enabled */}
+              <MethodCard 
+                title="Face ID (AI)" 
+                sub="Nhận diện khuôn mặt" 
+                icon={ScanFace} 
+                gradient="bg-gradient-to-br from-blue-500 to-indigo-600" 
+                labelBtn="Sẵn sàng" 
+                onClick={() => onViewChange(AppView.ATTENDANCE)} 
+              />
+
+              {/* Fingerprint - Coming Soon */}
+              <MethodCard 
+                title="Vân Tay" 
+                sub="Thiết bị vật lý" 
+                icon={Fingerprint} 
+                gradient="bg-gray-100 text-gray-500 border-2 border-dashed border-gray-300" 
+                labelBtn="Sắp ra mắt" 
+                disabled={true}
+              />
+
               <MethodCard 
                 title="Đăng Ký Face" 
                 sub="Dữ liệu AI" 
@@ -75,7 +103,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 labelBtn="Admin" 
                 onClick={() => onViewChange(AppView.EMPLOYEES)} 
               />
-              {/* Các phương thức FaceID và Vân Tay tạm ẩn do bảo trì */}
           </div>
       </div>
 

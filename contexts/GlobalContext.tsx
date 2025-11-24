@@ -5,9 +5,10 @@ import {
   AttendanceStatus, EmployeeRole, RequestStatus, 
   SystemSettings, MenuItem, PrepTask,
   ServingGroup, ServingItem, SauceItem,
-  HandoverLog, WorkSchedule
+  HandoverLog, WorkSchedule, SystemAlert
 } from '../types';
 import { sheetService } from '../services/sheetService';
+import { sendWebhookMessage } from '../services/integrationService';
 
 interface GlobalContextType {
   employees: Employee[];
@@ -35,7 +36,8 @@ interface GlobalContextType {
   servingGroups: ServingGroup[];
   addServingGroup: (group: ServingGroup) => void;
   updateServingGroup: (groupId: string, updates: Partial<ServingGroup>) => void;
-  deleteServingGroup: (groupId: string) => void; // New
+  deleteServingGroup: (groupId: string) => void; 
+  startServingGroup: (groupId: string) => void; 
   addServingItem: (groupId: string, item: ServingItem) => void;
   updateServingItem: (groupId: string, itemId: string, updates: Partial<ServingItem>) => void;
   deleteServingItem: (groupId: string, itemId: string) => void;
@@ -48,9 +50,12 @@ interface GlobalContextType {
   handoverLogs: HandoverLog[];
   addHandoverLog: (log: HandoverLog) => void;
 
-  // SCHEDULES
   schedules: WorkSchedule[];
   assignShift: (employeeId: string, date: string, shiftCode: string) => void;
+
+  activeAlerts: SystemAlert[];
+  dismissedAlertIds: Set<string>; // EXPORT THIS
+  dismissAlert: (id: string) => void; // EXPORT THIS
 
   currentUser: Employee | null;
   login: (idOrPhone: string, pass: string) => boolean;
@@ -71,7 +76,6 @@ export const useGlobalContext = () => {
   return context;
 };
 
-// MOCK DATA
 const INITIAL_EMPLOYEES: Employee[] = [
   { id: '1', name: 'Nguyễn Văn A', role: EmployeeRole.MANAGER, hourlyRate: 60000, allowance: 2000000, phone: '0901234567', email: 'admin@restaurant.com', password: '123456' },
 ];
@@ -116,16 +120,24 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [handoverLogs, setHandoverLogs] = useState<HandoverLog[]>([]);
   const [schedules, setSchedules] = useState<WorkSchedule[]>([]);
   
+  const [activeAlerts, setActiveAlerts] = useState<SystemAlert[]>([]);
+  
+  // --- PERSISTENT DISMISSED ALERTS ---
+  // Ensure we read string IDs correctly
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(() => {
+      try {
+          const saved = localStorage.getItem('dismissedAlertIds');
+          return saved ? new Set(JSON.parse(saved)) : new Set();
+      } catch (e) {
+          return new Set();
+      }
+  });
+
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
-  
   const [pendingRequestIds, setPendingRequestIds] = useState<Set<string>>(new Set());
-  const [deletedGroupIds, setDeletedGroupIds] = useState<Set<string>>(new Set()); // Prevent zombies
-  
+  const [deletedGroupIds, setDeletedGroupIds] = useState<Set<string>>(new Set());
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
 
-  // --- HELPERS ---
-
-  // 1. Chuẩn hóa ngày (Fix lỗi lệch ngày do múi giờ)
   const normalizeDate = (dateStr: string) => {
       if (!dateStr) return '';
       try {
@@ -141,7 +153,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
   };
 
-  // 2. Làm sạch giờ
   const cleanGoogleSheetTime = (val: any): string | null => {
       if (!val) return null;
       const strVal = String(val).trim();
@@ -160,22 +171,177 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               });
           } catch (e) { return null; }
       }
-      if (strVal.includes(':') && strVal.length >= 4) return strVal;
+      if (strVal.includes('T') === false && strVal.includes(':') && strVal.length >= 4) return strVal;
       return null;
   };
+
+  const dismissAlert = (id: string) => {
+      setDismissedAlertIds(prev => {
+          const newSet = new Set(prev).add(String(id)); // Force string
+          localStorage.setItem('dismissedAlertIds', JSON.stringify(Array.from(newSet)));
+          return newSet;
+      });
+  };
+
+  // --- SYSTEM ALERTS: SERVING & ATTENDANCE ---
+  const runSystemChecks = useCallback(() => {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth() + 1;
+      const d = now.getDate();
+      const todayStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      
+      const currentHour = now.getHours();
+      const currentMinutes = now.getMinutes();
+      const currentTotalMinutes = currentHour * 60 + currentMinutes;
+
+      const newAlerts: SystemAlert[] = [];
+
+      // 1. CHECK SERVING (LATE ORDERS > 20 MINS)
+      servingGroups.forEach(group => {
+          if (group.status === 'ACTIVE' && group.startTime && group.date) {
+              try {
+                  // MANUAL DATE PARSING TO AVOID INVALID DATE
+                  let gYear = 0, gMonth = 0, gDay = 0;
+                  
+                  let dateStr = group.date;
+                  if (dateStr.includes('T')) dateStr = dateStr.split('T')[0];
+                  
+                  const cleanDate = dateStr.replace(/[\/\.]/g, '-');
+                  const dateParts = cleanDate.split('-').map(p => parseInt(p, 10));
+                  
+                  if (dateParts.length === 3) {
+                      if (dateParts[0] > 1000) {
+                          // YYYY-MM-DD
+                          [gYear, gMonth, gDay] = dateParts;
+                      } else {
+                          // DD-MM-YYYY
+                          [gDay, gMonth, gYear] = dateParts;
+                      }
+                  }
+
+                  const timeParts = group.startTime.split(':').map(p => parseInt(p, 10));
+                  const gHour = timeParts[0];
+                  const gMinute = timeParts[1];
+                  
+                  if (gYear > 0 && gMonth > 0 && gDay > 0 && !isNaN(gHour) && !isNaN(gMinute)) {
+                      const groupTime = new Date(gYear, gMonth - 1, gDay, gHour, gMinute);
+                      
+                      if (!isNaN(groupTime.getTime())) {
+                          const diffMs = now.getTime() - groupTime.getTime();
+                          const diffMinutes = Math.floor(diffMs / 60000);
+
+                          // Alert if wait time >= 20 minutes
+                          if (diffMinutes >= 20) {
+                              const missingItems = group.items.filter(i => i.servedQuantity < i.totalQuantity);
+                              if (missingItems.length > 0) {
+                                  const missingNames = missingItems.map(i => i.name).join(', ');
+                                  // CRITICAL: Ensure ID is string to match LocalStorage
+                                  const alertId = `alert_serving_${String(group.id)}`; 
+                                  
+                                  newAlerts.push({
+                                      id: alertId,
+                                      type: 'LATE_SERVING',
+                                      message: `Đoàn ${group.name} (${group.location}) đã chờ ${diffMinutes} phút!`,
+                                      details: `Thiếu: ${missingNames}`,
+                                      groupId: String(group.id),
+                                      severity: 'HIGH',
+                                      timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                                  });
+                              }
+                          }
+                      }
+                  }
+              } catch (e) { console.error("Error calculating serving time:", e); }
+          }
+      });
+
+      // 2. CHECK ATTENDANCE VIOLATIONS (LATE, EARLY, ABSENT)
+      logs.forEach(log => {
+          if (log.date === todayStr) {
+              if (log.status === AttendanceStatus.LATE) {
+                  newAlerts.push({
+                      id: `alert_late_${String(log.id)}`,
+                      type: 'ATTENDANCE_VIOLATION',
+                      message: `Phát hiện đi muộn: ${log.employeeName}`,
+                      details: `Muộn ${log.lateMinutes} phút (Check-in: ${log.checkIn})`,
+                      severity: 'MEDIUM',
+                      timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                  });
+              }
+              if (log.status === AttendanceStatus.EARLY_LEAVE) {
+                  newAlerts.push({
+                      id: `alert_early_${String(log.id)}`,
+                      type: 'ATTENDANCE_VIOLATION',
+                      message: `Phát hiện về sớm: ${log.employeeName}`,
+                      details: `Về lúc ${log.checkOut} (Sớm hơn quy định)`,
+                      severity: 'MEDIUM',
+                      timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                  });
+              }
+          }
+      });
+
+      // B. Detect Absences
+      schedules.forEach(schedule => {
+          if (schedule.date === todayStr && schedule.shiftCode !== 'OFF') {
+              const empLog = logs.find(l => String(l.employeeId) === String(schedule.employeeId) && l.date === todayStr);
+              
+              if (!empLog) {
+                  const shift = settings.shiftConfigs.find(s => s.code === schedule.shiftCode);
+                  if (shift) {
+                      const [sH, sM] = shift.startTime.split(':').map(Number);
+                      const shiftStartMins = sH * 60 + sM;
+                      
+                      // If current time is 30 mins past shift start AND no log
+                      if (currentTotalMinutes > (shiftStartMins + 30)) {
+                          const emp = employees.find(e => String(e.id) === String(schedule.employeeId));
+                          newAlerts.push({
+                              id: `alert_absent_${String(schedule.id)}`,
+                              type: 'ATTENDANCE_VIOLATION',
+                              message: `Cảnh báo vắng mặt: ${emp ? emp.name : 'Nhân viên'}`,
+                              details: `Ca ${shift.name} (${shift.startTime}) chưa thấy Check-in!`,
+                              severity: 'HIGH',
+                              timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                          });
+                      }
+                  }
+              }
+          }
+      });
+      
+      if (settings.webhook?.enabled && settings.webhook.url) {
+          const highSeverity = newAlerts.filter(a => a.severity === 'HIGH');
+          if (highSeverity.length > activeAlerts.filter(a => a.severity === 'HIGH').length) {
+              // Trigger webhook logic here
+          }
+      }
+
+      setActiveAlerts(prev => {
+          if (JSON.stringify(prev) !== JSON.stringify(newAlerts)) return newAlerts;
+          return prev;
+      });
+
+  }, [servingGroups, logs, schedules, settings, employees]); 
+
+  useEffect(() => {
+      runSystemChecks();
+      const interval = setInterval(runSystemChecks, 30000); // Check every 30s
+      return () => clearInterval(interval);
+  }, [runSystemChecks]);
+
 
   const loadData = useCallback(async () => {
       setIsLoading(true);
       try {
         const data = await sheetService.fetchAllData();
         if (data) {
-            // 1. EMPLOYEES
             if (data.employees && Array.isArray(data.employees)) {
                 const parsedEmployees = data.employees.map((e: any) => ({
                     ...e,
                     hourlyRate: Number(e.hourlyRate) || 0,
                     allowance: Number(e.allowance) || 0,
-                    id: String(e.id)
+                    id: String(e.id) // FORCE STRING
                 }));
                 setEmployees(parsedEmployees);
                 if (currentUser) {
@@ -184,10 +350,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 }
             }
 
-            // 2. LOGS
             if (data.logs && Array.isArray(data.logs)) {
                 const parsedLogs = data.logs.map((l: any) => ({
                     ...l,
+                    id: String(l.id), // FORCE STRING
+                    employeeId: String(l.employeeId),
                     date: normalizeDate(l.date),
                     checkIn: cleanGoogleSheetTime(l.checkIn),
                     checkOut: cleanGoogleSheetTime(l.checkOut),
@@ -197,41 +364,75 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 setLogs(parsedLogs);
             }
 
-            // 3. REQUESTS
             if (data.requests && Array.isArray(data.requests)) {
                 setRequests(prevLocalRequests => {
-                    const serverRequests = data.requests;
+                    const serverRequests = data.requests.map((r:any) => ({...r, id: String(r.id), employeeId: String(r.employeeId)}));
                     const pendingLocal = prevLocalRequests.filter(r => pendingRequestIds.has(r.id));
                     const stillPending = pendingLocal.filter(localReq => !serverRequests.some((serverReq: any) => String(serverReq.id) === String(localReq.id)));
                     return [...stillPending, ...serverRequests];
                 });
                 setPendingRequestIds(prev => {
                     const newSet = new Set(prev);
-                    data.requests.forEach((r: any) => { if (newSet.has(r.id)) newSet.delete(r.id); });
+                    data.requests.forEach((r: any) => { if (newSet.has(String(r.id))) newSet.delete(String(r.id)); });
                     return newSet;
                 });
             }
 
-            // 4. SERVING GROUPS (With Zombie Protection)
             if (data.servingGroups && Array.isArray(data.servingGroups)) {
-                const freshGroups = data.servingGroups.filter((g: any) => !deletedGroupIds.has(g.id));
-                setServingGroups(freshGroups);
+                const freshGroups = data.servingGroups
+                    .filter((g: any) => !deletedGroupIds.has(String(g.id)))
+                    .map((g: any) => ({
+                        ...g,
+                        id: String(g.id), // FORCE STRING ID
+                        date: normalizeDate(g.date),
+                        startTime: cleanGoogleSheetTime(g.startTime),
+                        completionTime: cleanGoogleSheetTime(g.completionTime)
+                    }));
+
+                setServingGroups(prevGroups => {
+                    const serverGroupsMap = new Map(freshGroups.map((g: any) => [g.id, g]));
+                    const merged = prevGroups.map(localG => {
+                        const serverG = serverGroupsMap.get(localG.id) as any;
+                        if (!serverG) return localG;
+                        
+                        const mergedGroup = { ...serverG };
+
+                        // 1. Keep local completed status if server is behind
+                        if (localG.status === 'COMPLETED' && serverG.status !== 'COMPLETED') {
+                            mergedGroup.status = 'COMPLETED';
+                            mergedGroup.completionTime = localG.completionTime;
+                        }
+
+                        // 2. Prevent overwriting startTime if server has null but local has value
+                        if (localG.startTime && !serverG.startTime) {
+                            mergedGroup.startTime = localG.startTime;
+                        }
+
+                        return mergedGroup;
+                    });
+                    freshGroups.forEach((serverG: any) => {
+                        if (!merged.find(m => m.id === serverG.id)) {
+                            merged.push(serverG);
+                        }
+                    });
+                    return merged;
+                });
                 
-                // Cleanup deleted set if items are gone from server
                 setDeletedGroupIds(prev => {
                     const newSet = new Set(prev);
-                    const serverIds = new Set(data.servingGroups.map((g: any) => g.id));
+                    const serverIds = new Set(data.servingGroups.map((g: any) => String(g.id)));
                     prev.forEach(id => { if (!serverIds.has(id)) newSet.delete(id); });
                     return newSet;
                 });
             }
 
-            if (data.handoverLogs) setHandoverLogs(data.handoverLogs);
+            if (data.handoverLogs) setHandoverLogs(data.handoverLogs.map((h:any) => ({...h, id: String(h.id)})));
             
-            // 5. SCHEDULES (Mới)
             if (data.schedules && Array.isArray(data.schedules)) {
                 const parsedSchedules = data.schedules.map((s: any) => ({
                     ...s,
+                    id: String(s.id),
+                    employeeId: String(s.employeeId),
                     date: normalizeDate(s.date)
                 }));
                 setSchedules(parsedSchedules);
@@ -243,7 +444,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                    location: { ...INITIAL_SETTINGS.location, ...(raw.location || {}) },
                    wifis: Array.isArray(raw.wifis) ? raw.wifis : INITIAL_SETTINGS.wifis,
                    rules: { ...INITIAL_SETTINGS.rules, ...(raw.rules || {}) },
-                   shiftConfigs: Array.isArray(raw.shiftConfigs) ? raw.shiftConfigs : INITIAL_SETTINGS.shiftConfigs
+                   shiftConfigs: Array.isArray(raw.shiftConfigs) ? raw.shiftConfigs : INITIAL_SETTINGS.shiftConfigs,
+                   webhook: raw.webhook || undefined
                };
                setSettings(mergedSettings);
             }
@@ -302,7 +504,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
       if (menuNames.some(n => (n.includes('cá hồi') || n.includes('cá tầm')) && n.includes('nướng'))) prepList.push({ name: "Nước chấm cá", quantity: getStandardBowls(tableCount, paxPerTable), unit: "Bát", isCompleted: false, note: "Cá nướng" });
       if (!isEuro) prepList.push({ name: "Ớt tươi", quantity: soyQty, unit: "Bát", isCompleted: false });
-      if (menuNames.some(n => n.includes('cơm lam') || n.includes('rau luộc') || n.includes('củ luộc'))) prepList.push({ name: "Muối vừng", quantity: getStandardBowls(tableCount, paxPerTable), unit: "Bát", isCompleted: false });
+      if (menuNames.some(n => n.includes('cơm lam') || n.includes('khoai luộc') || n.includes('củ luộc') || n.includes('rau củ'))) prepList.push({ name: "Muối vừng", quantity: getStandardBowls(tableCount, paxPerTable), unit: "Bát", isCompleted: false });
       if (menuNames.some(n => n.includes('gà nướng') && !n.includes('mật ong') && !n.includes('đồng quê'))) prepList.push({ name: "Chẩm chéo", quantity: getStandardBowls(tableCount, paxPerTable), unit: "Bát", isCompleted: false, note: "Gà nướng" });
       if (menuNames.some(n => n.includes('lợn hấp'))) prepList.push({ name: "Tương bần", quantity: getStandardBowls(tableCount, paxPerTable), unit: "Bát", isCompleted: false });
       if (menuNames.some(n => n.includes('gỏi cá hồi'))) prepList.push({ name: "Nước chấm gỏi", quantity: 1 * tableCount, unit: "Bát", isCompleted: false, note: "1 bát/bàn" });
@@ -348,19 +550,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const assignShift = (employeeId: string, date: string, shiftCode: string) => {
       const newSchedule: WorkSchedule = {
           id: `${employeeId}_${date}`,
-          employeeId,
+          employeeId: String(employeeId),
           date,
           shiftCode
       };
-      
-      // Optimistic UI Update
       setSchedules(prev => {
-          // Remove old shift for that day if exists
-          const filtered = prev.filter(s => !(s.employeeId === employeeId && s.date === date));
+          const filtered = prev.filter(s => !(s.employeeId === String(employeeId) && s.date === date));
           return [...filtered, newSchedule];
       });
-      
-      // Sync to Backend
       sheetService.syncSchedule(newSchedule);
   };
 
@@ -382,6 +579,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const groupWithData = { 
           ...group, 
           prepList,
+          startTime: null, 
           date: group.date || new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' })
       }; 
       setServingGroups(prev => [groupWithData, ...prev]); 
@@ -390,11 +588,15 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const updateServingGroup = (groupId: string, updates: Partial<ServingGroup>) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updatedGroup = { ...g, ...updates }; if (updates.items || updates.guestCount || updates.tableCount || updates.name) { updatedGroup.prepList = generatePrepList(updatedGroup); } syncGroupState(updatedGroup); return updatedGroup; })); };
   
-  // FIX: Track Deleted IDs locally
   const deleteServingGroup = (groupId: string) => { 
-      setDeletedGroupIds(prev => new Set(prev).add(groupId)); // Block this ID from reappearing
+      setDeletedGroupIds(prev => new Set(prev).add(groupId)); 
       setServingGroups(prev => prev.filter(g => g.id !== groupId)); 
       sheetService.deleteServingGroup(groupId); 
+  };
+
+  const startServingGroup = (groupId: string) => {
+      const timeStr = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
+      updateServingGroup(groupId, { startTime: timeStr });
   };
   
   const addServingItem = (groupId: string, item: ServingItem) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updatedGroup = { ...g, items: [...g.items, item] }; updatedGroup.prepList = generatePrepList(updatedGroup); syncGroupState(updatedGroup); return updatedGroup; })); };
@@ -403,34 +605,30 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const toggleSauceItem = (groupId: string, sauceName: string) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId || !g.prepList) return g; const newPrepList = g.prepList.map(s => s.name === sauceName ? { ...s, isCompleted: !s.isCompleted } : s); const updatedGroup = { ...g, prepList: newPrepList }; syncGroupState(updatedGroup); return updatedGroup; })); };
   const incrementServedItem = (groupId: string, itemId: string) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const items = g.items.map(i => i.id === itemId ? { ...i, servedQuantity: i.servedQuantity + 1 } : i); const updatedGroup = { ...g, items }; syncGroupState(updatedGroup); return updatedGroup; })); };
   const decrementServedItem = (groupId: string, itemId: string) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const items = g.items.map(i => i.id === itemId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity - 1) } : i); const updatedGroup = { ...g, items }; syncGroupState(updatedGroup); return updatedGroup; })); };
-  const completeServingGroup = (groupId: string) => { setServingGroups(prev => prev.map(g => { if (g.id === groupId) { const updated = { ...g, status: 'COMPLETED' as const }; syncGroupState(updated); return updated; } return g; })); };
+  const completeServingGroup = (groupId: string) => { 
+      const nowStr = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
+      setServingGroups(prev => prev.map(g => { 
+          if (g.id === groupId) { 
+              const updated = { ...g, status: 'COMPLETED' as const, completionTime: nowStr }; 
+              syncGroupState(updated); 
+              return updated; 
+          } 
+          return g; 
+      })); 
+  };
   const addHandoverLog = (log: HandoverLog) => { setHandoverLogs(prev => [log, ...prev]); sheetService.logHandover(log); }
 
-  // UPDATED LOGIN FUNCTION - FIX PHONE LOGIN
   const login = (idOrPhone: string, pass: string) => { 
-      // Normalize input: remove non-digits
       const inputClean = idOrPhone.replace(/\D/g, '');
-      
       let user = employees.find(e => {
-          // Check Password
           if (String(e.password || '123456') !== String(pass)) return false;
-
-          // Check ID (Exact match)
           if (String(e.id) === idOrPhone) return true;
-
-          // Check Phone
-          // Normalize stored phone from employee data
           const empPhoneClean = String(e.phone || '').replace(/\D/g, '');
-          
-          // Compare numeric values to ignore leading zeros (e.g. 090 == 90)
-          // Only compare if we have valid digits
           if (inputClean !== '' && empPhoneClean !== '') {
               return Number(inputClean) === Number(empPhoneClean);
           }
-          
           return false;
       });
-
       if (!user && idOrPhone === '1' && pass === '123456') user = INITIAL_EMPLOYEES[0];
       if (user) { setCurrentUser(user); return true; }
       return false;
@@ -447,11 +645,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       settings, updateSettings,
       menuItems: [], prepTasks, togglePrepTask,
       servingGroups, addServingGroup, updateServingGroup, deleteServingGroup,
+      startServingGroup, 
       addServingItem, updateServingItem, deleteServingItem,
       incrementServedItem, decrementServedItem, completeServingGroup,
       toggleSauceItem,
       handoverLogs, addHandoverLog,
-      schedules, assignShift, // NEW
+      schedules, assignShift, 
+      activeAlerts, dismissedAlertIds, dismissAlert,
       currentUser, login, logout,
       isLoading, lastUpdated, reloadData: loadData
     }}>

@@ -61,49 +61,50 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
     try {
         const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
+        // PROMPT NÂNG CAO CHO NHÀ HÀNG VIỆT NAM V2 (Tập trung vào chữ viết tay khó đọc và Logic chia bàn)
         const prompt = `
-            Bạn là Captain (Đội trưởng) nhà hàng chuyên xử lý Order viết tay.
-            
-            NHIỆM VỤ: Trích xuất dữ liệu JSON từ ảnh thực đơn.
-            
-            1. XÁC ĐỊNH VỊ TRÍ / SỐ BÀN (QUAN TRỌNG - LOCATION):
-            - Nhìn vào PHẦN ĐẦU (Header) của tờ giấy.
-            - Tìm các mã bàn viết tay thường là: A1, A2, B1, B2, C1, C2...
-            - Nếu có dải bàn gộp, hãy lấy toàn bộ. Ví dụ: "A1 (1->5)", "B2 (1-4)", "C1 + C2".
-            - Nếu không xác định được dải số, chỉ cần lấy mã khu vực (VD: "A1", "B2").
-            - Điền vào trường "location".
+            Bạn là một Captain (Đội trưởng) nhà hàng chuyên nghiệp, chuyên giải mã các tờ Order viết tay "gà bới".
+            Nhiệm vụ: Chuyển đổi ảnh thực đơn thành JSON.
 
-            2. XÁC ĐỊNH SỐ LƯỢNG BÀN (TABLE COUNT):
-            - Tìm ký hiệu nhân số lượng bàn như "x8", "x 8", "8 bàn".
-            - Tìm các phép chia bàn như "1 x 5" (1 bàn 5), "3 x 4" (3 bàn 4).
-            - Tính tổng số bàn. Ví dụ "1x5 + 3x4" => tableCount = 4. "x8" => tableCount = 8.
-            - Điền vào trường "tableCount".
+            === QUY TẮC SỐ 1: TÌM TỔNG SỐ BÀN (TABLE COUNT) - ƯU TIÊN CAO NHẤT ===
+            Chữ viết tay số bàn thường nằm ở góc trên, bên cạnh tên đoàn hoặc số khách.
+            Hãy tìm các mẫu sau:
+            1. Ký hiệu "x": "x8", "x 8", "x4", "x 4". Đây là CHẮC CHẮN số bàn. (VD: x8 => 8 bàn).
+            2. Phép cộng chia bàn: "1x5 + 7x4" hoặc "1x5, 7x4" hoặc "3x6, 2x5".
+               -> HÃY CỘNG TỔNG LẠI: 1 + 7 = 8 bàn. 3 + 2 = 5 bàn.
+               -> Lưu chuỗi gốc "1x5, 7x4" vào trường "tableSplit".
+            3. Ký hiệu "T": "8T", "4T" (Table).
+            4. Nếu không tìm thấy các ký hiệu trên, mới dùng công thức ước lượng: Table = ceil(Guest / 6).
 
-            3. XÁC ĐỊNH KHÁCH (PAX):
-            - Tìm dòng chứa chữ "Pax" (VD: "33 pax Do Thái").
-            - Tách số khách vào "guestCount" (VD: 33).
-            - Lấy toàn bộ dòng đó vào "groupName" để sau này phân tích loại khách (Âu/Á/Hàn...).
-            - BỎ QUA tên người dẫn đoàn hoặc tên công ty (VD: Mr.Hiep, VN247...).
+            === QUY TẮC SỐ 2: PAX & GROUP NAME ===
+            - Tìm dòng chứa chữ "Pax". VD: "33 pax Do Thai".
+            - Tách: guestCount = 33.
+            - groupName: "33 pax Do Thai" (Giữ nguyên để xác định loại khách Âu/Á/Hàn/Do Thái).
 
-            4. DANH SÁCH MÓN ĂN:
-            - BỎ QUA tuyệt đối các dòng: "NB:", "N.B", "Lưu ý", "Nội bộ".
-            - Món Chung (Lẩu, Gà, Cá, Rau, Mẹt...): Nếu không ghi số lượng cụ thể, Số lượng = TABLE COUNT.
-            - Món Riêng (Súp, Suất, Bát...): Số lượng = GUEST COUNT.
-            - Món có số lượng cụ thể (VD: "4 Khoai"): Số lượng = 4.
+            === QUY TẮC SỐ 3: LOCATION ===
+            - Tìm mã bàn: A1, B2, C1, VIP...
+            - Tìm dải bàn: "A1 (1->5)" hoặc "A1-A5".
 
-            OUTPUT JSON FORMAT (Array of objects):
+            === QUY TẮC SỐ 4: MÓN ĂN (ITEMS) ===
+            - BỎ QUA: "NB:", "Lưu ý:", "Note:", "Nội bộ".
+            - SỐ LƯỢNG (QUANTITY):
+              + Món Chung (Lẩu, Gà, Cá, Rau, Khoai, Đĩa...): Nếu không ghi số cụ thể, mặc định Qty = TABLE COUNT.
+              + Món Riêng (Súp, Suất, Bát, Cốc...): Nếu không ghi số cụ thể, mặc định Qty = GUEST COUNT.
+
+            OUTPUT JSON FORMAT:
             [
                 {
-                    "groupName": "33 pax Do Thái",
-                    "location": "A1 (1->5)", 
+                    "groupName": "33 pax Do Thai",
+                    "location": "A1", 
                     "guestCount": 33,
                     "tableCount": 8,
+                    "tableSplit": "1x5, 7x4", 
                     "items": [
-                        { "name": "Khoai lang chiên", "quantity": 4, "unit": "Đĩa" }
+                        { "name": "Khoai lang chiên", "quantity": 8, "unit": "Đĩa" },
+                        { "name": "Súp gà", "quantity": 33, "unit": "Bát" }
                     ]
                 }
             ]
-            Chỉ trả về JSON.
         `;
 
         const response = await ai.models.generateContent({
@@ -120,29 +121,35 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
         });
 
         const text = response.text || "[]";
-        // Logic trích xuất JSON thông minh từ lời dẫn của AI
-        let jsonString = text;
         
-        // 1. Thử tìm mảng JSON [ ... ]
+        let jsonString = text;
         const arrayMatch = text.match(/\[\s*\{.*\}\s*\]/s);
+        
         if (arrayMatch) {
             jsonString = arrayMatch[0];
         } else {
-            // 2. Nếu không thấy mảng, thử tìm object { ... } và bọc vào mảng
             const objectMatch = text.match(/\{.*\}/s);
             if (objectMatch) {
                 jsonString = `[${objectMatch[0]}]`;
             } else {
-                // 3. Cố gắng clean markdown
                 jsonString = text.replace(/```json/g, '').replace(/```/g, '').trim();
             }
         }
         
         try {
-            return JSON.parse(jsonString);
+            const result = JSON.parse(jsonString);
+            return result.map((g: any) => ({
+                ...g,
+                guestCount: Number(g.guestCount) || 0,
+                tableCount: Number(g.tableCount) || 1,
+                tableSplit: g.tableSplit || '', 
+                items: Array.isArray(g.items) ? g.items.map((i: any) => ({
+                    ...i,
+                    quantity: Number(i.quantity) || 1
+                })) : []
+            }));
         } catch (e) {
             console.error("JSON Parse Error:", e);
-            console.log("Raw AI Text:", text);
             return [];
         }
     } catch (error) {
@@ -151,9 +158,9 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
     }
 }
 
-export const verifyFaceIdentity = async (capturedImage: string, referenceImage: string): Promise<{ match: boolean, confidence: number }> => {
+export const verifyFaceIdentity = async (capturedImage: string, referenceImage: string): Promise<{ match: boolean, confidence: number, hasFace: boolean }> => {
     const ai = getAiInstance();
-    if (!ai) return { match: false, confidence: 0 };
+    if (!ai) return { match: false, confidence: 0, hasFace: false };
 
     try {
         const cleanCaptured = capturedImage.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
@@ -163,17 +170,23 @@ export const verifyFaceIdentity = async (capturedImage: string, referenceImage: 
             Bạn là chuyên gia an ninh sinh trắc học (Biometric Security).
             
             NHIỆM VỤ: Xác thực danh tính từ 2 bức ảnh.
-            - Ảnh 1: Ảnh chụp từ Camera (Captured).
-            - Ảnh 2: Ảnh hồ sơ (Reference).
+            - Ảnh 1: Ảnh chụp từ Camera chấm công (Captured).
+            - Ảnh 2: Ảnh hồ sơ nhân viên (Reference).
 
-            QUY TẮC NGHIÊM NGẶT (STRICT RULES):
-            1. BƯỚC 1 - KIỂM TRA ẢNH 1: Nếu Ảnh 1 KHÔNG CÓ khuôn mặt người rõ ràng (VD: chụp cái ghế, bức tường, trần nhà, quá tối, hoặc bị che mặt), HÃY TRẢ VỀ match: false và confidence: 0 NGAY LẬP TỨC. Không được đoán mò.
-            2. BƯỚC 2 - SO SÁNH: Chỉ khi Ảnh 1 có mặt người, mới so sánh với Ảnh 2.
+            QUY TẮC CỐT LÕI (HARD RULES):
+            1. PHÁT HIỆN KHUÔN MẶT (FACE DETECTION):
+               - Kiểm tra Ảnh 1. Nếu là hình ảnh đồ vật (ghế, bàn, tường, trần nhà), động vật, hoặc quá tối/mờ không thấy rõ mặt người -> TRẢ VỀ "hasFace": false.
+               - Nếu không có mặt người -> "match": false, "confidence": 0.
+            
+            2. SO SÁNH (VERIFICATION):
+               - Chỉ so sánh nếu "hasFace": true.
+               - So sánh đặc điểm khuôn mặt giữa Ảnh 1 và Ảnh 2.
             
             OUTPUT JSON ONLY:
             {
-                "match": boolean, // true nếu cùng một người, false nếu khác người HOẶC không có mặt người
-                "confidence": number // 0-100 (Nếu không có mặt người, trả về 0)
+                "hasFace": boolean, // Có phát hiện mặt người trong Ảnh 1 không?
+                "match": boolean, // true nếu cùng một người, false nếu khác người hoặc hasFace=false
+                "confidence": number // 0-100 (Độ tin cậy. Nếu hasFace=false thì confidence=0)
             }
         `;
 
@@ -198,11 +211,12 @@ export const verifyFaceIdentity = async (capturedImage: string, referenceImage: 
 
         return {
             match: result.match === true,
-            confidence: result.confidence || 0
+            confidence: result.confidence || 0,
+            hasFace: result.hasFace === true
         };
 
     } catch (error) {
         console.error("Face Verification Error:", error);
-        return { match: false, confidence: 0 };
+        return { match: false, confidence: 0, hasFace: false };
     }
 };

@@ -12,7 +12,8 @@ export enum AppView {
   KITCHEN = 'KITCHEN',
   SERVING = 'SERVING',
   HANDOVER = 'HANDOVER',
-  PROFILE = 'PROFILE', // New View
+  PROFILE = 'PROFILE',
+  NOTIFICATIONS = 'NOTIFICATIONS', // New View
 }
 
 export enum EmployeeRole {
@@ -150,7 +151,12 @@ export interface SystemSettings {
     location: LocationConfig;
     wifis: WifiConfig[];
     rules: WorkRule;
-    shiftConfigs: ShiftConfig[]; 
+    shiftConfigs: ShiftConfig[];
+    webhook?: {
+        url: string;
+        enabled: boolean;
+        token?: string;
+    };
 }
 
 export interface MenuItem {
@@ -188,12 +194,25 @@ export interface ServingGroup {
     name: string; 
     location: string;
     guestCount: number; 
-    startTime: string; 
-    date: string; // Added date field for History
+    startTime: string | null; // Allow null for "Guests haven't arrived yet"
+    date: string; 
     items: ServingItem[];
     status: 'ACTIVE' | 'COMPLETED';
     tableCount?: number;
+    tableSplit?: string; // NEW: Logic chia bàn (VD: "1x5, 7x4")
     prepList?: SauceItem[]; 
+    completionTime?: string; // Added completionTime
+}
+
+// NEW ALERT INTERFACE
+export interface SystemAlert {
+    id: string;
+    type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION';
+    message: string;
+    details: string;
+    groupId?: string; // Optional now
+    severity: 'HIGH' | 'MEDIUM';
+    timestamp: string;
 }
 
 export const RESTAURANT_LOCATION = {

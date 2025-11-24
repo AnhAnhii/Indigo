@@ -83,12 +83,9 @@ export const AttendanceKiosk: React.FC = () => {
               setLocationStatus('ERROR');
               setMessage("Vui lòng cấp quyền truy cập vị trí cho trình duyệt và thử lại.");
           } else if (error.code === 2) { // POSITION_UNAVAILABLE
-              // Often transient, keep checking but warn user
-              // setLocationStatus('ERROR'); 
               setMessage("Không thể xác định vị trí. Vui lòng kiểm tra GPS/Wifi.");
           } else if (error.code === 3) { // TIMEOUT
               console.warn("GPS Timeout - Retrying...");
-              // Don't set ERROR, let it retry
           } else {
               setLocationStatus('ERROR');
               setMessage(`Lỗi định vị: ${error.message}`);
@@ -100,7 +97,6 @@ export const AttendanceKiosk: React.FC = () => {
   }, [settings]);
 
   // 2. CAMERA CONTROL (Real Hardware Only)
-  // Robust Camera Handling Logic
   useEffect(() => {
       if (stream && videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -114,8 +110,6 @@ export const AttendanceKiosk: React.FC = () => {
         video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } 
       });
       setStream(mediaStream);
-      // We do NOT set 'SCANNING' here anymore. 
-      // We wait for the video 'onCanPlay' event to ensure stream is actually ready.
     } catch (err: any) {
       console.error("Error accessing camera:", err);
       setMessage("Không thể truy cập camera. Vui lòng cấp quyền hoặc kiểm tra thiết bị.");
@@ -155,7 +149,6 @@ export const AttendanceKiosk: React.FC = () => {
         });
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
         
-        // CRITICAL FIX: Prioritize finding an OPEN log (no checkOut) for today.
         const openLog = logs.find(l => 
             l.employeeName === employee.name && 
             l.date === localDateStr && 
@@ -167,7 +160,7 @@ export const AttendanceKiosk: React.FC = () => {
         let detectedShiftCode = openLog?.shiftCode || '';
 
         if (openLog) {
-            // --- CHECK OUT LOGIC (Processing the Open Log) ---
+            // --- CHECK OUT LOGIC ---
             const [inH, inM] = openLog.checkIn ? openLog.checkIn.split(':').map(Number) : [0,0];
             const inMinutes = inH * 60 + inM;
             const rawTotalMinutes = currentMinutes - inMinutes;
@@ -181,8 +174,6 @@ export const AttendanceKiosk: React.FC = () => {
                  const bStartMins = bStartH * 60 + bStartM;
                  const bEndMins = bEndH * 60 + bEndM;
 
-                 // If shift spans across the break time, deduct it (Morning to Evening case)
-                 // If it's just a segment (Morning only or Evening only), logic below handles it naturally
                  if (inMinutes < bStartMins && currentMinutes > bEndMins) {
                      breakDeduction = bEndMins - bStartMins;
                  }
@@ -193,20 +184,15 @@ export const AttendanceKiosk: React.FC = () => {
 
             let status = openLog.status;
             if (shift) {
-                // Logic về sớm: Check nếu ra trước giờ về quy định
-                // Với ca gãy, ta cần xem đây là ca sáng hay ca tối
                 let targetEndTimeMinutes = 0;
                 if (shift.isSplitShift && shift.breakStart && currentMinutes < (16 * 60)) {
-                    // Nếu đang ở buổi sáng (trước 16:00), thì giờ về chuẩn là breakStart (14:00)
                     const [bsH, bsM] = shift.breakStart.split(':').map(Number);
                     targetEndTimeMinutes = bsH * 60 + bsM;
                 } else {
-                    // Nếu là buổi tối hoặc ca thường, giờ về chuẩn là endTime
                     const [endH, endM] = shift.endTime.split(':').map(Number);
                     targetEndTimeMinutes = endH * 60 + endM;
                 }
 
-                // Nếu về sớm hơn 15 phút
                 if (currentMinutes < targetEndTimeMinutes - 15) { 
                     status = AttendanceStatus.EARLY_LEAVE;
                 }
@@ -221,19 +207,16 @@ export const AttendanceKiosk: React.FC = () => {
             updateAttendanceLog(updatedLog);
             finalStatus = 'CHECK_OUT';
         } else {
-            // --- CHECK IN LOGIC (New Session) ---
+            // --- CHECK IN LOGIC ---
             let closestShift = settings.shiftConfigs?.[0];
             let minDiff = Infinity;
 
             settings.shiftConfigs?.forEach(shift => {
-                // Calculate distance to Start Time
                 const [h, m] = shift.startTime.split(':').map(Number);
                 const shiftStartMins = h * 60 + m;
                 const diffStart = Math.abs(currentMinutes - shiftStartMins);
-
                 let diff = diffStart;
 
-                // For Split Shift, also check distance to Break End (Afternoon Start)
                 if (shift.isSplitShift && shift.breakEnd) {
                     const [bh, bm] = shift.breakEnd.split(':').map(Number);
                     const breakEndMins = bh * 60 + bm;
@@ -249,25 +232,18 @@ export const AttendanceKiosk: React.FC = () => {
 
             detectedShiftCode = closestShift?.code || 'N/A';
             
-            // LOGIC TÍNH GIỜ VÀO CHUẨN (TARGET START TIME)
-            // Mặc định là giờ bắt đầu ca (08:00)
             let [sH, sM] = (closestShift?.startTime || '08:00').split(':').map(Number);
             let shiftStartMinutes = sH * 60 + sM;
 
-            // QUAN TRỌNG: Nếu là Ca Gãy và giờ hiện tại gần giờ làm chiều (sau 15:30)
-            // Thì mốc so sánh sẽ là giờ Break End (17:00) chứ không phải 08:00 nữa
             if (closestShift?.isSplitShift && closestShift.breakEnd) {
                 const [beH, beM] = closestShift.breakEnd.split(':').map(Number);
                 const breakEndMins = beH * 60 + beM;
-                
-                // Nếu đang check-in vào buổi chiều (ví dụ từ 15:30 trở đi)
                 if (currentMinutes > (breakEndMins - 90)) {
                     shiftStartMinutes = breakEndMins;
                 }
             }
 
             const allowedLate = settings.rules.allowedLateMinutes || 15;
-
             let status = AttendanceStatus.PRESENT;
             let late = 0;
 
@@ -311,23 +287,20 @@ export const AttendanceKiosk: React.FC = () => {
         return;
     }
 
-    // Check if user has a registered face
     if (!currentUser.avatar || currentUser.avatar.length < 100) {
-        setMessage("Bạn chưa đăng ký khuôn mặt (Face ID). Vui lòng vào trang Cá nhân để đăng ký trước.");
+        setMessage("Bạn chưa đăng ký khuôn mặt. Vui lòng liên hệ Admin.");
         setStep('ERROR');
         return;
     }
 
     if (!videoRef.current) return;
 
-    // CAPTURE IMAGE
     setFlash(true);
     setTimeout(() => setFlash(false), 150);
     setStep('VERIFYING');
 
     try {
         const canvas = document.createElement('canvas');
-        // RESIZE CAPTURE FOR AI (Optimization)
         const MAX_WIDTH = 400;
         const scale = MAX_WIDTH / videoRef.current.videoWidth;
         canvas.width = MAX_WIDTH;
@@ -336,20 +309,22 @@ export const AttendanceKiosk: React.FC = () => {
         const ctx = canvas.getContext('2d');
         if (ctx) {
             ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-            // Compress slightly
             const capturedBase64 = canvas.toDataURL('image/jpeg', 0.7);
 
             // CALL AI VERIFICATION
             const result = await verifyFaceIdentity(capturedBase64, currentUser.avatar);
 
-            // THRESHOLD CHECK: Chỉ chấp nhận nếu match=true VÀ confidence >= 75%
-            // Điều này chặn các trường hợp AI "ảo giác" với hình ảnh không phải mặt người
-            if (result.match && result.confidence >= 75) {
-                processAttendance(currentUser.id, `FaceID (AI Confidence: ${result.confidence}%)`);
+            // LOGIC CHẶN CHẶT CHẼ (STRICT):
+            // 1. Phải có hasFace = true (Có mặt người)
+            // 2. Độ tin cậy >= 85%
+            if (result.hasFace && result.match && result.confidence >= 85) {
+                processAttendance(currentUser.id, `FaceID (AI: ${result.confidence}%)`);
             } else {
-                setMessage(result.confidence === 0 
-                    ? "Không tìm thấy khuôn mặt! Vui lòng đứng trước camera." 
-                    : `Khuôn mặt không khớp (Độ tin cậy: ${result.confidence}%). Vui lòng thử lại.`);
+                if (!result.hasFace) {
+                    setMessage("Không tìm thấy khuôn mặt! Vui lòng không đeo khẩu trang và nhìn thẳng.");
+                } else {
+                    setMessage(`Khuôn mặt không khớp (Độ tin cậy thấp: ${result.confidence}%). Vui lòng thử lại.`);
+                }
                 setStep('ERROR');
             }
         }
@@ -363,7 +338,6 @@ export const AttendanceKiosk: React.FC = () => {
   // 5. GPS HANDLERS
   const handleGpsCheckIn = () => {
       if (locationStatus !== 'VALID') {
-          // More descriptive alert
           if (locationStatus === 'ERROR') alert("Lỗi: Không thể xác định vị trí. Vui lòng bật GPS.");
           else alert(`Bạn đang ở ngoài phạm vi cho phép. ${message}`);
           return;
@@ -386,7 +360,7 @@ export const AttendanceKiosk: React.FC = () => {
       stopCamera();
   }
 
-  // --- RENDER HELPERS ---
+  // --- RENDER ---
   
   const renderSelectionScreen = () => (
       <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in zoom-in">
@@ -396,10 +370,20 @@ export const AttendanceKiosk: React.FC = () => {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Only GPS is active based on previous request "Remove Face ID option... leaving only GPS/Wifi" */}
+              <button 
+                onClick={() => { startCamera(); setAttendanceMode('FACE'); }}
+                className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center"
+              >
+                  <div className="w-24 h-24 bg-blue-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-blue-100 transition-colors">
+                      <ScanLine size={40} className="text-blue-600" />
+                  </div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Face ID (AI)</h3>
+                  <p className="text-gray-500 text-sm">Nhận diện khuôn mặt thông minh (Yêu cầu Camera)</p>
+              </button>
+
               <button 
                 onClick={() => setAttendanceMode('GPS')}
-                className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center md:col-span-2"
+                className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center"
               >
                   <div className="w-24 h-24 bg-teal-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-teal-100 transition-colors">
                       <MapPin size={40} className="text-teal-600" />
@@ -458,12 +442,75 @@ export const AttendanceKiosk: React.FC = () => {
     </div>
   );
 
-  // --- MAIN RENDER ---
+  // FACE MODE UI
+  if (attendanceMode === 'FACE' && step !== 'SUCCESS') {
+      return (
+          <div className="max-w-md mx-auto space-y-6 animate-in slide-in-from-right">
+              <button onClick={resetFlow} className="text-gray-500 hover:text-gray-900 flex items-center mb-4">
+                  <ArrowLeft size={20} className="mr-1"/> Quay lại
+              </button>
+
+              <div className="relative bg-black rounded-3xl overflow-hidden aspect-[3/4] shadow-2xl border-4 border-gray-900">
+                  {step === 'STARTING_CAMERA' && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-white bg-gray-900 z-20">
+                          <div className="animate-spin w-12 h-12 border-4 border-teal-500 border-t-transparent rounded-full mb-4"></div>
+                          <p>Đang mở camera...</p>
+                      </div>
+                  )}
+                  
+                  <video 
+                    ref={videoRef} 
+                    autoPlay 
+                    playsInline 
+                    muted 
+                    onCanPlay={() => setStep('SCANNING')}
+                    className="w-full h-full object-cover transform scale-x-[-1]"
+                  ></video>
+                  
+                  {/* Overlay Frame */}
+                  <div className="absolute inset-0 pointer-events-none z-10">
+                      <div className="absolute top-8 left-0 right-0 text-center">
+                          <p className="text-white font-bold text-lg drop-shadow-md bg-black/30 inline-block px-4 py-1 rounded-full backdrop-blur-sm">
+                              {step === 'VERIFYING' ? 'Đang xác thực...' : 'Giữ khuôn mặt trong khung hình'}
+                          </p>
+                      </div>
+                      
+                      <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-2 rounded-full transition-colors duration-300 ${step === 'VERIFYING' ? 'border-yellow-400 animate-pulse' : step === 'ERROR' ? 'border-red-500' : 'border-white/50'}`}>
+                          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-4 bg-white/80"></div>
+                          <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 w-1 h-4 bg-white/80"></div>
+                          <div className="absolute left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-4 h-1 bg-white/80"></div>
+                          <div className="absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-4 h-1 bg-white/80"></div>
+                      </div>
+                  </div>
+
+                  {/* Flash Effect */}
+                  {flash && <div className="absolute inset-0 bg-white z-30 animate-out fade-out duration-300"></div>}
+
+                  {/* Error Message Overlay */}
+                  {step === 'ERROR' && (
+                      <div className="absolute bottom-24 left-4 right-4 bg-red-500/90 text-white p-3 rounded-xl text-center backdrop-blur-sm animate-in slide-in-from-bottom">
+                          <p className="text-sm font-bold">{message}</p>
+                          <button onClick={() => setStep('SCANNING')} className="mt-2 text-xs underline">Thử lại ngay</button>
+                      </div>
+                  )}
+
+                  <div className="absolute bottom-8 left-0 right-0 flex justify-center z-20">
+                      <button 
+                          onClick={handleFaceCapture}
+                          disabled={step !== 'SCANNING' && step !== 'ERROR'}
+                          className={`w-16 h-16 rounded-full border-4 border-white shadow-lg transition-transform active:scale-95 ${step === 'VERIFYING' ? 'bg-gray-400 cursor-wait' : 'bg-red-600 hover:bg-red-700 hover:scale-105'}`}
+                      >
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )
+  }
 
   if (attendanceMode === 'SELECT') return renderSelectionScreen();
   if (step === 'SUCCESS') return renderResultScreen();
 
-  // GPS MODE
+  // GPS MODE (Existing Code)
   if (attendanceMode === 'GPS') {
       return (
           <div className="max-w-md mx-auto space-y-6 animate-in slide-in-from-right">
