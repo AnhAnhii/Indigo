@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2 } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig } from '../types';
 import { sheetService } from '../services/sheetService';
@@ -12,9 +12,10 @@ export const SettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<SettingsTab>('RULES');
   const [localSettings, setLocalSettings] = useState(settings);
   const [newWifiSSID, setNewWifiSSID] = useState('');
-  const [newWifiBSSID, setNewWifiBSSID] = useState(''); // Added state for BSSID input
-  const [showHelpWifi, setShowHelpWifi] = useState(false); // Help Modal State
+  const [newWifiBSSID, setNewWifiBSSID] = useState(''); 
+  const [showHelpWifi, setShowHelpWifi] = useState(false); 
   const [isLocating, setIsLocating] = useState(false);
+  const [locatingProgress, setLocatingProgress] = useState(0);
   
   const [sheetUrl, setSheetUrl] = useState('');
 
@@ -33,7 +34,7 @@ export const SettingsView: React.FC = () => {
       const newWifi: WifiConfig = {
           id: Date.now().toString(),
           name: newWifiSSID,
-          bssid: newWifiBSSID || 'Unknown', // Use real input
+          bssid: newWifiBSSID || 'Unknown',
           isActive: true
       };
       setLocalSettings({
@@ -60,35 +61,55 @@ export const SettingsView: React.FC = () => {
       });
   };
 
+  // SMART LOCATION SAMPLING FOR ADMIN
   const handleGetCurrentLocation = () => {
       if (!navigator.geolocation) {
           alert("Trình duyệt không hỗ trợ định vị.");
           return;
       }
       setIsLocating(true);
-      navigator.geolocation.getCurrentPosition(
-          (position) => {
+      setLocatingProgress(0);
+      
+      const samples: GeolocationCoordinates[] = [];
+      const TOTAL_SAMPLES = 5;
+
+      const collectSample = (count: number) => {
+          if (count >= TOTAL_SAMPLES) {
+              // Calculate Average
+              const avgLat = samples.reduce((sum, s) => sum + s.latitude, 0) / TOTAL_SAMPLES;
+              const avgLon = samples.reduce((sum, s) => sum + s.longitude, 0) / TOTAL_SAMPLES;
+              
               setLocalSettings({
                   ...localSettings,
                   location: {
                       ...localSettings.location,
-                      latitude: position.coords.latitude,
-                      longitude: position.coords.longitude
+                      latitude: avgLat,
+                      longitude: avgLon
                   }
               });
               setIsLocating(false);
-              alert("Đã lấy được tọa độ hiện tại thành công!");
-          },
-          (error) => {
-              console.error(error);
-              alert("Không thể lấy vị trí. Vui lòng kiểm tra quyền truy cập GPS.");
-              setIsLocating(false);
-          },
-          { enableHighAccuracy: true }
-      );
+              alert(`Đã lấy mẫu thành công! Tọa độ trung bình: ${avgLat.toFixed(6)}, ${avgLon.toFixed(6)}`);
+              return;
+          }
+
+          navigator.geolocation.getCurrentPosition(
+              (position) => {
+                  samples.push(position.coords);
+                  setLocatingProgress(count + 1);
+                  setTimeout(() => collectSample(count + 1), 800); // Delay between samples
+              },
+              (error) => {
+                  console.error(error);
+                  alert("Lỗi khi lấy mẫu GPS. Vui lòng thử lại.");
+                  setIsLocating(false);
+              },
+              { enableHighAccuracy: true }
+          );
+      };
+
+      collectSample(0);
   };
 
-  // Safety Check
   if (!localSettings || !localSettings.rules) {
       return (
           <div className="flex items-center justify-center h-64">
@@ -262,17 +283,24 @@ export const SettingsView: React.FC = () => {
                                 <p className="text-sm text-gray-500">Thiết lập bán kính cho phép chấm công GPS.</p>
                             </div>
                         </div>
+                        
+                        {/* UPDATED BUTTON WITH SAMPLING */}
                         <button 
                             onClick={handleGetCurrentLocation}
                             disabled={isLocating}
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow hover:bg-blue-700 flex items-center"
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-sm shadow hover:bg-blue-700 flex items-center transition-all"
                         >
                             {isLocating ? (
-                                <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full mr-2"></div>
+                                <>
+                                    <Loader2 size={16} className="animate-spin mr-2" />
+                                    Lấy mẫu {locatingProgress}/5...
+                                </>
                             ) : (
-                                <Crosshair size={16} className="mr-2" />
+                                <>
+                                    <Crosshair size={16} className="mr-2" />
+                                    Lấy mẫu vị trí (Chính xác cao)
+                                </>
                             )}
-                            Lấy tọa độ hiện tại
                         </button>
                     </div>
 
@@ -297,25 +325,34 @@ export const SettingsView: React.FC = () => {
                             <p className="text-xs text-gray-500 mt-1">Khuyên dùng: 50m - 100m (để bù sai số GPS trong nhà)</p>
                         </div>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50 p-4 rounded-xl border border-gray-200">
-                         <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Vĩ độ (Latitude)</label>
-                            <input 
-                                type="number" 
-                                value={localSettings.location.latitude}
-                                onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, latitude: Number(e.target.value)}})}
-                                className="w-full border rounded-lg p-2.5 text-sm font-mono text-blue-700 bg-white"
-                            />
+                    
+                    {/* Display Lat/Long more prominently */}
+                    <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 relative overflow-hidden">
+                         {isLocating && <div className="absolute top-0 left-0 w-full h-1 bg-blue-200"><div className="h-full bg-blue-600 transition-all duration-300" style={{width: `${locatingProgress * 20}%`}}></div></div>}
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                             <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Vĩ độ (Latitude)</label>
+                                <input 
+                                    type="number" 
+                                    value={localSettings.location.latitude}
+                                    onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, latitude: Number(e.target.value)}})}
+                                    className="w-full border rounded-lg p-2.5 text-sm font-mono text-blue-700 bg-white"
+                                />
+                            </div>
+                             <div>
+                                <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Kinh độ (Longitude)</label>
+                                <input 
+                                    type="number" 
+                                    value={localSettings.location.longitude}
+                                    onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, longitude: Number(e.target.value)}})}
+                                    className="w-full border rounded-lg p-2.5 text-sm font-mono text-blue-700 bg-white" 
+                                />
+                            </div>
                         </div>
-                         <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-1 uppercase">Kinh độ (Longitude)</label>
-                            <input 
-                                type="number" 
-                                value={localSettings.location.longitude}
-                                onChange={(e) => setLocalSettings({...localSettings, location: {...localSettings.location, longitude: Number(e.target.value)}})}
-                                className="w-full border rounded-lg p-2.5 text-sm font-mono text-blue-700 bg-white" 
-                            />
-                        </div>
+                        <p className="text-xs text-gray-400 mt-3 italic">
+                            <InfoIcon size={12} className="inline mr-1"/>
+                            Mẹo: Hãy đứng ở trung tâm quán và bấm "Lấy mẫu vị trí" để hệ thống tự động tính trung bình cộng tọa độ, giảm sai số trôi (GPS Drift).
+                        </p>
                     </div>
                 </div>
                 )}
@@ -451,3 +488,23 @@ export const SettingsView: React.FC = () => {
     </div>
   );
 };
+
+// Helper Icon component for SettingsView
+const InfoIcon = ({ size, className }: { size: number, className?: string }) => (
+    <svg 
+        xmlns="http://www.w3.org/2000/svg" 
+        width={size} 
+        height={size} 
+        viewBox="0 0 24 24" 
+        fill="none" 
+        stroke="currentColor" 
+        strokeWidth="2" 
+        strokeLinecap="round" 
+        strokeLinejoin="round" 
+        className={className}
+    >
+        <circle cx="12" cy="12" r="10"></circle>
+        <line x1="12" y1="16" x2="12" y2="12"></line>
+        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+    </svg>
+);

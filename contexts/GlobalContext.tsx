@@ -230,16 +230,23 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                               group.items.forEach(i => {
                                   const served = Number(i.servedQuantity) || 0;
                                   const total = Number(i.totalQuantity) || 0;
+                                  
+                                  // LOGIC QUAN TRỌNG: Chỉ khi served < total mới tính là thiếu
                                   if (served < total) {
                                       const remaining = total - served;
                                       missingDetails.push(`${i.name} (thiếu ${remaining})`);
                                   }
                               });
 
+                              // LOGIC TỰ ĐỘNG TẮT: Nếu missingDetails rỗng -> Không tạo alert -> Alert tự biến mất
                               if (missingDetails.length > 0) {
                                   const alertId = `alert_serving_${String(group.id)}`; 
                                   const missingText = missingDetails.join(', ');
                                   
+                                  // Giữ timestamp cũ nếu alert đã tồn tại (để tránh nhấp nháy thời gian)
+                                  const existingAlert = activeAlerts.find(a => a.id === alertId);
+                                  const timestamp = existingAlert ? existingAlert.timestamp : now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'});
+
                                   newAlerts.push({
                                       id: alertId,
                                       type: 'LATE_SERVING',
@@ -247,7 +254,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                                       details: `Đã đợi ${diffMinutes} phút (Quy định: ${lateThreshold}p). Thiếu: ${missingText}`,
                                       groupId: String(group.id),
                                       severity: 'HIGH',
-                                      timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                                      timestamp: timestamp
                                   });
                               }
                           }
@@ -261,23 +268,27 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       logs.forEach(log => {
           if (log.date === todayStr) {
               if (log.status === AttendanceStatus.LATE) {
+                  const alertId = `alert_late_${String(log.id)}`;
+                  const existingAlert = activeAlerts.find(a => a.id === alertId);
                   newAlerts.push({
-                      id: `alert_late_${String(log.id)}`,
+                      id: alertId,
                       type: 'ATTENDANCE_VIOLATION',
                       message: `Phát hiện đi muộn: ${log.employeeName}`,
                       details: `Muộn ${log.lateMinutes} phút (Check-in: ${log.checkIn})`,
                       severity: 'MEDIUM',
-                      timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                      timestamp: existingAlert ? existingAlert.timestamp : now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
                   });
               }
               if (log.status === AttendanceStatus.EARLY_LEAVE) {
+                  const alertId = `alert_early_${String(log.id)}`;
+                  const existingAlert = activeAlerts.find(a => a.id === alertId);
                   newAlerts.push({
-                      id: `alert_early_${String(log.id)}`,
+                      id: alertId,
                       type: 'ATTENDANCE_VIOLATION',
                       message: `Phát hiện về sớm: ${log.employeeName}`,
                       details: `Về lúc ${log.checkOut} (Sớm hơn quy định)`,
                       severity: 'MEDIUM',
-                      timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                      timestamp: existingAlert ? existingAlert.timestamp : now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
                   });
               }
           }
@@ -297,13 +308,15 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                       // If current time is 30 mins past shift start AND no log
                       if (currentTotalMinutes > (shiftStartMins + 30)) {
                           const emp = employees.find(e => String(e.id) === String(schedule.employeeId));
+                          const alertId = `alert_absent_${String(schedule.id)}`;
+                          const existingAlert = activeAlerts.find(a => a.id === alertId);
                           newAlerts.push({
-                              id: `alert_absent_${String(schedule.id)}`,
+                              id: alertId,
                               type: 'ATTENDANCE_VIOLATION',
                               message: `Cảnh báo vắng mặt: ${emp ? emp.name : 'Nhân viên'}`,
                               details: `Ca ${shift.name} (${shift.startTime}) chưa thấy Check-in!`,
                               severity: 'HIGH',
-                              timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                              timestamp: existingAlert ? existingAlert.timestamp : now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
                           });
                       }
                   }

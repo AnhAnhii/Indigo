@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, MapPin, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, ArrowLeft } from 'lucide-react';
+import { Camera, MapPin, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, ArrowLeft, Loader2, Satellite } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { AttendanceStatus, TimesheetLog } from '../types';
 import { verifyFaceIdentity } from '../services/geminiService';
@@ -20,6 +20,12 @@ export const AttendanceKiosk: React.FC = () => {
   const [locationStatus, setLocationStatus] = useState<'CHECKING' | 'VALID' | 'INVALID' | 'ERROR'>('CHECKING');
   const [message, setMessage] = useState("");
   const [flash, setFlash] = useState(false);
+
+  // SMART GPS STATES
+  const [isSampling, setIsSampling] = useState(false);
+  const [gpsSamples, setGpsSamples] = useState<GeolocationCoordinates[]>([]);
+  const [sampleProgress, setSampleProgress] = useState(0);
+  const TOTAL_SAMPLES = 5;
   
   // Result State for Display
   const [attendanceResult, setAttendanceResult] = useState<{
@@ -32,7 +38,7 @@ export const AttendanceKiosk: React.FC = () => {
   
   const watchIdRef = useRef<number | null>(null);
 
-  // 1. GEOLOCATION LOGIC
+  // 1. GEOLOCATION LOGIC (Passive Monitoring)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3; // metres
     const φ1 = lat1 * Math.PI/180;
@@ -49,52 +55,54 @@ export const AttendanceKiosk: React.FC = () => {
   };
 
   useEffect(() => {
+    if (attendanceMode !== 'GPS') return;
+
     if (!navigator.geolocation) {
       setLocationStatus('ERROR');
       setMessage("Trình duyệt không hỗ trợ định vị.");
       return;
     }
     
-    // Clean up old watch if exists
+    // PASSIVE WATCH: Chỉ để hiển thị trạng thái sơ bộ, KHÔNG dùng để chấm công chính thức
     if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
     
     setLocationStatus('CHECKING');
     
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
-        const dist = calculateDistance(
-          position.coords.latitude,
-          position.coords.longitude,
-          settings.location.latitude,
-          settings.location.longitude
-        );
-        if (dist <= settings.location.radiusMeters) {
-            setLocationStatus('VALID');
-            setMessage(""); // Clear error if valid
-        } else {
-            setLocationStatus('INVALID');
-            setMessage(`Bạn đang ở cách vị trí cho phép ${Math.round(dist)}m (Yêu cầu < ${settings.location.radiusMeters}m)`);
+        // Chỉ cập nhật UI trạng thái nếu KHÔNG đang lấy mẫu
+        if (!isSampling) {
+            const dist = calculateDistance(
+              position.coords.latitude,
+              position.coords.longitude,
+              settings.location.latitude,
+              settings.location.longitude
+            );
+            if (dist <= settings.location.radiusMeters) {
+                setLocationStatus('VALID');
+                setMessage(`Tín hiệu tốt (~${Math.round(dist)}m)`); 
+            } else {
+                setLocationStatus('INVALID');
+                setMessage(`Cách vị trí chuẩn ${Math.round(dist)}m`);
+            }
         }
       },
       (error) => { 
-          console.error(`GPS Error: ${error.code} - ${error.message}`);
-          
-          if (error.code === 1) { // PERMISSION_DENIED
-              setLocationStatus('ERROR');
-              setMessage("Vui lòng cấp quyền truy cập vị trí cho trình duyệt và thử lại.");
-          } else if (error.code === 2) { // POSITION_UNAVAILABLE
-              setMessage("Không thể xác định vị trí. Vui lòng kiểm tra GPS/Wifi.");
-          } else if (error.code === 3) { // TIMEOUT
-              console.warn("GPS Timeout - Retrying...");
-          } else {
-              setLocationStatus('ERROR');
-              setMessage(`Lỗi định vị: ${error.message}`);
+          if (!isSampling) {
+            console.error(`GPS Error: ${error.code} - ${error.message}`);
+            if (error.code === 1) { 
+                setLocationStatus('ERROR');
+                setMessage("Vui lòng cấp quyền vị trí.");
+            } else {
+                setLocationStatus('ERROR');
+                setMessage(`Lỗi tín hiệu: ${error.message}`);
+            }
           }
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
-  }, [settings]);
+  }, [settings, attendanceMode, isSampling]);
 
   // 2. CAMERA CONTROL (Real Hardware Only)
   useEffect(() => {
@@ -128,7 +136,7 @@ export const AttendanceKiosk: React.FC = () => {
       return () => stopCamera(); 
   }, [stopCamera]);
 
-  // 3. ATTENDANCE LOGIC (CORE - FIXED)
+  // 3. ATTENDANCE LOGIC (CORE)
   const processAttendance = (employeeId: string, verifiedMethod: string) => {
         const employee = employees.find(e => e.id === employeeId);
         if (!employee) {
@@ -138,7 +146,6 @@ export const AttendanceKiosk: React.FC = () => {
         }
 
         const now = new Date();
-        // Ensure Date matches GlobalContext format
         const localDateStr = new Intl.DateTimeFormat('en-CA', {
               timeZone: 'Asia/Ho_Chi_Minh',
               year: 'numeric', month: '2-digit', day: '2-digit'
@@ -160,7 +167,7 @@ export const AttendanceKiosk: React.FC = () => {
         let detectedShiftCode = openLog?.shiftCode || '';
 
         if (openLog) {
-            // --- CHECK OUT LOGIC ---
+            // CHECK OUT LOGIC
             const [inH, inM] = openLog.checkIn ? openLog.checkIn.split(':').map(Number) : [0,0];
             const inMinutes = inH * 60 + inM;
             const rawTotalMinutes = currentMinutes - inMinutes;
@@ -207,7 +214,7 @@ export const AttendanceKiosk: React.FC = () => {
             updateAttendanceLog(updatedLog);
             finalStatus = 'CHECK_OUT';
         } else {
-            // --- CHECK IN LOGIC ---
+            // CHECK IN LOGIC
             let closestShift = settings.shiftConfigs?.[0];
             let minDiff = Infinity;
 
@@ -231,7 +238,6 @@ export const AttendanceKiosk: React.FC = () => {
             });
 
             detectedShiftCode = closestShift?.code || 'N/A';
-            
             let [sH, sM] = (closestShift?.startTime || '08:00').split(':').map(Number);
             let shiftStartMinutes = sH * 60 + sM;
 
@@ -255,7 +261,7 @@ export const AttendanceKiosk: React.FC = () => {
             const newLog: TimesheetLog = {
                 id: Date.now().toString(),
                 employeeName: employee.name,
-                employeeId: employee.id, // Added to fix type error
+                employeeId: employee.id, 
                 date: localDateStr,
                 checkIn: timeStr,
                 checkOut: null,
@@ -311,13 +317,8 @@ export const AttendanceKiosk: React.FC = () => {
         if (ctx) {
             ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
             const capturedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-
-            // CALL AI VERIFICATION
             const result = await verifyFaceIdentity(capturedBase64, currentUser.avatar);
 
-            // LOGIC CHẶN CHẶT CHẼ (STRICT):
-            // 1. Phải có hasFace = true (Có mặt người)
-            // 2. Độ tin cậy >= 85%
             if (result.hasFace && result.match && result.confidence >= 85) {
                 processAttendance(currentUser.id, `FaceID (AI: ${result.confidence}%)`);
             } else {
@@ -336,28 +337,77 @@ export const AttendanceKiosk: React.FC = () => {
     }
   };
 
-  // 5. GPS HANDLERS
-  const handleGpsCheckIn = () => {
-      if (locationStatus !== 'VALID') {
-          if (locationStatus === 'ERROR') alert("Lỗi: Không thể xác định vị trí. Vui lòng bật GPS.");
-          else alert(`Bạn đang ở ngoài phạm vi cho phép. ${message}`);
-          return;
-      }
+  // 5. SMART GPS HANDLERS (NEW)
+  const startSmartGpsCheckIn = () => {
       if (!currentUser) {
           alert("Vui lòng đăng nhập trước khi chấm công.");
           return;
       }
+      if (locationStatus === 'ERROR') {
+          alert("Lỗi GPS. Vui lòng tải lại trang và cấp quyền.");
+          return;
+      }
+      
+      setIsSampling(true);
+      setGpsSamples([]);
+      setSampleProgress(0);
+      collectGpsSample(0);
+  };
 
-      setStep('VERIFYING');
-      setTimeout(() => {
-          processAttendance(currentUser.id, `GPS Location`);
-      }, 1000);
+  const collectGpsSample = (count: number) => {
+      if (count >= TOTAL_SAMPLES) {
+          finishSmartGpsCheckIn();
+          return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+          (position) => {
+              setGpsSamples(prev => [...prev, position.coords]);
+              setSampleProgress(count + 1);
+              // Delay 800ms between samples
+              setTimeout(() => collectGpsSample(count + 1), 800);
+          },
+          (error) => {
+              console.error("Sample failed", error);
+              setIsSampling(false);
+              setMessage("Mất tín hiệu GPS khi đang lấy mẫu. Vui lòng thử lại.");
+              setLocationStatus('ERROR');
+          },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+      );
+  };
+
+  const finishSmartGpsCheckIn = () => {
+      setIsSampling(false);
+      
+      // Calculate Average Lat/Lng
+      const latSum = gpsSamples.reduce((acc, curr) => acc + curr.latitude, 0);
+      const lonSum = gpsSamples.reduce((acc, curr) => acc + curr.longitude, 0);
+      const avgLat = latSum / gpsSamples.length;
+      const avgLon = lonSum / gpsSamples.length;
+
+      const dist = calculateDistance(
+          avgLat, avgLon,
+          settings.location.latitude, settings.location.longitude
+      );
+
+      if (dist <= settings.location.radiusMeters) {
+          setLocationStatus('VALID');
+          setStep('VERIFYING');
+          setTimeout(() => {
+             if (currentUser) processAttendance(currentUser.id, `Smart GPS (Avg ${TOTAL_SAMPLES} samples)`);
+          }, 500);
+      } else {
+          setLocationStatus('INVALID');
+          setMessage(`Vị trí trung bình cách quán ${Math.round(dist)}m. Vui lòng di chuyển vào trong quán.`);
+      }
   };
 
   const resetFlow = () => {
       setStep('IDLE');
       setAttendanceResult(null);
       setAttendanceMode('SELECT');
+      setIsSampling(false);
       stopCamera();
   }
 
@@ -387,10 +437,10 @@ export const AttendanceKiosk: React.FC = () => {
                 className="bg-white p-8 rounded-3xl border-2 border-transparent hover:border-teal-500 shadow-lg hover:shadow-xl transition-all group flex flex-col items-center text-center"
               >
                   <div className="w-24 h-24 bg-teal-50 rounded-full flex items-center justify-center mb-6 group-hover:bg-teal-100 transition-colors">
-                      <MapPin size={40} className="text-teal-600" />
+                      <Satellite size={40} className="text-teal-600" />
                   </div>
-                  <h3 className="text-xl font-bold text-gray-900 mb-2">Chấm công GPS</h3>
-                  <p className="text-gray-500 text-sm">Dành cho điện thoại cá nhân. Yêu cầu bật định vị.</p>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">Smart GPS</h3>
+                  <p className="text-gray-500 text-sm">Công nghệ khử sai số (Drift) giúp định vị chính xác trong nhà.</p>
               </button>
           </div>
       </div>
@@ -443,7 +493,7 @@ export const AttendanceKiosk: React.FC = () => {
     </div>
   );
 
-  // FACE MODE UI
+  // FACE MODE UI (Skipped for brevity as it is unchanged logic-wise, kept for context)
   if (attendanceMode === 'FACE' && step !== 'SUCCESS') {
       return (
           <div className="max-w-md mx-auto space-y-6 animate-in slide-in-from-right">
@@ -468,7 +518,6 @@ export const AttendanceKiosk: React.FC = () => {
                     className="w-full h-full object-cover transform scale-x-[-1]"
                   ></video>
                   
-                  {/* Overlay Frame */}
                   <div className="absolute inset-0 pointer-events-none z-10">
                       <div className="absolute top-8 left-0 right-0 text-center">
                           <p className="text-white font-bold text-lg drop-shadow-md bg-black/30 inline-block px-4 py-1 rounded-full backdrop-blur-sm">
@@ -477,17 +526,11 @@ export const AttendanceKiosk: React.FC = () => {
                       </div>
                       
                       <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-2 rounded-full transition-colors duration-300 ${step === 'VERIFYING' ? 'border-yellow-400 animate-pulse' : step === 'ERROR' ? 'border-red-500' : 'border-white/50'}`}>
-                          <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-1 h-4 bg-white/80"></div>
-                          <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 translate-y-1/2 w-1 h-4 bg-white/80"></div>
-                          <div className="absolute left-0 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-4 h-1 bg-white/80"></div>
-                          <div className="absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-4 h-1 bg-white/80"></div>
                       </div>
                   </div>
 
-                  {/* Flash Effect */}
                   {flash && <div className="absolute inset-0 bg-white z-30 animate-out fade-out duration-300"></div>}
 
-                  {/* Error Message Overlay */}
                   {step === 'ERROR' && (
                       <div className="absolute bottom-24 left-4 right-4 bg-red-500/90 text-white p-3 rounded-xl text-center backdrop-blur-sm animate-in slide-in-from-bottom">
                           <p className="text-sm font-bold">{message}</p>
@@ -511,7 +554,7 @@ export const AttendanceKiosk: React.FC = () => {
   if (attendanceMode === 'SELECT') return renderSelectionScreen();
   if (step === 'SUCCESS') return renderResultScreen();
 
-  // GPS MODE (Existing Code)
+  // SMART GPS MODE
   if (attendanceMode === 'GPS') {
       return (
           <div className="max-w-md mx-auto space-y-6 animate-in slide-in-from-right">
@@ -520,28 +563,42 @@ export const AttendanceKiosk: React.FC = () => {
               </button>
 
               <div className="text-center">
-                  <h2 className="text-2xl font-bold text-gray-900">Chấm công GPS</h2>
-                  <p className="text-gray-500 text-sm">Vui lòng cho phép trình duyệt truy cập vị trí.</p>
+                  <h2 className="text-2xl font-bold text-gray-900">Smart GPS Check-in</h2>
+                  <p className="text-gray-500 text-sm">Vui lòng đứng yên tại vị trí để lấy mẫu tín hiệu.</p>
               </div>
 
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
                   {/* Location Check */}
-                  <div className={`flex items-center justify-between p-4 rounded-xl border ${locationStatus === 'VALID' ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                  <div className={`flex items-center justify-between p-4 rounded-xl border ${locationStatus === 'VALID' ? 'bg-green-50 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                       <div className="flex items-center gap-3">
-                          <div className={`p-2 rounded-full ${locationStatus === 'VALID' ? 'bg-green-200 text-green-700' : 'bg-red-200 text-red-700'}`}>
+                          <div className={`p-2 rounded-full ${locationStatus === 'VALID' ? 'bg-green-200 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
                               <MapPin size={20} />
                           </div>
                           <div>
-                              <p className={`font-bold text-sm ${locationStatus === 'VALID' ? 'text-green-800' : locationStatus === 'CHECKING' ? 'text-yellow-700' : 'text-red-800'}`}>
-                                  {locationStatus === 'VALID' ? 'Vị trí hợp lệ' : locationStatus === 'CHECKING' ? 'Đang định vị...' : 'Sai vị trí'}
+                              <p className={`font-bold text-sm ${locationStatus === 'VALID' ? 'text-green-800' : 'text-gray-800'}`}>
+                                  {locationStatus === 'VALID' ? 'Vị trí hợp lệ' : 'Trạng thái tín hiệu'}
                               </p>
                               <p className="text-xs text-gray-500">
-                                  {message ? message : `Yêu cầu bán kính ${settings.location.radiusMeters}m`}
+                                  {isSampling ? 'Đang phân tích...' : message ? message : `Yêu cầu bán kính ${settings.location.radiusMeters}m`}
                               </p>
                           </div>
                       </div>
-                      {locationStatus === 'VALID' ? <CheckCircle className="text-green-600" size={20}/> : locationStatus === 'CHECKING' ? <div className="animate-spin w-5 h-5 border-2 border-yellow-500 rounded-full border-t-transparent"></div> : <AlertTriangle className="text-red-500" size={20}/>}
+                      {locationStatus === 'VALID' && !isSampling ? <CheckCircle className="text-green-600" size={20}/> : locationStatus === 'INVALID' && !isSampling ? <AlertTriangle className="text-red-500" size={20}/> : null}
                   </div>
+
+                  {/* SAMPLING PROGRESS UI */}
+                  {isSampling && (
+                      <div className="space-y-2 animate-in fade-in">
+                          <div className="flex justify-between text-xs font-bold text-gray-600">
+                              <span>Đang lấy mẫu tín hiệu...</span>
+                              <span>{Math.round((sampleProgress / TOTAL_SAMPLES) * 100)}%</span>
+                          </div>
+                          <div className="w-full h-3 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-teal-500 transition-all duration-500 ease-out" style={{ width: `${(sampleProgress / TOTAL_SAMPLES) * 100}%` }}></div>
+                          </div>
+                          <p className="text-xs text-center text-orange-600 italic">Vui lòng giữ nguyên vị trí...</p>
+                      </div>
+                  )}
               </div>
 
               {step === 'VERIFYING' ? (
@@ -551,11 +608,15 @@ export const AttendanceKiosk: React.FC = () => {
                    </div>
               ) : (
                    <button 
-                        onClick={handleGpsCheckIn}
-                        disabled={locationStatus !== 'VALID'}
-                        className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all ${locationStatus === 'VALID' ? 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.02]' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
+                        onClick={startSmartGpsCheckIn}
+                        disabled={isSampling}
+                        className={`w-full py-4 rounded-xl font-bold text-lg shadow-lg transition-all flex items-center justify-center ${isSampling ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-teal-600 text-white hover:bg-teal-700 hover:scale-[1.02]'}`}
                    >
-                        Xác nhận Chấm công
+                        {isSampling ? (
+                            <><Loader2 className="animate-spin mr-2"/> Đang xử lý...</>
+                        ) : (
+                            "Bắt đầu Chấm công"
+                        )}
                    </button>
               )}
           </div>
