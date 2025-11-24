@@ -1,11 +1,11 @@
 
 import React, { useState } from 'react';
-import { Check, X, Clock, FileText, User, Filter, Plus, CalendarCheck, ChevronRight, History } from 'lucide-react';
+import { Check, X, Clock, FileText, User, Filter, Plus, CalendarCheck, ChevronRight, History, ArrowRightLeft } from 'lucide-react';
 import { RequestType, RequestStatus, EmployeeRequest, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
 export const RequestManager: React.FC = () => {
-  const { requests, addRequest, updateRequestStatus, currentUser } = useGlobalContext();
+  const { requests, addRequest, updateRequestStatus, currentUser, settings } = useGlobalContext();
   const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
 
   // Nếu là Admin thì mặc định vào tab Duyệt, nhân viên thì mặc định là Mine
@@ -16,6 +16,7 @@ export const RequestManager: React.FC = () => {
   const [newReqType, setNewReqType] = useState(RequestType.LEAVE);
   const [newReqDate, setNewReqDate] = useState('');
   const [newReqReason, setNewReqReason] = useState('');
+  const [newReqTargetShift, setNewReqTargetShift] = useState(''); // NEW STATE FOR TARGET SHIFT
 
   // LOGIC LỌC ĐƠN CHÍNH XÁC (FIXED)
   const filteredRequests = requests.filter(req => {
@@ -40,6 +41,10 @@ export const RequestManager: React.FC = () => {
 
   const handleCreateRequest = () => {
       if (!newReqDate || !newReqReason || !currentUser) return;
+      if (newReqType === RequestType.SHIFT_SWAP && !newReqTargetShift) {
+          alert("Vui lòng chọn ca muốn đổi!");
+          return;
+      }
 
       const newReq: EmployeeRequest = {
           id: Date.now().toString(),
@@ -50,6 +55,7 @@ export const RequestManager: React.FC = () => {
           date: newReqDate,
           reason: newReqReason,
           status: RequestStatus.PENDING,
+          targetShift: newReqType === RequestType.SHIFT_SWAP ? newReqTargetShift : undefined,
           createdAt: new Date().toLocaleString('vi-VN'),
           isMine: true
       };
@@ -58,12 +64,13 @@ export const RequestManager: React.FC = () => {
       setIsModalOpen(false);
       setNewReqDate('');
       setNewReqReason('');
+      setNewReqTargetShift('');
   };
 
   const getRequestIcon = (type: RequestType) => {
       switch(type) {
           case RequestType.LEAVE: return <div className="bg-orange-100 text-orange-600 p-2 rounded-full"><CalendarCheck size={18} /></div>;
-          case RequestType.SHIFT_SWAP: return <div className="bg-blue-100 text-blue-600 p-2 rounded-full"><Clock size={18} /></div>;
+          case RequestType.SHIFT_SWAP: return <div className="bg-blue-100 text-blue-600 p-2 rounded-full"><ArrowRightLeft size={18} /></div>;
           case RequestType.FORGOT_CHECKIN: return <div className="bg-purple-100 text-purple-600 p-2 rounded-full"><FileText size={18} /></div>;
           default: return <div className="bg-gray-100 text-gray-600 p-2 rounded-full"><FileText size={18} /></div>;
       }
@@ -164,7 +171,14 @@ export const RequestManager: React.FC = () => {
                     </div>
                     
                     <div>
-                        <h4 className="font-bold text-gray-900 text-lg">{req.type}</h4>
+                        <h4 className="font-bold text-gray-900 text-lg flex items-center gap-2">
+                            {req.type}
+                            {req.targetShift && (
+                                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">
+                                    Đổi sang: {req.targetShift}
+                                </span>
+                            )}
+                        </h4>
                         <p className="text-sm text-gray-500 font-medium mb-2">
                             Tạo bởi: <span className="text-gray-800">{req.employeeName}</span> • {req.createdAt}
                         </p>
@@ -226,6 +240,27 @@ export const RequestManager: React.FC = () => {
                             ))}
                         </select>
                     </div>
+
+                    {/* TARGET SHIFT SELECTION (Visible only if SHIFT_SWAP) */}
+                    {newReqType === RequestType.SHIFT_SWAP && (
+                        <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                            <label className="block text-xs font-bold text-blue-800 mb-1">Ca muốn đổi sang</label>
+                            <select 
+                                value={newReqTargetShift}
+                                onChange={(e) => setNewReqTargetShift(e.target.value)}
+                                className="w-full border border-blue-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                            >
+                                <option value="">-- Chọn ca làm việc --</option>
+                                {settings.shiftConfigs.map(shift => (
+                                    <option key={shift.code} value={shift.code}>
+                                        {shift.name} ({shift.startTime} - {shift.endTime})
+                                    </option>
+                                ))}
+                                <option value="OFF">Nghỉ (OFF)</option>
+                            </select>
+                        </div>
+                    )}
+
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Ngày áp dụng</label>
                         <input 

@@ -5,7 +5,7 @@ import {
   AttendanceStatus, EmployeeRole, RequestStatus, 
   SystemSettings, MenuItem, PrepTask,
   ServingGroup, ServingItem, SauceItem,
-  HandoverLog, WorkSchedule, SystemAlert
+  HandoverLog, WorkSchedule, SystemAlert, RequestType
 } from '../types';
 import { sheetService } from '../services/sheetService';
 import { sendWebhookMessage } from '../services/integrationService';
@@ -196,57 +196,60 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const currentMinutes = now.getMinutes();
       const currentTotalMinutes = currentHour * 60 + currentMinutes;
 
-      // USE CONFIGURABLE THRESHOLD (Default 5 mins if missing)
-      const lateThreshold = settings.servingConfig?.lateAlertMinutes || 5;
+      // USE CONFIGURABLE THRESHOLD (Default 15 mins if missing)
+      const lateThreshold = settings.servingConfig?.lateAlertMinutes || 15;
 
       const newAlerts: SystemAlert[] = [];
 
       // 1. CHECK SERVING (LATE ORDERS)
       servingGroups.forEach(group => {
-          // FIX: Only check ACTIVE groups. 
-          // We ignore date comparison to avoid format mismatches (DD/MM vs MM/DD). 
-          // If it is ACTIVE, it means the group is here NOW.
+          // Chỉ kiểm tra các nhóm đang ACTIVE (Đang ăn)
           if (group.status === 'ACTIVE' && group.startTime) {
               try {
                   const timeParts = String(group.startTime).split(':');
-                  const startH = parseInt(timeParts[0]);
-                  const startM = parseInt(timeParts[1]);
-                  
-                  if (!isNaN(startH) && !isNaN(startM)) {
-                      // Calculate minutes since midnight for Start Time and Now
-                      const startTotalMinutes = startH * 60 + startM;
+                  if (timeParts.length >= 2) {
+                      const startH = parseInt(timeParts[0]);
+                      const startM = parseInt(timeParts[1]);
                       
-                      // Calculate difference
-                      // Handle case where shift crosses midnight (rare but possible) is complex, 
-                      // but for now simple subtraction works for same day.
-                      let diffMinutes = currentTotalMinutes - startTotalMinutes;
-                      
-                      // If diff is negative (e.g. Now 00:10, Start 23:50), assume day crossover
-                      if (diffMinutes < -1000) {
-                          diffMinutes += 1440; // Add 24 hours
-                      }
+                      if (!isNaN(startH) && !isNaN(startM)) {
+                          const startTotalMinutes = startH * 60 + startM;
+                          
+                          // Tính thời gian chênh lệch
+                          let diffMinutes = currentTotalMinutes - startTotalMinutes;
+                          
+                          // Xử lý trường hợp qua đêm (VD: Vào 23:00, Hiện tại 00:10 -> -1370 phút)
+                          if (diffMinutes < -1000) {
+                              diffMinutes += 1440; // Cộng thêm 24h
+                          }
 
-                      // Only alert if Late AND has missing items
-                      if (diffMinutes >= lateThreshold) {
-                          const missingItems = group.items.filter(i => {
-                              const served = Number(i.servedQuantity) || 0;
-                              const total = Number(i.totalQuantity) || 0;
-                              return served < total;
-                          });
-
-                          if (missingItems.length > 0) {
-                              const missingNames = missingItems.map(i => i.name).join(', ');
-                              const alertId = `alert_serving_${String(group.id)}`; 
+                          // Nếu thời gian chờ lớn hơn ngưỡng cho phép
+                          if (diffMinutes >= lateThreshold) {
+                              // TÌM CÁC MÓN CÒN THIẾU
+                              const missingDetails: string[] = [];
                               
-                              newAlerts.push({
-                                  id: alertId,
-                                  type: 'LATE_SERVING',
-                                  message: `Đoàn ${group.name} trễ ${diffMinutes} phút!`,
-                                  details: `Đã đợi quá ${lateThreshold}p. Thiếu: ${missingNames}`,
-                                  groupId: String(group.id),
-                                  severity: 'HIGH',
-                                  timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                              group.items.forEach(i => {
+                                  const served = Number(i.servedQuantity) || 0;
+                                  const total = Number(i.totalQuantity) || 0;
+                                  if (served < total) {
+                                      const remaining = total - served;
+                                      missingDetails.push(`${i.name} (thiếu ${remaining})`);
+                                  }
                               });
+
+                              if (missingDetails.length > 0) {
+                                  const alertId = `alert_serving_${String(group.id)}`; 
+                                  const missingText = missingDetails.join(', ');
+                                  
+                                  newAlerts.push({
+                                      id: alertId,
+                                      type: 'LATE_SERVING',
+                                      message: `Đoàn ${group.name} chờ món quá lâu`,
+                                      details: `Đã đợi ${diffMinutes} phút (Quy định: ${lateThreshold}p). Thiếu: ${missingText}`,
+                                      groupId: String(group.id),
+                                      severity: 'HIGH',
+                                      timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                                  });
+                              }
                           }
                       }
                   }
@@ -613,7 +616,28 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       sheetService.syncRequest(r); 
   };
 
-  const updateRequestStatus = (id: string, s: RequestStatus) => { setRequests(p => p.map(x => { if (x.id === id) { const updated = { ...x, status: s }; sheetService.syncRequest(updated); return updated; } return x; })); };
+  const updateRequestStatus = (id: string, s: RequestStatus) => {
+      setRequests(p => p.map(x => { 
+          if (x.id === id) { 
+              const updated = { ...x, status: s }; 
+              
+              // --- AUTOMATION: UPDATE SCHEDULE IF APPROVED ---
+              if (s === RequestStatus.APPROVED) {
+                  if (updated.type === RequestType.LEAVE) {
+                      assignShift(updated.employeeId, updated.date, 'OFF');
+                  } else if (updated.type === RequestType.SHIFT_SWAP && updated.targetShift) {
+                      assignShift(updated.employeeId, updated.date, updated.targetShift);
+                  }
+              }
+              // -----------------------------------------------
+
+              sheetService.syncRequest(updated); 
+              return updated; 
+          } 
+          return x; 
+      })); 
+  };
+  
   const updateSettings = (s: SystemSettings) => { setSettings(s); sheetService.saveSettings(s); };
   const syncGroupState = (group: ServingGroup) => { sheetService.syncServingGroup(group); }
   

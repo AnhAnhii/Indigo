@@ -116,6 +116,7 @@ export interface EmployeeRequest {
   date: string;
   reason: string;
   status: RequestStatus;
+  targetShift?: string; // NEW: Ca mong muốn đổi sang
   createdAt: string;
   isMine: boolean;
 }
