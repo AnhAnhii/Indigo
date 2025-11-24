@@ -31,7 +31,9 @@ interface GlobalContextType {
 
   menuItems: MenuItem[];
   prepTasks: PrepTask[];
+  addPrepTask: (task: PrepTask) => void;
   togglePrepTask: (id: string) => void;
+  deletePrepTask: (id: string) => void;
   
   servingGroups: ServingGroup[];
   addServingGroup: (group: ServingGroup) => void;
@@ -84,6 +86,7 @@ const INITIAL_SETTINGS: SystemSettings = {
     location: { latitude: 21.0285, longitude: 105.8542, radiusMeters: 100, name: "Nhà hàng Trung tâm" },
     wifis: [],
     rules: { allowedLateMinutes: 15 },
+    servingConfig: { lateAlertMinutes: 5 }, // UPDATE: Default to 5 mins for easier testing
     shiftConfigs: [
         { 
             code: 'Ca C', name: 'Ca C (Gãy)', 
@@ -122,18 +125,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   
   const [activeAlerts, setActiveAlerts] = useState<SystemAlert[]>([]);
   
-  // --- PERSISTENT DISMISSED ALERTS ---
-  // Ensure we read string IDs correctly
-  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(() => {
-      try {
-          const saved = localStorage.getItem('dismissedAlertIds');
-          return saved ? new Set(JSON.parse(saved)) : new Set();
-      } catch (e) {
-          return new Set();
-      }
-  });
-
+  // --- CLOUD SYNC STATE (Replaces LocalStorage) ---
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
+
   const [pendingRequestIds, setPendingRequestIds] = useState<Set<string>>(new Set());
   const [deletedGroupIds, setDeletedGroupIds] = useState<Set<string>>(new Set());
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
@@ -141,7 +136,16 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const normalizeDate = (dateStr: string) => {
       if (!dateStr) return '';
       try {
-          const date = new Date(dateStr);
+          let d = dateStr;
+          if (dateStr.includes('/')) {
+              const parts = dateStr.split('/');
+              if (parts.length === 3) {
+                   if (parts[2].length === 4) d = `${parts[2]}-${parts[1]}-${parts[0]}`;
+              }
+          }
+          const date = new Date(d);
+          if (isNaN(date.getTime())) return dateStr.split('T')[0];
+
           return new Intl.DateTimeFormat('en-CA', {
               timeZone: 'Asia/Ho_Chi_Minh',
               year: 'numeric',
@@ -175,84 +179,78 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return null;
   };
 
+  // --- DISMISS ALERT (SYNC TO CLOUD) ---
   const dismissAlert = (id: string) => {
-      setDismissedAlertIds(prev => {
-          const newSet = new Set(prev).add(String(id)); // Force string
-          localStorage.setItem('dismissedAlertIds', JSON.stringify(Array.from(newSet)));
-          return newSet;
-      });
+      // Optimistic update
+      setDismissedAlertIds(prev => new Set(prev).add(String(id)));
+      // Send to Sheet (This ensures it persists across devices)
+      sheetService.dismissAlert(String(id));
   };
 
   // --- SYSTEM ALERTS: SERVING & ATTENDANCE ---
   const runSystemChecks = useCallback(() => {
       const now = new Date();
-      const y = now.getFullYear();
-      const m = now.getMonth() + 1;
-      const d = now.getDate();
-      const todayStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const todayStr = normalizeDate(now.toISOString());
       
       const currentHour = now.getHours();
       const currentMinutes = now.getMinutes();
       const currentTotalMinutes = currentHour * 60 + currentMinutes;
 
+      // USE CONFIGURABLE THRESHOLD (Default 5 mins if missing)
+      const lateThreshold = settings.servingConfig?.lateAlertMinutes || 5;
+
       const newAlerts: SystemAlert[] = [];
 
-      // 1. CHECK SERVING (LATE ORDERS > 20 MINS)
+      // 1. CHECK SERVING (LATE ORDERS)
       servingGroups.forEach(group => {
-          if (group.status === 'ACTIVE' && group.startTime && group.date) {
+          // FIX: Only check ACTIVE groups. 
+          // We ignore date comparison to avoid format mismatches (DD/MM vs MM/DD). 
+          // If it is ACTIVE, it means the group is here NOW.
+          if (group.status === 'ACTIVE' && group.startTime) {
               try {
-                  // MANUAL DATE PARSING TO AVOID INVALID DATE
-                  let gYear = 0, gMonth = 0, gDay = 0;
+                  const timeParts = String(group.startTime).split(':');
+                  const startH = parseInt(timeParts[0]);
+                  const startM = parseInt(timeParts[1]);
                   
-                  let dateStr = group.date;
-                  if (dateStr.includes('T')) dateStr = dateStr.split('T')[0];
-                  
-                  const cleanDate = dateStr.replace(/[\/\.]/g, '-');
-                  const dateParts = cleanDate.split('-').map(p => parseInt(p, 10));
-                  
-                  if (dateParts.length === 3) {
-                      if (dateParts[0] > 1000) {
-                          // YYYY-MM-DD
-                          [gYear, gMonth, gDay] = dateParts;
-                      } else {
-                          // DD-MM-YYYY
-                          [gDay, gMonth, gYear] = dateParts;
-                      }
-                  }
-
-                  const timeParts = group.startTime.split(':').map(p => parseInt(p, 10));
-                  const gHour = timeParts[0];
-                  const gMinute = timeParts[1];
-                  
-                  if (gYear > 0 && gMonth > 0 && gDay > 0 && !isNaN(gHour) && !isNaN(gMinute)) {
-                      const groupTime = new Date(gYear, gMonth - 1, gDay, gHour, gMinute);
+                  if (!isNaN(startH) && !isNaN(startM)) {
+                      // Calculate minutes since midnight for Start Time and Now
+                      const startTotalMinutes = startH * 60 + startM;
                       
-                      if (!isNaN(groupTime.getTime())) {
-                          const diffMs = now.getTime() - groupTime.getTime();
-                          const diffMinutes = Math.floor(diffMs / 60000);
+                      // Calculate difference
+                      // Handle case where shift crosses midnight (rare but possible) is complex, 
+                      // but for now simple subtraction works for same day.
+                      let diffMinutes = currentTotalMinutes - startTotalMinutes;
+                      
+                      // If diff is negative (e.g. Now 00:10, Start 23:50), assume day crossover
+                      if (diffMinutes < -1000) {
+                          diffMinutes += 1440; // Add 24 hours
+                      }
 
-                          // Alert if wait time >= 20 minutes
-                          if (diffMinutes >= 20) {
-                              const missingItems = group.items.filter(i => i.servedQuantity < i.totalQuantity);
-                              if (missingItems.length > 0) {
-                                  const missingNames = missingItems.map(i => i.name).join(', ');
-                                  // CRITICAL: Ensure ID is string to match LocalStorage
-                                  const alertId = `alert_serving_${String(group.id)}`; 
-                                  
-                                  newAlerts.push({
-                                      id: alertId,
-                                      type: 'LATE_SERVING',
-                                      message: `Đoàn ${group.name} (${group.location}) đã chờ ${diffMinutes} phút!`,
-                                      details: `Thiếu: ${missingNames}`,
-                                      groupId: String(group.id),
-                                      severity: 'HIGH',
-                                      timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
-                                  });
-                              }
+                      // Only alert if Late AND has missing items
+                      if (diffMinutes >= lateThreshold) {
+                          const missingItems = group.items.filter(i => {
+                              const served = Number(i.servedQuantity) || 0;
+                              const total = Number(i.totalQuantity) || 0;
+                              return served < total;
+                          });
+
+                          if (missingItems.length > 0) {
+                              const missingNames = missingItems.map(i => i.name).join(', ');
+                              const alertId = `alert_serving_${String(group.id)}`; 
+                              
+                              newAlerts.push({
+                                  id: alertId,
+                                  type: 'LATE_SERVING',
+                                  message: `Đoàn ${group.name} trễ ${diffMinutes} phút!`,
+                                  details: `Đã đợi quá ${lateThreshold}p. Thiếu: ${missingNames}`,
+                                  groupId: String(group.id),
+                                  severity: 'HIGH',
+                                  timestamp: now.toLocaleTimeString('vi-VN', {hour: '2-digit', minute: '2-digit'})
+                              });
                           }
                       }
                   }
-              } catch (e) { console.error("Error calculating serving time:", e); }
+              } catch (e) { console.error("Error checking serving alert:", e); }
           }
       });
 
@@ -309,16 +307,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               }
           }
       });
-      
-      if (settings.webhook?.enabled && settings.webhook.url) {
-          const highSeverity = newAlerts.filter(a => a.severity === 'HIGH');
-          if (highSeverity.length > activeAlerts.filter(a => a.severity === 'HIGH').length) {
-              // Trigger webhook logic here
-          }
-      }
 
       setActiveAlerts(prev => {
-          if (JSON.stringify(prev) !== JSON.stringify(newAlerts)) return newAlerts;
+          const prevStr = JSON.stringify(prev);
+          const newStr = JSON.stringify(newAlerts);
+          if (prevStr !== newStr) return newAlerts;
           return prev;
       });
 
@@ -326,7 +319,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   useEffect(() => {
       runSystemChecks();
-      const interval = setInterval(runSystemChecks, 30000); // Check every 30s
+      const interval = setInterval(runSystemChecks, 5000); // Check every 5s (Faster check)
       return () => clearInterval(interval);
   }, [runSystemChecks]);
 
@@ -341,7 +334,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                     ...e,
                     hourlyRate: Number(e.hourlyRate) || 0,
                     allowance: Number(e.allowance) || 0,
-                    id: String(e.id) // FORCE STRING
+                    id: String(e.id)
                 }));
                 setEmployees(parsedEmployees);
                 if (currentUser) {
@@ -353,7 +346,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             if (data.logs && Array.isArray(data.logs)) {
                 const parsedLogs = data.logs.map((l: any) => ({
                     ...l,
-                    id: String(l.id), // FORCE STRING
+                    id: String(l.id),
                     employeeId: String(l.employeeId),
                     date: normalizeDate(l.date),
                     checkIn: cleanGoogleSheetTime(l.checkIn),
@@ -381,13 +374,42 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             if (data.servingGroups && Array.isArray(data.servingGroups)) {
                 const freshGroups = data.servingGroups
                     .filter((g: any) => !deletedGroupIds.has(String(g.id)))
-                    .map((g: any) => ({
-                        ...g,
-                        id: String(g.id), // FORCE STRING ID
-                        date: normalizeDate(g.date),
-                        startTime: cleanGoogleSheetTime(g.startTime),
-                        completionTime: cleanGoogleSheetTime(g.completionTime)
-                    }));
+                    .map((g: any) => {
+                        let parsedItems = [];
+                        let parsedPrepList = [];
+                        let rawItems = g.items;
+                        let rawPrepList = g.prepList;
+
+                        if (typeof rawItems === 'string') {
+                            try { rawItems = JSON.parse(rawItems); } catch (e) { rawItems = []; }
+                        }
+                        
+                        if (typeof rawPrepList === 'string') {
+                            try { rawPrepList = JSON.parse(rawPrepList); } catch (e) { rawPrepList = []; }
+                        }
+
+                        if (Array.isArray(rawItems)) {
+                            parsedItems = rawItems.map((i: any) => ({
+                                ...i,
+                                totalQuantity: Number(i.totalQuantity) || 0,
+                                servedQuantity: Number(i.servedQuantity) || 0
+                            }));
+                        }
+                        
+                        if (Array.isArray(rawPrepList)) {
+                            parsedPrepList = rawPrepList;
+                        }
+
+                        return {
+                            ...g,
+                            id: String(g.id),
+                            date: normalizeDate(g.date),
+                            startTime: cleanGoogleSheetTime(g.startTime),
+                            completionTime: cleanGoogleSheetTime(g.completionTime),
+                            items: parsedItems,
+                            prepList: parsedPrepList
+                        };
+                    });
 
                 setServingGroups(prevGroups => {
                     const serverGroupsMap = new Map(freshGroups.map((g: any) => [g.id, g]));
@@ -397,19 +419,26 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                         
                         const mergedGroup = { ...serverG };
 
-                        // 1. Keep local completed status if server is behind
                         if (localG.status === 'COMPLETED' && serverG.status !== 'COMPLETED') {
                             mergedGroup.status = 'COMPLETED';
                             mergedGroup.completionTime = localG.completionTime;
                         }
 
-                        // 2. Prevent overwriting startTime if server has null but local has value
                         if (localG.startTime && !serverG.startTime) {
                             mergedGroup.startTime = localG.startTime;
                         }
 
+                        if ((!mergedGroup.items || mergedGroup.items.length === 0) && localG.items && localG.items.length > 0) {
+                            mergedGroup.items = localG.items;
+                        }
+                        
+                         if ((!mergedGroup.prepList || mergedGroup.prepList.length === 0) && localG.prepList && localG.prepList.length > 0) {
+                            mergedGroup.prepList = localG.prepList;
+                        }
+
                         return mergedGroup;
                     });
+                    
                     freshGroups.forEach((serverG: any) => {
                         if (!merged.find(m => m.id === serverG.id)) {
                             merged.push(serverG);
@@ -437,6 +466,19 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 }));
                 setSchedules(parsedSchedules);
             }
+
+            // --- SYNC DISMISSED ALERTS FROM CLOUD ---
+            if (data.dismissedAlerts && Array.isArray(data.dismissedAlerts)) {
+                const dismissedSet = new Set<string>(data.dismissedAlerts.map((a: any) => String(a.id)));
+                setDismissedAlertIds(dismissedSet);
+            }
+
+            if (data.prepTasks && Array.isArray(data.prepTasks)) {
+                setPrepTasks(data.prepTasks.map((t: any) => ({
+                    ...t,
+                    id: String(t.id)
+                })));
+            }
             
             if (data.settings) {
                const raw = data.settings;
@@ -445,6 +487,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                    wifis: Array.isArray(raw.wifis) ? raw.wifis : INITIAL_SETTINGS.wifis,
                    rules: { ...INITIAL_SETTINGS.rules, ...(raw.rules || {}) },
                    shiftConfigs: Array.isArray(raw.shiftConfigs) ? raw.shiftConfigs : INITIAL_SETTINGS.shiftConfigs,
+                   servingConfig: { ...INITIAL_SETTINGS.servingConfig, ...(raw.servingConfig || {}) },
                    webhook: raw.webhook || undefined
                };
                setSettings(mergedSettings);
@@ -635,7 +678,30 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   }; 
   
   const logout = () => { setCurrentUser(null); }; 
-  const togglePrepTask = (id: string) => setPrepTasks(p => p.map(t => t.id === id ? {...t, isCompleted: !t.isCompleted} : t));
+  
+  const togglePrepTask = (id: string) => {
+      setPrepTasks(prev => {
+          const newTasks = prev.map(t => {
+              if (t.id === id) {
+                  const updatedTask = { ...t, isCompleted: !t.isCompleted };
+                  sheetService.syncPrepTask(updatedTask);
+                  return updatedTask;
+              }
+              return t;
+          });
+          return newTasks;
+      });
+  };
+
+  const addPrepTask = (task: PrepTask) => {
+      setPrepTasks(prev => [task, ...prev]);
+      sheetService.syncPrepTask(task);
+  }
+
+  const deletePrepTask = (id: string) => {
+      setPrepTasks(prev => prev.filter(t => t.id !== id));
+      sheetService.deletePrepTask(id);
+  }
 
   return (
     <GlobalContext.Provider value={{ 
@@ -643,7 +709,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       logs, addAttendanceLog, updateAttendanceLog,
       requests, addRequest, updateRequestStatus,
       settings, updateSettings,
-      menuItems: [], prepTasks, togglePrepTask,
+      menuItems: [], 
+      prepTasks, addPrepTask, togglePrepTask, deletePrepTask,
       servingGroups, addServingGroup, updateServingGroup, deleteServingGroup,
       startServingGroup, 
       addServingItem, updateServingItem, deleteServingItem,

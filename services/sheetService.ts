@@ -1,6 +1,7 @@
 
+
 // --- CẤU HÌNH LIÊN KẾT GOOGLE SHEET ---
-const HARDCODED_API_URL: string = "https://script.google.com/macros/s/AKfycbyvvVN6jTx3HGONBGfge7OXHD7IXkL2xTCP97qnxNtHO72efA5s4TVBknGpyOCmWa4w/exec"; 
+const HARDCODED_API_URL: string = "https://script.google.com/macros/s/AKfycbxuKZSzqPf6sRVF4WSlp_ZYLlVd5oLqEVM2vZHGgxnJzA-RT_dFP5VtkDOh-oJPVhtJ/exec"; 
 
 export const sheetService = {
     getApiUrl: () => {
@@ -37,8 +38,11 @@ export const sheetService = {
         try {
             await fetch(url, {
                 method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
+                mode: 'no-cors', // IMPORTANT: Google Apps Script requires no-cors for client-side calls
+                headers: {
+                    // FIX: Use text/plain to avoid CORS Preflight (OPTIONS) request which causes "Load failed"
+                    'Content-Type': 'text/plain;charset=utf-8', 
+                },
                 body: JSON.stringify({ action, data })
             });
         } catch (error) {
@@ -70,7 +74,19 @@ export const sheetService = {
 
     // --- SERVING GROUPS ---
     syncServingGroup: async (groupData: any) => {
-        await sheetService.postData('SYNC_GROUP', groupData);
+        // CRITICAL FIX: Stringify complex arrays before sending to ensure they save to Google Sheets cells
+        // This prevents [object Object] issues and ensures data persistence
+        const payload = { ...groupData };
+        
+        if (payload.items && typeof payload.items !== 'string') {
+            payload.items = JSON.stringify(payload.items);
+        }
+        
+        if (payload.prepList && typeof payload.prepList !== 'string') {
+            payload.prepList = JSON.stringify(payload.prepList);
+        }
+
+        await sheetService.postData('SYNC_GROUP', payload);
     },
 
     deleteServingGroup: async (id: string) => {
@@ -95,5 +111,19 @@ export const sheetService = {
     // --- SCHEDULES ---
     syncSchedule: async (scheduleData: any) => {
         await sheetService.postData('SYNC_SCHEDULE', scheduleData);
+    },
+
+    // --- ALERTS (NEW: REMOVE LOCALSTORAGE) ---
+    dismissAlert: async (alertId: string) => {
+        await sheetService.postData('DISMISS_ALERT', { id: alertId, timestamp: new Date().toISOString() });
+    },
+
+    // --- PREP TASKS (NEW: SYNC STANDALONE TASKS) ---
+    syncPrepTask: async (taskData: any) => {
+        await sheetService.postData('SYNC_PREP_TASK', taskData);
+    },
+
+    deletePrepTask: async (id: string) => {
+        await sheetService.postData('DELETE_PREP_TASK', { id });
     }
 };

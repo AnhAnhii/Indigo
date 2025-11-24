@@ -255,6 +255,7 @@ export const AttendanceKiosk: React.FC = () => {
             const newLog: TimesheetLog = {
                 id: Date.now().toString(),
                 employeeName: employee.name,
+                employeeId: employee.id, // Added to fix type error
                 date: localDateStr,
                 checkIn: timeStr,
                 checkOut: null,

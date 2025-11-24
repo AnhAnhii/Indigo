@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig } from '../types';
 import { sheetService } from '../services/sheetService';
@@ -155,23 +155,44 @@ export const SettingsView: React.FC = () => {
                             <Shield size={24} />
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-gray-900">Quy tắc Ca Làm Việc</h3>
-                            <p className="text-sm text-gray-500">Cấu hình thời gian cho các ca C, D, B1, B2.</p>
+                            <h3 className="text-lg font-bold text-gray-900">Quy tắc & Ca Làm Việc</h3>
+                            <p className="text-sm text-gray-500">Cấu hình thời gian chấm công và ra đồ.</p>
                         </div>
                     </div>
 
-                    <div className="mb-6">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Cho phép đi muộn (phút)</label>
-                        <input 
-                            type="number" 
-                            value={localSettings.rules.allowedLateMinutes}
-                            onChange={(e) => setLocalSettings({...localSettings, rules: {...localSettings.rules, allowedLateMinutes: Number(e.target.value)}})}
-                            className="w-full md:w-1/3 border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Áp dụng chung cho tất cả các ca.</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                                <Clock size={16}/> Cho phép đi muộn (phút)
+                            </label>
+                            <input 
+                                type="number" 
+                                value={localSettings.rules.allowedLateMinutes}
+                                onChange={(e) => setLocalSettings({...localSettings, rules: {...localSettings.rules, allowedLateMinutes: Number(e.target.value)}})}
+                                className="w-full border rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Quá thời gian này sẽ tính là Đi muộn.</p>
+                        </div>
+                        
+                        <div className="bg-red-50/50 p-3 rounded-xl border border-red-100">
+                            <label className="block text-sm font-medium text-red-700 mb-1 flex items-center gap-1">
+                                <BellRing size={16}/> Cảnh báo ra đồ muộn sau (phút)
+                            </label>
+                            <input 
+                                type="number" 
+                                value={localSettings.servingConfig?.lateAlertMinutes || 20}
+                                onChange={(e) => setLocalSettings({
+                                    ...localSettings, 
+                                    servingConfig: { ...localSettings.servingConfig, lateAlertMinutes: Number(e.target.value) }
+                                })}
+                                className="w-full border border-red-200 rounded-lg p-2.5 text-sm font-bold text-red-800 focus:ring-2 focus:ring-red-500 outline-none bg-white"
+                            />
+                            <p className="text-xs text-gray-500 mt-1">Đoàn khách chờ quá lâu sẽ hiện cảnh báo Đỏ.</p>
+                        </div>
                     </div>
 
                     <div className="space-y-4">
+                        <h4 className="font-bold text-gray-700">Danh sách Ca Làm Việc</h4>
                         {localSettings.shiftConfigs.map((shift, idx) => (
                             <div key={shift.code} className="p-4 border rounded-xl bg-gray-50 hover:bg-white hover:shadow-md transition-all">
                                 <div className="flex justify-between items-center mb-3">

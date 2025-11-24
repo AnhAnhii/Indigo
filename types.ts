@@ -57,6 +57,7 @@ export interface AttendanceRecord {
 export interface TimesheetLog {
     id: string;
     employeeName: string;
+    employeeId: string; // Added field
     date: string;
     checkIn: string | null;
     checkOut: string | null;
@@ -140,6 +141,10 @@ export interface WorkRule {
     allowedLateMinutes: number;
 }
 
+export interface ServingConfig {
+    lateAlertMinutes: number;
+}
+
 export interface LocationConfig {
     latitude: number;
     longitude: number;
@@ -151,6 +156,7 @@ export interface SystemSettings {
     location: LocationConfig;
     wifis: WifiConfig[];
     rules: WorkRule;
+    servingConfig?: ServingConfig; // NEW CONFIG FOR SERVING ALERT
     shiftConfigs: ShiftConfig[];
     webhook?: {
         url: string;

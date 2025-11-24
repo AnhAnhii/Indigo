@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Bell, CheckCircle, Clock, AlertTriangle, ArrowRight, Trash2, History } from 'lucide-react';
+import { Bell, CheckCircle, Clock, AlertTriangle, ArrowRight, Trash2, History, Cloud } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { AppView } from '../types';
 
@@ -30,8 +30,11 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ onViewChan
           <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Bell className="text-teal-600" /> Trung Tâm Thông Báo
           </h2>
-          <p className="text-gray-500">
+          <p className="text-gray-500 flex items-center gap-1">
               {showHistory ? "Lịch sử cảnh báo đã giải quyết." : "Cập nhật tình hình vận hành thời gian thực."}
+              <span className="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full flex items-center ml-2 border border-blue-100">
+                  <Cloud size={10} className="mr-1"/> Cloud Synced
+              </span>
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -117,7 +120,9 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ onViewChan
                                           </button>
                                       )}
                                       {isDismissed && (
-                                          <span className="text-xs text-gray-400 italic ml-auto">Đã xử lý</span>
+                                          <span className="text-xs text-gray-400 italic ml-auto flex items-center">
+                                              <Cloud size={10} className="mr-1"/> Đã đồng bộ tắt
+                                          </span>
                                       )}
                                   </div>
                               </div>
