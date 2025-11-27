@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -15,21 +15,18 @@ import { ServingChecklist } from './components/ServingChecklist';
 import { HandoverView } from './components/HandoverView';
 import { ProfileView } from './components/ProfileView';
 import { NotificationsView } from './components/NotificationsView'; 
-import { QrStation } from './components/QrStation'; // New Component
+import { QrStation } from './components/QrStation'; 
 import { LoginScreen } from './components/LoginScreen';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
 const AppContent: React.FC = () => {
-  const { currentUser, logout, lastUpdated, isLoading, activeAlerts, dismissedAlertIds, dismissAlert } = useGlobalContext();
+  const { currentUser, logout, activeAlerts, dismissedAlertIds, dismissAlert, connectionStatus } = useGlobalContext();
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
-
-  // FILTER ALERTS FOR BANNER (Only show ones not dismissed)
   const bannerAlerts = activeAlerts.filter(a => !dismissedAlertIds.has(a.id));
-  // COUNT UNDISMISSED ALERTS FOR SIDEBAR BADGE
   const alertCount = bannerAlerts.length;
 
   useEffect(() => {
@@ -42,12 +39,8 @@ const AppContent: React.FC = () => {
       setIsMobileMenuOpen(false);
   }, [currentView, isAdmin, currentUser]);
 
-  // LOGIN GUARD ENABLED
-  if (!currentUser) {
-      return <LoginScreen />;
-  }
+  if (!currentUser) return <LoginScreen />;
 
-  // SPECIAL VIEW: QR STATION (FULL SCREEN)
   if (currentView === AppView.QR_STATION && isAdmin) {
       return <QrStation onBack={() => setCurrentView(AppView.DASHBOARD)} />;
   }
@@ -98,7 +91,6 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-gray-50 font-sans overflow-hidden relative">
       
-      {/* GLOBAL ALERT BANNER (ONLY SHOW IF NOT DISMISSED) */}
       {bannerAlerts.length > 0 && (
           <div className={`fixed top-0 left-0 right-0 z-50 text-white shadow-lg animate-in slide-in-from-top duration-300 ${bannerAlerts[0].severity === 'HIGH' ? 'bg-red-600' : 'bg-yellow-600'}`}>
               <div className="max-w-7xl mx-auto px-4 py-2 flex items-start justify-between">
@@ -132,11 +124,10 @@ const AppContent: React.FC = () => {
           </div>
       )}
 
-      {/* Mobile Header */}
       <div className={`md:hidden bg-white border-b p-4 flex justify-between items-center sticky top-0 z-20 shadow-sm shrink-0 ${bannerAlerts.length > 0 ? 'mt-14' : ''}`}>
         <div className="flex items-center space-x-2 font-bold text-xl text-teal-700">
           <ShieldCheck />
-          <span>RestaurantSync</span>
+          <span>Indigo Restaurant</span>
         </div>
         <div className="flex items-center gap-3">
             <button onClick={() => setCurrentView(AppView.NOTIFICATIONS)} className="relative p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg">
@@ -149,7 +140,6 @@ const AppContent: React.FC = () => {
         </div>
       </div>
 
-      {/* Sidebar Navigation */}
       <aside
         className={`fixed inset-y-0 left-0 z-30 w-64 bg-white border-r shadow-xl transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 flex flex-col h-screen ${bannerAlerts.length > 0 ? 'pt-14 md:pt-0' : ''} ${
           isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'
@@ -160,8 +150,8 @@ const AppContent: React.FC = () => {
              <ShieldCheck size={24} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-gray-900 leading-tight tracking-tight">RestaurantSync</h1>
-            <p className="text-xs text-gray-500 font-medium">Quản lý F&B 4.0</p>
+            <h1 className="text-lg font-bold text-gray-900 leading-tight tracking-tight">Indigo Restaurant</h1>
+            <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider mt-0.5">Nhà hàng Lá Chàm Sapa</p>
           </div>
         </div>
 
@@ -191,15 +181,20 @@ const AppContent: React.FC = () => {
           )}
         </nav>
         
-        <div className="w-full p-4 border-t bg-gray-50 shrink-0">
-            <div className="flex items-center justify-between text-xs text-gray-400 mb-3 px-1">
-                 <span className="flex items-center"><RefreshCw size={10} className={`mr-1 ${isLoading ? 'animate-spin' : ''}`} /> Đồng bộ:</span>
-                 <span>{lastUpdated}</span>
+        <div className="w-full p-4 border-t bg-gray-50 shrink-0 space-y-3">
+            {/* Connection Status Indicator */}
+            <div className={`flex items-center justify-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
+                connectionStatus === 'CONNECTED' 
+                ? 'bg-green-100 text-green-700 border border-green-200' 
+                : 'bg-red-100 text-red-700 border border-red-200'
+            }`}>
+                {connectionStatus === 'CONNECTED' ? <Wifi size={14} /> : <WifiOff size={14} />}
+                {connectionStatus === 'CONNECTED' ? 'Hệ thống Online' : 'Mất kết nối'}
             </div>
 
             <div 
                 onClick={() => setCurrentView(AppView.PROFILE)}
-                className="flex items-center space-x-3 mb-3 cursor-pointer hover:bg-gray-100 p-2 rounded-lg transition-colors"
+                className="flex items-center space-x-3 cursor-pointer hover:bg-gray-100 p-2 rounded-lg transition-colors"
             >
                 <div className="w-8 h-8 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold uppercase shrink-0 overflow-hidden">
                     {currentUser.avatar && currentUser.avatar.length > 20 ? (
@@ -222,7 +217,6 @@ const AppContent: React.FC = () => {
         </div>
       </aside>
       
-      {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 bg-black/50 z-20 md:hidden" onClick={() => setIsMobileMenuOpen(false)}></div>
       )}

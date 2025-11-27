@@ -3,8 +3,6 @@ import { GoogleGenAI } from "@google/genai";
 
 const getApiKey = () => {
   let apiKey = '';
-  
-  // 1. Ưu tiên lấy từ VITE_API_KEY (Chuẩn cho Vercel/Vite)
   try {
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
@@ -12,8 +10,6 @@ const getApiKey = () => {
       apiKey = import.meta.env.VITE_API_KEY;
     }
   } catch (e) {}
-
-  // 2. Fallback sang process.env (Cho các môi trường khác)
   if (!apiKey) {
     try {
       if (typeof process !== 'undefined' && process.env) {
@@ -21,7 +17,6 @@ const getApiKey = () => {
       }
     } catch (e) {}
   }
-  
   return apiKey;
 };
 
@@ -61,46 +56,38 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
     try {
         const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
-        // PROMPT NÂNG CAO CHO NHÀ HÀNG VIỆT NAM V2 (Tập trung vào chữ viết tay khó đọc và Logic chia bàn)
+        // PROMPT V3: Tối ưu cho chữ viết tay Tiếng Việt & Ký hiệu Order
         const prompt = `
-            Bạn là một Captain (Đội trưởng) nhà hàng chuyên nghiệp, chuyên giải mã các tờ Order viết tay "gà bới".
-            Nhiệm vụ: Chuyển đổi ảnh thực đơn thành JSON.
+            Bạn là Captain nhà hàng chuyên đọc phiếu Order viết tay (Handwriting OCR).
+            
+            NHIỆM VỤ: Trích xuất thông tin Order từ ảnh chụp.
 
-            === QUY TẮC SỐ 1: TÌM TỔNG SỐ BÀN (TABLE COUNT) - ƯU TIÊN CAO NHẤT ===
-            Chữ viết tay số bàn thường nằm ở góc trên, bên cạnh tên đoàn hoặc số khách.
-            Hãy tìm các mẫu sau:
-            1. Ký hiệu "x": "x8", "x 8", "x4", "x 4". Đây là CHẮC CHẮN số bàn. (VD: x8 => 8 bàn).
-            2. Phép cộng chia bàn: "1x5 + 7x4" hoặc "1x5, 7x4" hoặc "3x6, 2x5".
-               -> HÃY CỘNG TỔNG LẠI: 1 + 7 = 8 bàn. 3 + 2 = 5 bàn.
-               -> Lưu chuỗi gốc "1x5, 7x4" vào trường "tableSplit".
-            3. Ký hiệu "T": "8T", "4T" (Table).
-            4. Nếu không tìm thấy các ký hiệu trên, mới dùng công thức ước lượng: Table = ceil(Guest / 6).
+            1. PHÂN TÍCH LOGIC SỐ BÀN (QUAN TRỌNG NHẤT):
+               - Tìm các ký hiệu góc tờ giấy: "x8", "8T", "T8", "Bàn 8".
+               - Tìm phép cộng bàn: "1x5 + 7x4" => Tổng 8 bàn. "3x6, 2x5" => Tổng 5 bàn.
+               - Nếu ghi "33 pax", "33k" => Khách = 33. Nếu không ghi số bàn, ước tính = ceil(33/6).
 
-            === QUY TẮC SỐ 2: PAX & GROUP NAME ===
-            - Tìm dòng chứa chữ "Pax". VD: "33 pax Do Thai".
-            - Tách: guestCount = 33.
-            - groupName: "33 pax Do Thai" (Giữ nguyên để xác định loại khách Âu/Á/Hàn/Do Thái).
+            2. PHÂN TÍCH MÓN ĂN (ITEMS):
+               - Bỏ qua các dòng: "Note:", "NB:", "Lưu ý", "Tổng cộng".
+               - Chữ viết tắt: "G" = Gà, "C" = Cơm, "R" = Rau.
+               - Số lượng: Thường đứng đầu dòng "2 Gà" hoặc cuối dòng "Gà x 2".
+            
+            3. SUY LUẬN (Chain of Thought):
+               - Nếu thấy "Do Thai" -> groupName chứa "Do Thai".
+               - Nếu thấy "Han" -> groupName chứa "Han".
+               - Nếu món là "Lẩu", "Gà luộc", "Cá" -> Số lượng thường = Số bàn (tableCount).
+               - Nếu món là "Súp", "Bát cơm" -> Số lượng thường = Số khách (guestCount).
 
-            === QUY TẮC SỐ 3: LOCATION ===
-            - Tìm mã bàn: A1, B2, C1, VIP...
-            - Tìm dải bàn: "A1 (1->5)" hoặc "A1-A5".
-
-            === QUY TẮC SỐ 4: MÓN ĂN (ITEMS) ===
-            - BỎ QUA: "NB:", "Lưu ý:", "Note:", "Nội bộ".
-            - SỐ LƯỢNG (QUANTITY):
-              + Món Chung (Lẩu, Gà, Cá, Rau, Khoai, Đĩa...): Nếu không ghi số cụ thể, mặc định Qty = TABLE COUNT.
-              + Món Riêng (Súp, Suất, Bát, Cốc...): Nếu không ghi số cụ thể, mặc định Qty = GUEST COUNT.
-
-            OUTPUT JSON FORMAT:
+            OUTPUT JSON (Array):
             [
                 {
-                    "groupName": "33 pax Do Thai",
-                    "location": "A1", 
+                    "groupName": "Tên đoàn (VD: 33 pax Do Thai)",
+                    "location": "Vị trí (VD: A1)", 
                     "guestCount": 33,
                     "tableCount": 8,
                     "tableSplit": "1x5, 7x4", 
                     "items": [
-                        { "name": "Khoai lang chiên", "quantity": 8, "unit": "Đĩa" },
+                        { "name": "Khoai chiên", "quantity": 8, "unit": "Đĩa" },
                         { "name": "Súp gà", "quantity": 33, "unit": "Bát" }
                     ]
                 }
@@ -122,6 +109,7 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
 
         const text = response.text || "[]";
         
+        // Clean JSON formatting
         let jsonString = text;
         const arrayMatch = text.match(/\[\s*\{.*\}\s*\]/s);
         
@@ -145,7 +133,8 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
                 tableSplit: g.tableSplit || '', 
                 items: Array.isArray(g.items) ? g.items.map((i: any) => ({
                     ...i,
-                    quantity: Number(i.quantity) || 1
+                    quantity: Number(i.quantity) || 1,
+                    unit: i.unit || 'Phần'
                 })) : []
             }));
         } catch (e) {
@@ -167,26 +156,13 @@ export const verifyFaceIdentity = async (capturedImage: string, referenceImage: 
         const cleanReference = referenceImage.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
         const prompt = `
-            Bạn là chuyên gia an ninh sinh trắc học (Biometric Security).
-            
-            NHIỆM VỤ: Xác thực danh tính từ 2 bức ảnh.
-            - Ảnh 1: Ảnh chụp từ Camera chấm công (Captured).
-            - Ảnh 2: Ảnh hồ sơ nhân viên (Reference).
-
-            QUY TẮC CỐT LÕI (HARD RULES):
-            1. PHÁT HIỆN KHUÔN MẶT (FACE DETECTION):
-               - Kiểm tra Ảnh 1. Nếu là hình ảnh đồ vật (ghế, bàn, tường, trần nhà), động vật, hoặc quá tối/mờ không thấy rõ mặt người -> TRẢ VỀ "hasFace": false.
-               - Nếu không có mặt người -> "match": false, "confidence": 0.
-            
-            2. SO SÁNH (VERIFICATION):
-               - Chỉ so sánh nếu "hasFace": true.
-               - So sánh đặc điểm khuôn mặt giữa Ảnh 1 và Ảnh 2.
-            
+            Bạn là chuyên gia an ninh sinh trắc học.
+            So sánh 2 ảnh khuôn mặt.
             OUTPUT JSON ONLY:
             {
-                "hasFace": boolean, // Có phát hiện mặt người trong Ảnh 1 không?
-                "match": boolean, // true nếu cùng một người, false nếu khác người hoặc hasFace=false
-                "confidence": number // 0-100 (Độ tin cậy. Nếu hasFace=false thì confidence=0)
+                "hasFace": boolean, 
+                "match": boolean, 
+                "confidence": number 
             }
         `;
 
@@ -216,7 +192,6 @@ export const verifyFaceIdentity = async (capturedImage: string, referenceImage: 
         };
 
     } catch (error) {
-        console.error("Face Verification Error:", error);
         return { match: false, confidence: 0, hasFace: false };
     }
 };
@@ -227,58 +202,30 @@ export const analyzeVoiceCheckIn = async (audioBase64: string, challengePhrase: 
 
     try {
         const cleanAudio = audioBase64.split(',')[1] || audioBase64;
-
         const prompt = `
-            Bạn là hệ thống chấm công bằng giọng nói (Voice Attendance).
-            
-            NHIỆM VỤ:
-            Phân tích đoạn ghi âm người dùng nói để xác thực chấm công.
-            
-            DỮ LIỆU ĐẦU VÀO:
-            1. Challenge Phrase (Mã kiểm tra): "${challengePhrase}" (Người dùng PHẢI đọc đúng cụm từ này).
-            2. Danh sách nhân viên hợp lệ: ${JSON.stringify(employeeList)}.
-
-            QUY TẮC XỬ LÝ:
-            1. Kiểm tra xem người dùng có đọc đúng "Challenge Phrase" không? (Chấp nhận sai sót nhỏ về phát âm nhưng phải đúng từ khóa chính).
-            2. Kiểm tra xem người dùng có xưng tên không? Nếu có, tên đó có nằm trong danh sách nhân viên không? (So sánh gần đúng).
-            3. Xác định ý định: Chấm công, Vào ca, Đi làm, Về, Check out.
-            
-            OUTPUT JSON ONLY:
-            {
-                "isChallengeCorrect": boolean,
-                "detectedName": string | null, // Tên nhân viên nhận diện được (hoặc null)
-                "intent": "CHECK_IN" | "CHECK_OUT" | "UNKNOWN",
-                "confidence": number, // 0-100
-                "reason": "Giải thích ngắn gọn tiếng Việt"
-            }
+            Phân tích giọng nói chấm công.
+            Challenge: "${challengePhrase}".
+            Nhân viên: ${JSON.stringify(employeeList)}.
+            OUTPUT JSON: {"isChallengeCorrect": boolean, "detectedName": string | null, "confidence": number, "reason": string}
         `;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [
-                {
-                    role: 'user',
-                    parts: [
-                        { text: prompt },
-                        { inlineData: { mimeType: 'audio/webm', data: cleanAudio } } 
-                    ]
-                }
+                { role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: 'audio/webm', data: cleanAudio } }] }
             ]
         });
 
         const text = response.text || "{}";
         const jsonMatch = text.match(/\{.*\}/s);
-        const jsonStr = jsonMatch ? jsonMatch[0] : "{}";
-        const result = JSON.parse(jsonStr);
+        const result = JSON.parse(jsonMatch ? jsonMatch[0] : "{}");
 
         if (result.isChallengeCorrect && result.detectedName && result.confidence > 70) {
-            return { success: true, message: "Xác thực thành công", detectedName: result.detectedName };
+            return { success: true, message: "OK", detectedName: result.detectedName };
         } else {
-            return { success: false, message: result.reason || "Không nghe rõ hoặc sai mã kiểm tra." };
+            return { success: false, message: result.reason || "Lỗi xác thực." };
         }
-
     } catch (error) {
-        console.error("Voice Analysis Error:", error);
         return { success: false, message: "Lỗi phân tích giọng nói." };
     }
 };

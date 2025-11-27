@@ -14,7 +14,7 @@ export enum AppView {
   HANDOVER = 'HANDOVER',
   PROFILE = 'PROFILE',
   NOTIFICATIONS = 'NOTIFICATIONS',
-  QR_STATION = 'QR_STATION', // NEW: Màn hình phát mã QR tại quán
+  QR_STATION = 'QR_STATION', 
 }
 
 export enum EmployeeRole {
@@ -38,7 +38,7 @@ export interface Employee {
   role: EmployeeRole;
   avatar?: string;
   hourlyRate: number;
-  allowance?: number; // New field
+  allowance?: number; 
   phone: string;
   email: string;
   password?: string;
@@ -58,7 +58,7 @@ export interface AttendanceRecord {
 export interface TimesheetLog {
     id: string;
     employeeName: string;
-    employeeId: string; // Added field
+    employeeId: string; 
     date: string;
     checkIn: string | null;
     checkOut: string | null;
@@ -67,6 +67,7 @@ export interface TimesheetLog {
     lateMinutes: number;
     device: string;
     shiftCode?: string; 
+    session?: 'MORNING' | 'AFTERNOON'; // NEW: Phân biệt ca sáng/chiều cho ca gãy
 }
 
 export enum ShiftType {
@@ -87,12 +88,11 @@ export interface ShiftConfig {
     breakEnd?: string;     
 }
 
-// NEW: Lịch làm việc cụ thể (Assigned Shift)
 export interface WorkSchedule {
     id: string;
     employeeId: string;
-    date: string; // YYYY-MM-DD
-    shiftCode: string; // Code from ShiftConfig or 'OFF'
+    date: string; 
+    shiftCode: string; 
 }
 
 export enum RequestType {
@@ -117,7 +117,7 @@ export interface EmployeeRequest {
   date: string;
   reason: string;
   status: RequestStatus;
-  targetShift?: string; // NEW: Ca mong muốn đổi sang
+  targetShift?: string; 
   createdAt: string;
   isMine: boolean;
 }
@@ -125,7 +125,7 @@ export interface EmployeeRequest {
 export interface HandoverLog {
     id: string;
     date: string;
-    shift: string; // "Ca Sáng", "Ca Chiều"
+    shift: string; 
     author: string;
     content: string;
     type: 'ISSUE' | 'NOTE' | 'VIP';
@@ -158,7 +158,7 @@ export interface SystemSettings {
     location: LocationConfig;
     wifis: WifiConfig[];
     rules: WorkRule;
-    servingConfig?: ServingConfig; // NEW CONFIG FOR SERVING ALERT
+    servingConfig?: ServingConfig; 
     shiftConfigs: ShiftConfig[];
     webhook?: {
         url: string;
@@ -195,6 +195,7 @@ export interface ServingItem {
     totalQuantity: number; 
     servedQuantity: number;
     unit: string;
+    note?: string; 
 }
 
 export interface ServingGroup {
@@ -202,23 +203,22 @@ export interface ServingGroup {
     name: string; 
     location: string;
     guestCount: number; 
-    startTime: string | null; // Allow null for "Guests haven't arrived yet"
+    startTime: string | null; 
     date: string; 
     items: ServingItem[];
     status: 'ACTIVE' | 'COMPLETED';
     tableCount?: number;
-    tableSplit?: string; // NEW: Logic chia bàn (VD: "1x5, 7x4")
+    tableSplit?: string; 
     prepList?: SauceItem[]; 
-    completionTime?: string; // Added completionTime
+    completionTime?: string; 
 }
 
-// NEW ALERT INTERFACE
 export interface SystemAlert {
     id: string;
     type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION';
     message: string;
     details: string;
-    groupId?: string; // Optional now
+    groupId?: string; 
     severity: 'HIGH' | 'MEDIUM';
     timestamp: string;
 }

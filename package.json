@@ -1,5 +1,5 @@
 {
-  "name": "restaurantsync-ai",
+  "name": "indigo-restaurant---nhà-hàng-lá-chàm-sapa",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -14,7 +14,8 @@
     "@google/genai": "^1.30.0",
     "lucide-react": "^0.554.0",
     "jsqr": "1.4.0",
-    "qrcode": "1.5.3"
+    "qrcode": "1.5.3",
+    "@supabase/supabase-js": "2"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

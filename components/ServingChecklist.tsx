@@ -1,6 +1,6 @@
 
-import React, { useState, useRef } from 'react';
-import { ClipboardList, Users, MapPin, PlusCircle, MinusCircle, CheckCircle2, Camera, Image as ImageIcon, Loader2, ChevronLeft, X, Edit3, Trash2, Plus, Save, RotateCcw, CheckCheck, History, Calendar, AlertTriangle, BellRing, Table2, Spline, Search, LayoutGrid, Filter } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { ClipboardList, Users, MapPin, PlusCircle, MinusCircle, CheckCircle2, Camera, Image as ImageIcon, Loader2, ChevronLeft, X, Edit3, Trash2, Plus, Save, RotateCcw, CheckCheck, History, Calendar, AlertTriangle, BellRing, Table2, Spline, Search, LayoutGrid, Filter, StickyNote, ZoomIn, Split, Calculator } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { ServingGroup, ServingItem } from '../types';
 import { parseMenuImage } from '../services/geminiService';
@@ -42,13 +42,20 @@ export const ServingChecklist: React.FC = () => {
   const [editName, setEditName] = useState('');
   const [editQuantity, setEditQuantity] = useState(0);
   const [editUnit, setEditUnit] = useState('');
+  const [editNote, setEditNote] = useState(''); 
 
   const [isEditGroupModalOpen, setIsEditGroupModalOpen] = useState(false);
   const [editGroupName, setEditGroupName] = useState('');
   const [editGroupLocation, setEditGroupLocation] = useState('');
   const [editGroupPax, setEditGroupPax] = useState(0);
+  const [editGroupTableCount, setEditGroupTableCount] = useState(0);
+  const [editGroupTableSplit, setEditGroupTableSplit] = useState('');
+  const [splitPreview, setSplitPreview] = useState<string>('');
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  
+  // NEW: STATE FOR ITEM DELETE MODAL
+  const [deleteItemConfirm, setDeleteItemConfirm] = useState<ServingItem | null>(null);
 
   const normalizeDateComp = (d: string) => {
       if (!d) return '';
@@ -59,30 +66,22 @@ export const ServingChecklist: React.FC = () => {
   // --- FILTERING LOGIC ---
   const getFilteredGroups = (status: 'ACTIVE' | 'COMPLETED') => {
       return servingGroups.filter(g => {
-          // 1. Check Status
           if (status === 'ACTIVE' && g.status === 'COMPLETED') return false;
           if (status === 'COMPLETED') {
               if (g.status !== 'COMPLETED') return false;
-              // Check Date for history
               const gDate = normalizeDateComp(g.date);
               const fDate = normalizeDateComp(historyDate);
               if (gDate !== fDate) return false;
           }
-
-          // 2. Check Zone
           if (selectedZone !== 'ALL') {
-              // Kiểm tra xem location có chứa tên khu vực không (VD: "A1 (VIP)" chứa "A1")
               if (!g.location.toUpperCase().includes(selectedZone)) return false;
           }
-
-          // 3. Check Search Term
           if (searchTerm) {
               const term = searchTerm.toLowerCase();
               const matchName = g.name.toLowerCase().includes(term);
               const matchLoc = g.location.toLowerCase().includes(term);
               if (!matchName && !matchLoc) return false;
           }
-
           return true;
       });
   };
@@ -91,22 +90,152 @@ export const ServingChecklist: React.FC = () => {
   const historyFilteredGroups = getFilteredGroups('COMPLETED');
   const displayGroups = viewMode === 'ACTIVE' ? activeFilteredGroups : historyFilteredGroups;
 
-  // Helper to count groups in each zone
   const getZoneCount = (zone: string) => {
       return servingGroups.filter(g => 
           g.status === 'ACTIVE' && g.location.toUpperCase().includes(zone)
       ).length;
   };
 
+  // --- ALGORITHM: ADVANCED FOOD DISTRIBUTION LOGIC ---
+  const parseTableSplit = (tableSplitStr: string) => {
+      const tables: { size: number }[] = [];
+      if (!tableSplitStr) return tables;
+
+      const parts = tableSplitStr.split(/[,+;]/);
+      parts.forEach(part => {
+          // Hỗ trợ: "1x5", "1 x 5", "1*5", "1 bàn 5", "1.5"
+          const match = part.trim().match(/(\d+)\s*(?:x|X|\*|\.|bàn|mâm)\s*(\d+)/);
+          if (match) {
+              const count = parseInt(match[1]); // Số lượng bàn
+              const size = parseInt(match[2]);  // Số người/bàn
+              for (let i = 0; i < count; i++) tables.push({ size });
+          } else {
+              // Trường hợp ghi số lẻ (VD: "10, 10, 5") - Ít dùng nhưng vẫn support
+              const num = parseInt(part.trim());
+              if (!isNaN(num) && num < 50) tables.push({ size: num }); // Limit to avoid confusing 'guest count'
+          }
+      });
+      return tables;
+  };
+
+  const getDistributionHint = (totalItemQty: number, tableSplitStr: string, totalGuests: number): string | null => {
+      if (!tableSplitStr || totalItemQty <= 0) return null;
+
+      const tables = parseTableSplit(tableSplitStr);
+      const totalTables = tables.length;
+      if (totalTables === 0) return null;
+
+      // CASE 1: Chia theo đầu người (Soup, Cơm...)
+      // Nếu số lượng món ≈ số lượng khách (sai số 2) -> Chia theo đầu người
+      if (Math.abs(totalItemQty - totalGuests) <= 2 && totalItemQty > totalTables) {
+          return "Chia theo đầu người";
+      }
+
+      // CASE 2: Chia theo bàn (Đĩa thức ăn chung)
+      const distribution = new Array(totalTables).fill(0);
+      let remainingItems = totalItemQty;
+
+      // Bước 1: Chia đều (Floor)
+      const basePerTable = Math.floor(totalItemQty / totalTables);
+      for (let i = 0; i < totalTables; i++) {
+          distribution[i] = basePerTable;
+          remainingItems -= basePerTable;
+      }
+
+      // Bước 2: Chia phần dư cho các bàn lớn nhất trước
+      if (remainingItems > 0) {
+          const sortedIndices = tables.map((t, i) => ({ size: t.size, index: i }))
+                                      .sort((a, b) => b.size - a.size);
+          
+          let i = 0;
+          while (remainingItems > 0) {
+              const targetIndex = sortedIndices[i % totalTables].index;
+              distribution[targetIndex]++;
+              remainingItems--;
+              i++;
+          }
+      }
+
+      // CASE 3: Tổng hợp kết quả
+      const summary: Record<number, { tableCount: number, itemPerTable: number }> = {};
+      
+      tables.forEach((table, index) => {
+          const itemQty = distribution[index];
+          if (!summary[table.size]) {
+              summary[table.size] = { tableCount: 0, itemPerTable: itemQty };
+          }
+          summary[table.size].tableCount++;
+          // Nếu có sự chênh lệch (do chia dư) trong cùng 1 nhóm bàn, logic hiển thị này sẽ lấy giá trị cuối.
+          // Để đơn giản, ta chấp nhận hiển thị giá trị làm tròn.
+          if (itemQty > summary[table.size].itemPerTable) summary[table.size].itemPerTable = itemQty;
+      });
+
+      const hintParts = Object.entries(summary)
+          .sort((a, b) => Number(b[0]) - Number(a[0])) // Sort bàn to trước
+          .map(([size, info]) => {
+              if (info.itemPerTable === 0) return null;
+              const totalForThisGroup = info.tableCount * info.itemPerTable;
+              // Nếu số món ít hơn số bàn, hiển thị kiểu khác
+              if (info.itemPerTable === 0 && totalForThisGroup > 0) return `${totalForThisGroup} đĩa chia ${info.tableCount} bàn ${size}`;
+              
+              return `${totalForThisGroup} đĩa cho bàn ${size} người`;
+          })
+          .filter(Boolean);
+
+      if (hintParts.length === 0) return null;
+      return hintParts.join(' • ');
+  };
+
+  // Live preview effect for Edit Modal
+  useEffect(() => {
+      if (isEditGroupModalOpen && editGroupTableSplit) {
+          const tables = parseTableSplit(editGroupTableSplit);
+          if (tables.length > 0) {
+              // Group tables for preview: "1 bàn 6, 2 bàn 4"
+              const preview: Record<number, number> = {};
+              tables.forEach(t => preview[t.size] = (preview[t.size] || 0) + 1);
+              const text = Object.entries(preview)
+                  .map(([size, count]) => `${count} bàn ${size}`)
+                  .join(', ');
+              setSplitPreview(`Hệ thống hiểu: Tổng ${tables.length} bàn (${text})`);
+          } else {
+              setSplitPreview('');
+          }
+      } else {
+          setSplitPreview('');
+      }
+  }, [editGroupTableSplit, isEditGroupModalOpen]);
+
+
+  // --- IMAGE HANDLING & COMPRESSION ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
-          const reader = new FileReader();
-          reader.onloadend = () => {
-              setCapturedImage(reader.result as string);
-              analyzeImage(reader.result as string);
+          const img = new Image();
+          img.src = URL.createObjectURL(file);
+          img.onload = () => {
+              // COMPRESSION LOGIC
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 1024; // Limit width
+              const scale = MAX_WIDTH / img.width;
+              
+              if (scale < 1) {
+                  canvas.width = MAX_WIDTH;
+                  canvas.height = img.height * scale;
+              } else {
+                  canvas.width = img.width;
+                  canvas.height = img.height;
+              }
+
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+              
+              // Compress to 70% quality JPEG
+              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+              
+              setCapturedImage(compressedBase64);
+              analyzeImage(compressedBase64);
           };
-          reader.readAsDataURL(file);
       }
   };
 
@@ -117,16 +246,17 @@ export const ServingChecklist: React.FC = () => {
           const mappedGroups = rawGroups.map((g: any, idx: number) => ({
               id: `temp_${Date.now()}_${idx}`,
               name: g.groupName || `Đoàn khách ${idx + 1}`,
-              location: g.location || 'Chưa xác định',
+              location: g.location || '',
               guestCount: Number(g.guestCount) || 0,
               tableCount: Number(g.tableCount) || 0,
-              tableSplit: g.tableSplit || '', // Map new field
+              tableSplit: g.tableSplit || '', 
               items: g.items.map((i: any, iIdx: number) => ({
                   id: `temp_item_${Date.now()}_${idx}_${iIdx}`,
                   name: i.name,
                   totalQuantity: Number(i.quantity) || 1,
                   servedQuantity: 0,
-                  unit: i.unit || 'Phần'
+                  unit: i.unit || 'Phần',
+                  note: ''
               }))
           }));
           setDetectedGroups(mappedGroups);
@@ -148,7 +278,7 @@ export const ServingChecklist: React.FC = () => {
               location: g.location,
               guestCount: g.guestCount,
               tableCount: g.tableCount,
-              tableSplit: g.tableSplit, // Save split logic
+              tableSplit: g.tableSplit, 
               startTime: null,
               date: todayStr,
               status: 'ACTIVE',
@@ -181,6 +311,7 @@ export const ServingChecklist: React.FC = () => {
       setEditName(item.name);
       setEditQuantity(item.totalQuantity);
       setEditUnit(item.unit);
+      setEditNote(item.note || ''); 
       setIsEditItemModalOpen(true);
   };
 
@@ -189,6 +320,7 @@ export const ServingChecklist: React.FC = () => {
       setEditName('');
       setEditQuantity(1);
       setEditUnit('Đĩa');
+      setEditNote(''); 
       setIsEditItemModalOpen(true);
   };
 
@@ -197,10 +329,20 @@ export const ServingChecklist: React.FC = () => {
       if (!editName) { alert("Vui lòng nhập tên món"); return; }
 
       if (editingItem) {
-          updateServingItem(selectedGroup.id, editingItem.id, { name: editName, totalQuantity: editQuantity, unit: editUnit });
+          updateServingItem(selectedGroup.id, editingItem.id, { 
+              name: editName, 
+              totalQuantity: editQuantity, 
+              unit: editUnit,
+              note: editNote 
+          });
       } else {
           const newItem: ServingItem = {
-              id: Date.now().toString(), name: editName, totalQuantity: editQuantity, servedQuantity: 0, unit: editUnit
+              id: Date.now().toString(), 
+              name: editName, 
+              totalQuantity: editQuantity, 
+              servedQuantity: 0, 
+              unit: editUnit,
+              note: editNote
           };
           addServingItem(selectedGroup.id, newItem);
       }
@@ -215,17 +357,44 @@ export const ServingChecklist: React.FC = () => {
       }
   };
 
+  // NEW: Handle Delete Request - Opens Modal
+  const handleDeleteItemDirect = (e: React.MouseEvent, item: ServingItem) => {
+      e.stopPropagation(); // Critical: Stop click from opening edit modal
+      e.preventDefault(); 
+      setDeleteItemConfirm(item);
+  };
+
+  // NEW: Confirm Delete Action
+  const confirmDeleteItem = () => {
+      if (selectedGroup && deleteItemConfirm) {
+          deleteServingItem(selectedGroup.id, deleteItemConfirm.id);
+          setDeleteItemConfirm(null);
+      }
+  }
+
   const openEditGroupModal = () => {
       if(!selectedGroup) return;
       setEditGroupName(selectedGroup.name);
       setEditGroupLocation(selectedGroup.location);
       setEditGroupPax(selectedGroup.guestCount);
+      setEditGroupTableCount(selectedGroup.tableCount || 0);
+      setEditGroupTableSplit(selectedGroup.tableSplit || '');
       setIsEditGroupModalOpen(true);
   }
 
   const handleSaveGroup = () => {
       if (!selectedGroup) return;
-      updateServingGroup(selectedGroup.id, { name: editGroupName, location: editGroupLocation, guestCount: editGroupPax });
+      // Also auto-update table count if user entered a valid split string but didn't update the count manually
+      const parsedTables = parseTableSplit(editGroupTableSplit);
+      const finalTableCount = parsedTables.length > 0 ? parsedTables.length : editGroupTableCount;
+
+      updateServingGroup(selectedGroup.id, { 
+          name: editGroupName, 
+          location: editGroupLocation, 
+          guestCount: editGroupPax,
+          tableCount: finalTableCount,
+          tableSplit: editGroupTableSplit
+      });
       setIsEditGroupModalOpen(false);
   }
 
@@ -253,6 +422,7 @@ export const ServingChecklist: React.FC = () => {
       startServingGroup(groupId);
   }
 
+  // --- DETAILS VIEW ---
   if (selectedGroup) {
       const completedCount = selectedGroup.items.filter(i => i.servedQuantity >= i.totalQuantity).length;
       const totalCount = selectedGroup.items.length;
@@ -277,7 +447,7 @@ export const ServingChecklist: React.FC = () => {
                             <span className="flex items-center"><MapPin size={14} className="mr-1"/> {selectedGroup.location}</span>
                             <span className="flex items-center"><Users size={14} className="mr-1"/> {selectedGroup.guestCount} pax</span>
                             <span className="flex items-center bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-100 font-bold"><Table2 size={14} className="mr-1"/> {selectedGroup.tableCount} bàn</span>
-                            {selectedGroup.tableSplit && <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">({selectedGroup.tableSplit})</span>}
+                            {selectedGroup.tableSplit && <span className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600 font-mono border border-gray-200 truncate max-w-[100px]">{selectedGroup.tableSplit}</span>}
                             
                             {isReadOnly && <span className="text-green-600 font-bold text-xs border border-green-200 bg-green-50 px-2 rounded">Đã hoàn thành</span>}
                             
@@ -288,9 +458,6 @@ export const ServingChecklist: React.FC = () => {
                             )}
                             {selectedGroup.startTime && (
                                 <span className="text-gray-400 text-xs bg-gray-100 px-2 py-0.5 rounded">Vào: {selectedGroup.startTime}</span>
-                            )}
-                            {isReadOnly && selectedGroup.completionTime && (
-                                <span className="text-gray-400 text-xs bg-gray-100 px-2 py-0.5 rounded">Xong: {selectedGroup.completionTime}</span>
                             )}
                         </div>
                     </div>
@@ -323,16 +490,48 @@ export const ServingChecklist: React.FC = () => {
                   <div className="divide-y divide-gray-100">
                       {selectedGroup.items.map((item) => {
                           const isDone = item.servedQuantity >= item.totalQuantity;
+                          // CALCULATE DISTRIBUTION HINT
+                          const distHint = selectedGroup.tableSplit 
+                            ? getDistributionHint(item.totalQuantity, selectedGroup.tableSplit, selectedGroup.guestCount)
+                            : null;
+
                           return (
                               <div key={item.id} className={`p-4 flex items-center justify-between transition-colors ${isDone ? 'bg-green-50/50' : 'hover:bg-gray-50'}`}>
                                   <div className="flex-1 pr-2">
                                       <div className="flex items-center gap-2">
                                           <p className={`font-bold text-lg ${isDone ? 'text-green-800' : 'text-gray-800'}`}>{item.name}</p>
                                           {!isReadOnly && (
-                                              <button onClick={() => openEditItemModal(item)} className="text-gray-400 hover:text-teal-600 p-1"><Edit3 size={16} /></button>
+                                              <div className="flex items-center flex-shrink-0 relative z-10">
+                                                  <button onClick={() => openEditItemModal(item)} className="text-gray-400 hover:text-teal-600 p-1" title="Sửa"><Edit3 size={16} /></button>
+                                                  <button 
+                                                    type="button"
+                                                    onClick={(e) => handleDeleteItemDirect(e, item)} 
+                                                    className="text-gray-400 hover:text-red-500 p-2 ml-1 rounded-full hover:bg-red-50 transition-colors relative z-50 flex-shrink-0" 
+                                                    title="Xóa"
+                                                  >
+                                                      <Trash2 size={18} />
+                                                  </button>
+                                              </div>
                                           )}
                                       </div>
-                                      <p className="text-xs text-gray-500">Đơn vị: {item.unit} (Tổng: {item.totalQuantity})</p>
+                                      <div className="flex flex-col gap-1 mt-1">
+                                          <div className="flex items-center gap-2">
+                                            <p className="text-xs text-gray-500">Đơn vị: {item.unit}</p>
+                                            {item.note && (
+                                                <span className="text-xs text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded flex items-center border border-orange-100">
+                                                    <StickyNote size={10} className="mr-1" /> {item.note}
+                                                </span>
+                                            )}
+                                          </div>
+                                          {/* DISTRIBUTION HINT BADGE */}
+                                          {distHint && (
+                                              <div className="flex items-center">
+                                                  <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-1 rounded flex items-center border border-indigo-100 mt-1 w-fit">
+                                                      <Split size={12} className="mr-1"/> {distHint}
+                                                  </span>
+                                              </div>
+                                          )}
+                                      </div>
                                   </div>
                                   <div className="flex items-center space-x-2 sm:space-x-3">
                                       {!isReadOnly && (
@@ -363,6 +562,21 @@ export const ServingChecklist: React.FC = () => {
                   </div>
               )}
 
+              {/* ITEM DELETE CONFIRMATION MODAL */}
+              {deleteItemConfirm && (
+                  <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+                      <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center animate-in zoom-in duration-200">
+                          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500"><Trash2 size={32} /></div>
+                          <h3 className="text-xl font-bold text-gray-900 mb-2">Xóa món này?</h3>
+                          <p className="text-gray-500 text-sm mb-6">Bạn có chắc chắn muốn xóa <span className="font-bold text-gray-800">"{deleteItemConfirm.name}"</span> không?</p>
+                          <div className="flex gap-3">
+                              <button onClick={() => setDeleteItemConfirm(null)} className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors">Hủy bỏ</button>
+                              <button onClick={confirmDeleteItem} className="flex-1 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors shadow-md">Xóa ngay</button>
+                          </div>
+                      </div>
+                  </div>
+              )}
+
               {/* MODALS */}
               {isEditItemModalOpen && (
                   <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -385,6 +599,10 @@ export const ServingChecklist: React.FC = () => {
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Đơn vị</label>
                                     <input type="text" value={editUnit} onChange={(e) => setEditUnit(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
                                 </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Ghi chú (Tùy chọn)</label>
+                                <input type="text" value={editNote} onChange={(e) => setEditNote(e.target.value)} placeholder="VD: Ít cay, Không hành..." className="w-full border rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 text-gray-700" />
                             </div>
                         </div>
                         <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
@@ -415,12 +633,30 @@ export const ServingChecklist: React.FC = () => {
                                 <input type="text" value={editGroupName} onChange={(e) => setEditGroupName(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 font-medium" />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Vị trí / Số bàn</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Vị trí / Khu vực</label>
                                 <input type="text" value={editGroupLocation} onChange={(e) => setEditGroupLocation(e.target.value)} className="w-full border rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
                             </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Số khách (Pax)</label>
+                                    <input type="number" value={editGroupPax} onChange={(e) => setEditGroupPax(Number(e.target.value))} className="w-full border rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Tổng số bàn</label>
+                                    <input type="number" value={editGroupTableCount} onChange={(e) => setEditGroupTableCount(Number(e.target.value))} className="w-full border rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                                </div>
+                            </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Số khách (Pax)</label>
-                                <input type="number" value={editGroupPax} onChange={(e) => setEditGroupPax(Number(e.target.value))} className="w-full border rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500" />
+                                <label className="block text-sm font-medium text-gray-700 mb-1 flex justify-between">
+                                    <span>Chi tiết chia bàn (VD: 1x5, 2 bàn 4)</span>
+                                    <span className="text-xs text-blue-600 font-normal cursor-pointer" title="Cú pháp: [Số lượng]x[Số người], VD: 1x5, 2x4">Hỗ trợ: 1x5, 1 bàn 5...</span>
+                                </label>
+                                <input type="text" value={editGroupTableSplit} onChange={(e) => setEditGroupTableSplit(e.target.value)} placeholder="Nhập ghi chú chia bàn..." className="w-full border rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-teal-500 font-mono text-gray-600" />
+                                {splitPreview && (
+                                    <div className="mt-1 text-xs text-green-600 flex items-center bg-green-50 p-1.5 rounded border border-green-100">
+                                        <Calculator size={12} className="mr-1"/> {splitPreview}
+                                    </div>
+                                )}
                             </div>
                         </div>
                         <div className="p-4 border-t bg-gray-50 flex justify-end space-x-3">
@@ -472,7 +708,6 @@ export const ServingChecklist: React.FC = () => {
 
       {/* --- SEARCH & ZONE FILTERS --- */}
       <div className="space-y-3">
-          {/* Search Bar */}
           <div className="relative">
               <Search className="absolute left-3 top-3 text-gray-400" size={18}/>
               <input 
@@ -484,7 +719,6 @@ export const ServingChecklist: React.FC = () => {
               />
           </div>
 
-          {/* Zone Filter - Horizontal Scroll */}
           <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
               <button 
                   onClick={() => setSelectedZone('ALL')}
@@ -508,7 +742,6 @@ export const ServingChecklist: React.FC = () => {
           </div>
       </div>
 
-      {/* HISTORY DATE PICKER */}
       {viewMode === 'HISTORY' && (
           <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex items-center gap-4">
               <span className="text-sm font-bold text-gray-700">Chọn ngày:</span>
@@ -568,7 +801,6 @@ export const ServingChecklist: React.FC = () => {
                           <div className="w-full bg-gray-100 rounded-full h-2"><div className={`h-2 rounded-full ${percent === 100 ? 'bg-green-500' : 'bg-teal-500'}`} style={{ width: `${percent}%` }}></div></div>
                       </div>
                       
-                      {/* SUMMARY FOR COMPLETED ITEMS IN HISTORY VIEW */}
                       {group.status === 'COMPLETED' && (
                           <div className="mt-3 pt-3 border-t border-green-100 text-xs text-gray-600 bg-white/50 p-2 rounded">
                               {group.completionTime && <p className="font-bold text-green-700 mb-1">Hoàn thành lúc: {group.completionTime}</p>}
@@ -587,7 +819,7 @@ export const ServingChecklist: React.FC = () => {
       {/* ADD MODAL */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col">
+            <div className={`bg-white rounded-2xl w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col ${step === 'REVIEW' ? 'max-w-6xl' : 'max-w-2xl'}`}>
                 <div className="p-4 border-b bg-gray-50 flex justify-between items-center shrink-0">
                     <h3 className="font-bold text-gray-900">Tiếp nhận đoàn khách mới (AI Scan)</h3>
                     <button onClick={resetAddModal} className="text-gray-500 hover:text-gray-700"><X size={20}/></button>
@@ -620,48 +852,61 @@ export const ServingChecklist: React.FC = () => {
                             </div>
                         </div>
                     ) : (
-                        <div className="space-y-6">
-                            <div className="flex items-center justify-between">
-                                <h4 className="font-bold text-gray-800 flex items-center"><CheckCircle2 className="text-green-500 mr-2" size={20}/> AI đã tìm thấy {detectedGroups.length} đoàn khách:</h4>
-                                <button onClick={() => setStep('UPLOAD')} className="text-xs text-gray-500 flex items-center hover:underline"><RotateCcw size={12} className="mr-1"/> Quét lại</button>
+                        // SPLIT VIEW FOR REVIEW STEP
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+                            {/* LEFT: IMAGE PREVIEW */}
+                            <div className="bg-gray-900 rounded-xl overflow-hidden shadow-inner flex items-center justify-center relative lg:h-[600px]">
+                                {capturedImage ? (
+                                    <img src={capturedImage} alt="Menu Preview" className="max-w-full max-h-full object-contain" />
+                                ) : (
+                                    <span className="text-gray-500">Không có ảnh</span>
+                                )}
+                                <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">Ảnh gốc</div>
                             </div>
-                            {detectedGroups.map((group, idx) => {
-                                const avgPax = group.guestCount > 0 && group.tableCount > 0 ? Math.ceil(group.guestCount / group.tableCount) : 0;
-                                const isWarning = avgPax > 10; // Warning if > 10 people per table
 
-                                return (
-                                <div key={idx} className="border border-teal-200 bg-teal-50/30 rounded-xl p-4 relative">
-                                    <div className="absolute top-0 right-0 bg-teal-100 text-teal-800 text-[10px] font-bold px-2 py-1 rounded-bl-lg">Đoàn #{idx + 1}</div>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Tên đoàn</label><input type="text" value={group.name} onChange={(e) => updateDetectedGroupField(idx, 'name', e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 text-sm font-bold text-gray-800 focus:ring-2 focus:ring-teal-500 outline-none"/></div>
-                                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Vị trí</label><input type="text" value={group.location} onChange={(e) => updateDetectedGroupField(idx, 'location', e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"/></div>
-                                        <div><label className="block text-xs font-bold text-gray-500 mb-1">Số khách (Pax)</label><input type="number" value={group.guestCount} onChange={(e) => updateDetectedGroupField(idx, 'guestCount', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"/></div>
-                                        
-                                        {/* TABLE COUNT ROW - EMPHASIZED */}
-                                        <div className="md:col-span-3 bg-white border border-indigo-100 rounded-lg p-3 flex flex-col md:flex-row gap-4 items-start md:items-center">
-                                            <div className="flex-1 w-full">
-                                                <label className="block text-xs font-bold text-indigo-700 mb-1 flex justify-between">
-                                                    <span>Số bàn (Tổng) *</span>
-                                                    {isWarning && <span className="text-red-500 text-[10px] flex items-center"><AlertTriangle size={10} className="mr-1"/> Tỷ lệ {avgPax} khách/bàn! Kiểm tra lại?</span>}
-                                                </label>
-                                                <input type="number" value={group.tableCount} onChange={(e) => updateDetectedGroupField(idx, 'tableCount', Number(e.target.value))} className={`w-full border-2 rounded-lg p-2 text-lg font-bold text-indigo-800 focus:ring-2 focus:ring-indigo-500 outline-none ${isWarning ? 'border-red-300 bg-red-50' : 'border-indigo-200'}`}/>
-                                            </div>
-                                            <div className="flex-1 w-full">
-                                                <label className="block text-xs font-bold text-gray-500 mb-1">Chi tiết chia bàn (VD: 1x5, 7x4)</label>
-                                                <input type="text" value={group.tableSplit || ''} onChange={(e) => updateDetectedGroupField(idx, 'tableSplit', e.target.value)} placeholder="Nhập ghi chú chia bàn..." className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none font-mono text-gray-600"/>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="bg-white border border-gray-200 rounded-lg p-3">
-                                        <p className="text-xs font-bold text-gray-500 mb-2 uppercase">Thực đơn dự kiến ({group.items.length} món)</p>
-                                        <div className="flex flex-wrap gap-2">
-                                            {group.items.map((item: any, i: number) => (
-                                                <span key={i} className="inline-flex items-center px-2 py-1 rounded bg-gray-100 text-xs border border-gray-200 text-gray-700"><span className="font-bold mr-1">{item.totalQuantity}</span> {item.name}</span>
-                                            ))}
-                                        </div>
-                                    </div>
+                            {/* RIGHT: FORM */}
+                            <div className="overflow-y-auto lg:h-[600px] pr-2 space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <h4 className="font-bold text-gray-800 flex items-center"><CheckCircle2 className="text-green-500 mr-2" size={20}/> AI đã tìm thấy {detectedGroups.length} đoàn khách:</h4>
+                                    <button onClick={() => setStep('UPLOAD')} className="text-xs text-gray-500 flex items-center hover:underline"><RotateCcw size={12} className="mr-1"/> Quét lại</button>
                                 </div>
-                            )})}
+                                {detectedGroups.map((group, idx) => {
+                                    const avgPax = group.guestCount > 0 && group.tableCount > 0 ? Math.ceil(group.guestCount / group.tableCount) : 0;
+                                    const isWarning = avgPax > 10; 
+
+                                    return (
+                                    <div key={idx} className="border border-teal-200 bg-teal-50/30 rounded-xl p-4 relative shadow-sm">
+                                        <div className="absolute top-0 right-0 bg-teal-100 text-teal-800 text-[10px] font-bold px-2 py-1 rounded-bl-lg">Đoàn #{idx + 1}</div>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                            <div><label className="block text-xs font-bold text-gray-500 mb-1">Tên đoàn</label><input type="text" value={group.name} onChange={(e) => updateDetectedGroupField(idx, 'name', e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 text-sm font-bold text-gray-800 focus:ring-2 focus:ring-teal-500 outline-none"/></div>
+                                            <div><label className="block text-xs font-bold text-gray-500 mb-1">Vị trí</label><input type="text" value={group.location} onChange={(e) => updateDetectedGroupField(idx, 'location', e.target.value)} className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"/></div>
+                                            <div><label className="block text-xs font-bold text-gray-500 mb-1">Số khách (Pax)</label><input type="number" value={group.guestCount} onChange={(e) => updateDetectedGroupField(idx, 'guestCount', Number(e.target.value))} className="w-full border border-gray-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"/></div>
+                                            
+                                            <div className="md:col-span-3 bg-white border border-indigo-100 rounded-lg p-3 flex flex-col md:flex-row gap-4 items-start md:items-center">
+                                                <div className="flex-1 w-full">
+                                                    <label className="block text-xs font-bold text-indigo-700 mb-1 flex justify-between">
+                                                        <span>Số bàn (Tổng) *</span>
+                                                        {isWarning && <span className="text-red-500 text-[10px] flex items-center"><AlertTriangle size={10} className="mr-1"/> Tỷ lệ {avgPax} khách/bàn! Kiểm tra lại?</span>}
+                                                    </label>
+                                                    <input type="number" value={group.tableCount} onChange={(e) => updateDetectedGroupField(idx, 'tableCount', Number(e.target.value))} className={`w-full border-2 rounded-lg p-2 text-lg font-bold text-indigo-800 focus:ring-2 focus:ring-indigo-500 outline-none ${isWarning ? 'border-red-300 bg-red-50' : 'border-indigo-200'}`}/>
+                                                </div>
+                                                <div className="flex-1 w-full">
+                                                    <label className="block text-xs font-bold text-gray-500 mb-1">Chi tiết chia bàn (VD: 1x5, 7x4)</label>
+                                                    <input type="text" value={group.tableSplit || ''} onChange={(e) => updateDetectedGroupField(idx, 'tableSplit', e.target.value)} placeholder="Nhập ghi chú chia bàn..." className="w-full border border-gray-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-teal-500 outline-none font-mono text-gray-600"/>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-white border border-gray-200 rounded-lg p-3">
+                                            <p className="text-xs font-bold text-gray-500 mb-2 uppercase">Thực đơn dự kiến ({group.items.length} món)</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {group.items.map((item: any, i: number) => (
+                                                    <span key={i} className="inline-flex items-center px-2 py-1 rounded bg-gray-100 text-xs border border-gray-200 text-gray-700"><span className="font-bold mr-1">{item.totalQuantity}</span> {item.name}</span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )})}
+                            </div>
                         </div>
                     )}
                 </div>

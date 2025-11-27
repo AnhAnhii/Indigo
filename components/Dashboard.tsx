@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode
+  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode, Sparkles, TrendingUp, Users, Clock, AlertCircle
 } from 'lucide-react';
 import { AppView, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -14,12 +14,12 @@ interface DashboardProps {
 const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disabled = false }: any) => (
   <div 
     onClick={!disabled ? onClick : undefined} 
-    className={`relative overflow-hidden rounded-2xl p-6 text-white shadow-lg transition-transform ${disabled ? 'cursor-not-allowed opacity-90 grayscale-[0.2]' : 'cursor-pointer hover:scale-105'} ${gradient}`}
+    className={`relative overflow-hidden rounded-2xl p-6 text-white shadow-lg transition-transform ${disabled ? 'cursor-not-allowed opacity-80 grayscale' : 'cursor-pointer hover:scale-105'} ${gradient}`}
   >
       <div className="relative z-10 flex flex-col items-center text-center h-full justify-between space-y-3">
           <div className={`p-3 rounded-full backdrop-blur-sm ${disabled ? 'bg-gray-200/20' : 'bg-white/20'}`}><Icon size={32} /></div>
           <div><h3 className="font-bold text-lg">{title}</h3><p className="text-xs opacity-90 font-medium">{sub}</p></div>
-          <span className={`text-xs font-bold px-4 py-1 rounded-full shadow-sm ${disabled ? 'bg-gray-200 text-gray-500' : 'bg-white text-gray-800'}`}>{labelBtn}</span>
+          <span className={`text-xs font-bold px-4 py-1 rounded-full shadow-sm ${disabled ? 'bg-gray-500/50 text-white border border-white/20' : 'bg-white text-gray-800'}`}>{labelBtn}</span>
       </div>
       {!disabled && (
         <>
@@ -31,7 +31,7 @@ const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disab
 );
 
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
-  const { logs, currentUser, isLoading } = useGlobalContext();
+  const { logs, currentUser, isLoading, servingGroups, schedules, settings } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
   useEffect(() => {
@@ -40,7 +40,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   }, []);
 
   // FIX: Use specific formatter to match what Google Sheets/Context returns (VN Date YYYY-MM-DD)
-  // Must match 'Asia/Ho_Chi_Minh' timezone used in GlobalContext
   const todayStr = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh',
         year: 'numeric',
@@ -57,14 +56,128 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const dateDisplay = currentTime.toLocaleDateString('vi-VN', dateOptions);
   const timeDisplay = currentTime.toLocaleTimeString('vi-VN', { hour12: false });
 
+  // --- SMART AI ANALYSIS LOGIC ---
+  const aiInsights = useMemo(() => {
+      if (!currentUser) return null;
+
+      // 1. Time Greeting
+      const hour = currentTime.getHours();
+      let greeting = "Chào bạn";
+      if (hour < 12) greeting = "Chào buổi sáng";
+      else if (hour < 18) greeting = "Chào buổi chiều";
+      else greeting = "Chào buổi tối";
+
+      // 2. Guest Analysis (Total guests today)
+      // Filter groups that match today's date
+      const todayGroups = servingGroups.filter(g => {
+          if (!g.date) return false;
+          // Normalize date string comparison
+          return g.date === todayStr; 
+      });
+      
+      const totalGuests = todayGroups.reduce((sum, g) => sum + g.guestCount, 0);
+      const isBusy = totalGuests > 200;
+
+      let guestMessage = "";
+      if (totalGuests === 0) {
+          guestMessage = "Hôm nay chưa có đoàn khách nào. Hãy chuẩn bị sẵn sàng nhé!";
+      } else if (isBusy) {
+          guestMessage = `🔥 WOW! Hôm nay nhà hàng đón tới ${totalGuests} khách. Rất đông! Hãy tập trung cao độ và hỗ trợ nhau nhé! 💪`;
+      } else {
+          guestMessage = `Hôm nay nhà hàng đón ${totalGuests} khách. Nhịp độ ổn định, chúc bạn làm việc hiệu quả! ✨`;
+      }
+
+      // 3. Personal Status Analysis
+      let personalMessage = "";
+      // Check schedule
+      const mySchedule = schedules.find(s => s.employeeId === currentUser.id && s.date === todayStr);
+      const shiftName = mySchedule ? settings.shiftConfigs.find(s => s.code === mySchedule.shiftCode)?.name : null;
+
+      if (isCheckedOut) {
+          personalMessage = `Bạn đã hoàn thành ca làm việc hôm nay (${todayLog?.totalHours}h). Nghỉ ngơi tốt nhé! 😴`;
+      } else if (isCheckedIn) {
+          if (todayLog?.lateMinutes && todayLog.lateMinutes > 0) {
+              personalMessage = `Bạn đang trong ca làm việc (Đi muộn ${todayLog.lateMinutes}p). Cố gắng khắc phục vào ngày mai nhé! ⏰`;
+          } else {
+              personalMessage = "Bạn đã chấm công đúng giờ. Tuyệt vời! Giữ vững phong độ nhé! 🌟";
+          }
+      } else {
+          // Not checked in yet
+          if (mySchedule && mySchedule.shiftCode !== 'OFF') {
+              personalMessage = `Bạn có lịch ${shiftName || 'làm việc'} hôm nay. Đừng quên chấm công khi đến nhé!`;
+          } else if (mySchedule && mySchedule.shiftCode === 'OFF') {
+              personalMessage = "Hôm nay là ngày nghỉ của bạn. Hãy thư giãn nhé! ☕";
+          } else {
+              personalMessage = "Bạn chưa chấm công hôm nay.";
+          }
+      }
+
+      return {
+          greeting: `${greeting}, ${currentUser.name.split(' ').pop()}!`,
+          guestMessage,
+          personalMessage,
+          isBusy,
+          totalGuests
+      };
+  }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings]);
+
+
   return (
     <div className="space-y-8 relative">
+      {/* SMART AI BRIEFING CARD */}
+      {aiInsights && (
+          <div className={`rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden transition-all duration-500 ${aiInsights.isBusy ? 'bg-gradient-to-r from-orange-500 to-red-600' : 'bg-gradient-to-r from-indigo-600 to-purple-700'}`}>
+              {/* Background Shapes */}
+              <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
+              <div className="absolute bottom-0 left-0 -ml-10 -mb-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
+              
+              <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                  <div className="md:col-span-2 space-y-3">
+                      <div className="flex items-center space-x-2 opacity-90">
+                          <Sparkles size={18} className="text-yellow-300 animate-pulse"/>
+                          <span className="text-xs font-bold uppercase tracking-widest">Bản tin Vận hành</span>
+                      </div>
+                      <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">
+                          {aiInsights.greeting}
+                      </h1>
+                      <p className="text-lg text-white/90 font-medium leading-relaxed max-w-xl">
+                          {aiInsights.guestMessage}
+                      </p>
+                      
+                      <div className="flex items-center gap-4 pt-2">
+                          <div className="flex items-center bg-white/20 rounded-lg px-3 py-1.5 text-sm backdrop-blur-sm">
+                              <Users size={16} className="mr-2 text-blue-200"/>
+                              <span className="font-bold">{aiInsights.totalGuests} Khách hôm nay</span>
+                          </div>
+                          {aiInsights.isBusy && (
+                              <div className="flex items-center bg-red-500/30 border border-red-200/50 rounded-lg px-3 py-1.5 text-sm backdrop-blur-sm animate-pulse">
+                                  <TrendingUp size={16} className="mr-2 text-white"/>
+                                  <span className="font-bold">Cao điểm</span>
+                              </div>
+                          )}
+                      </div>
+                  </div>
+
+                  <div className="bg-white/10 backdrop-blur-md rounded-2xl p-5 border border-white/20">
+                      <h3 className="text-sm font-bold text-indigo-100 flex items-center mb-2">
+                          <Fingerprint size={16} className="mr-2"/> Trạng thái của bạn
+                      </h3>
+                      <p className="text-white font-medium text-sm leading-relaxed">
+                          {aiInsights.personalMessage}
+                      </p>
+                      <div className="mt-3 w-full bg-white/20 h-1.5 rounded-full overflow-hidden">
+                          <div className={`h-full ${isCheckedOut ? 'bg-green-400' : isCheckedIn ? 'bg-yellow-400' : 'bg-gray-400'} w-full origin-left duration-1000 scale-x-100`}></div>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      )}
+
       <div>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-2">
                 <Fingerprint className="text-gray-600" size={20}/>
                 <h2 className="text-lg font-bold text-gray-700">Phương Thức Chấm Công</h2>
-                {isLoading && <span className="text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded animate-pulse">Đang đồng bộ...</span>}
             </div>
             {isAdmin && (
                 <button 
@@ -97,24 +210,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 onClick={() => onViewChange(AppView.ATTENDANCE)} 
               />
               
-              {/* Face ID */}
+              {/* Face ID - DISABLED */}
               <MethodCard 
                 title="Face ID (AI)" 
                 sub="Nhận diện khuôn mặt" 
                 icon={ScanFace} 
-                gradient="bg-gradient-to-br from-blue-500 to-indigo-600" 
-                labelBtn="Sẵn sàng" 
-                onClick={() => onViewChange(AppView.ATTENDANCE)} 
+                gradient="bg-gray-400" 
+                labelBtn="Bảo trì" 
+                disabled={true}
+                onClick={() => {}} 
               />
 
-              {/* Voice AI */}
+              {/* Voice AI - DISABLED */}
               <MethodCard 
                 title="Giọng Nói AI" 
                 sub="Đọc mã xác thực" 
                 icon={Mic} 
-                gradient="bg-gradient-to-br from-purple-500 to-pink-600" 
-                labelBtn="Rảnh tay" 
-                onClick={() => onViewChange(AppView.ATTENDANCE)}
+                gradient="bg-gray-400" 
+                labelBtn="Sắp ra mắt" 
+                disabled={true}
+                onClick={() => {}}
               />
           </div>
       </div>

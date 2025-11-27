@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, MapPin, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, ArrowLeft, Loader2, Satellite, RefreshCw, Wifi, Signal, Mic, StopCircle, Volume2, QrCode, Smartphone, Zap, Home } from 'lucide-react';
+import { Camera, MapPin, CheckCircle, AlertTriangle, ScanLine, LogOut, LogIn, ArrowLeft, Loader2, Satellite, RefreshCw, Wifi, Signal, Mic, StopCircle, Volume2, QrCode, Smartphone, Zap, Home, Sun, Moon } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { AttendanceStatus, TimesheetLog } from '../types';
 import { verifyFaceIdentity, analyzeVoiceCheckIn } from '../services/geminiService';
@@ -56,6 +56,7 @@ export const AttendanceKiosk: React.FC = () => {
       time: string;
       totalHours?: number;
       shiftCode?: string;
+      session?: string;
   } | null>(null);
   
   // 1. GEOLOCATION HELPER
@@ -221,7 +222,7 @@ export const AttendanceKiosk: React.FC = () => {
       }
   };
 
-  // 5. ATTENDANCE PROCESS LOGIC
+  // 5. ATTENDANCE PROCESS LOGIC (ENHANCED FOR SPLIT SHIFTS)
   const processAttendance = (employeeId: string, verifiedMethod: string) => {
         const employee = employees.find(e => e.id === employeeId);
         if (!employee) {
@@ -240,65 +241,81 @@ export const AttendanceKiosk: React.FC = () => {
         });
         const currentMinutes = now.getHours() * 60 + now.getMinutes();
         
+        // --- DETERMINE SHIFT & SESSION ---
+        let closestShift = settings.shiftConfigs?.[0];
+        let minDiff = Infinity;
+        settings.shiftConfigs?.forEach(shift => {
+            const [h, m] = shift.startTime.split(':').map(Number);
+            const shiftStartMins = h * 60 + m;
+            const diff = Math.abs(currentMinutes - shiftStartMins);
+            if (diff < minDiff) { minDiff = diff; closestShift = shift; }
+        });
+
+        const detectedShiftCode = closestShift?.code || 'N/A';
+        let currentSession: 'MORNING' | 'AFTERNOON' | undefined = undefined;
+
+        // SPLIT SHIFT LOGIC
+        if (closestShift && closestShift.isSplitShift && closestShift.breakStart && closestShift.breakEnd) {
+            const [bh, bm] = closestShift.breakStart.split(':').map(Number);
+            const [beh, bem] = closestShift.breakEnd.split(':').map(Number);
+            
+            // Tính điểm giữa giờ nghỉ để phân chia sáng chiều (VD: Nghỉ 14h-17h -> Điểm giữa 15:30)
+            const breakStartMins = bh * 60 + bm;
+            const breakEndMins = beh * 60 + bem;
+            const pivotMins = (breakStartMins + breakEndMins) / 2;
+
+            if (currentMinutes < pivotMins) {
+                currentSession = 'MORNING';
+            } else {
+                currentSession = 'AFTERNOON';
+            }
+        }
+
+        // FIND EXISTING LOG FOR THIS DAY AND SESSION
         const openLog = logs.find(l => 
             l.employeeName === employee.name && 
             l.date === localDateStr && 
-            !l.checkOut
+            !l.checkOut &&
+            // Logic khớp session:
+            // Nếu là Ca Gãy: Phải khớp Session (Sáng tìm Sáng, Chiều tìm Chiều)
+            // Nếu Ca Thường: Không quan tâm session (undefined)
+            (currentSession ? l.session === currentSession : true)
         );
 
         let finalStatus: 'CHECK_IN' | 'CHECK_OUT' = 'CHECK_IN';
         let total = 0;
-        let detectedShiftCode = openLog?.shiftCode || '';
 
         if (openLog) {
-            // CHECK OUT
+            // --- CHECK OUT ---
             const [inH, inM] = openLog.checkIn ? openLog.checkIn.split(':').map(Number) : [0,0];
             const inMinutes = inH * 60 + inM;
             const rawTotalMinutes = currentMinutes - inMinutes;
-            const shift = settings.shiftConfigs?.find(s => s.code === detectedShiftCode);
-            let breakDeduction = 0;
-            if (shift && shift.isSplitShift && shift.breakStart && shift.breakEnd) {
-                 const [bStartH, bStartM] = shift.breakStart.split(':').map(Number);
-                 const [bEndH, bEndM] = shift.breakEnd.split(':').map(Number);
-                 const bStartMins = bStartH * 60 + bStartM;
-                 const bEndMins = bEndH * 60 + bEndM;
-                 if (inMinutes < bStartMins && currentMinutes > bEndMins) {
-                     breakDeduction = bEndMins - bStartMins;
-                 }
-            }
-            total = parseFloat(((rawTotalMinutes - breakDeduction) / 60).toFixed(2));
+            
+            // Không trừ giờ nghỉ ở đây nữa vì đã tách thành 2 log riêng biệt
+            total = parseFloat((rawTotalMinutes / 60).toFixed(2));
             if (total < 0) total = 0;
+            
             const updatedLog: TimesheetLog = { ...openLog, checkOut: timeStr, totalHours: total, status: openLog.status };
             updateAttendanceLog(updatedLog);
             finalStatus = 'CHECK_OUT';
         } else {
-            // CHECK IN
-            let closestShift = settings.shiftConfigs?.[0];
-            let minDiff = Infinity;
-            settings.shiftConfigs?.forEach(shift => {
-                const [h, m] = shift.startTime.split(':').map(Number);
-                const shiftStartMins = h * 60 + m;
-                const diffStart = Math.abs(currentMinutes - shiftStartMins);
-                let diff = diffStart;
-                if (shift.isSplitShift && shift.breakEnd) {
-                    const [bh, bm] = shift.breakEnd.split(':').map(Number);
-                    const breakEndMins = bh * 60 + bm;
-                    const diffBreak = Math.abs(currentMinutes - breakEndMins);
-                    if (diffBreak < diff) diff = diffBreak;
-                }
-                if (diff < minDiff) { minDiff = diff; closestShift = shift; }
-            });
-
-            detectedShiftCode = closestShift?.code || 'N/A';
+            // --- CHECK IN ---
             const allowedLate = settings.rules.allowedLateMinutes || 15;
-            let [sH, sM] = (closestShift?.startTime || '08:00').split(':').map(Number);
-            let shiftStartMinutes = sH * 60 + sM;
+            let targetStartMins = 0;
+
+            if (currentSession === 'AFTERNOON' && closestShift?.breakEnd) {
+                const [h, m] = closestShift.breakEnd.split(':').map(Number);
+                targetStartMins = h * 60 + m;
+            } else {
+                const [h, m] = (closestShift?.startTime || '08:00').split(':').map(Number);
+                targetStartMins = h * 60 + m;
+            }
 
             let status = AttendanceStatus.PRESENT;
             let late = 0;
-            if (currentMinutes > shiftStartMinutes + allowedLate) {
+            if (currentMinutes > targetStartMins + allowedLate) {
                 status = AttendanceStatus.LATE;
-                late = currentMinutes - shiftStartMinutes;
+                late = currentMinutes - targetStartMins;
             }
 
             const newLog: TimesheetLog = {
@@ -312,7 +329,8 @@ export const AttendanceKiosk: React.FC = () => {
                 status: status,
                 lateMinutes: late,
                 device: verifiedMethod,
-                shiftCode: detectedShiftCode
+                shiftCode: detectedShiftCode,
+                session: currentSession // Lưu session vào log
             };
             addAttendanceLog(newLog);
             finalStatus = 'CHECK_IN';
@@ -323,7 +341,8 @@ export const AttendanceKiosk: React.FC = () => {
             type: finalStatus,
             time: timeStr,
             totalHours: total,
-            shiftCode: detectedShiftCode
+            shiftCode: detectedShiftCode,
+            session: currentSession
         });
         setStep('SUCCESS');
         if (attendanceMode === 'FACE') setTimeout(() => stopCamera(), 500);
@@ -548,10 +567,12 @@ export const AttendanceKiosk: React.FC = () => {
 
   // --- SUB-COMPONENTS FOR UI ---
 
-  const MethodCard = ({ icon: Icon, title, desc, colorClass, onClick, badge }: any) => (
+  const MethodCard = ({ icon: Icon, title, desc, colorClass, onClick, badge, disabled }: any) => (
       <button 
-        onClick={onClick}
-        className="relative overflow-hidden group bg-white p-6 rounded-2xl border border-gray-100 shadow-sm hover:shadow-lg transition-all text-left w-full active:scale-[0.98]"
+        onClick={!disabled ? onClick : undefined}
+        disabled={disabled}
+        className={`relative overflow-hidden group bg-white p-6 rounded-2xl border border-gray-100 shadow-sm transition-all text-left w-full 
+            ${disabled ? 'opacity-60 cursor-not-allowed grayscale' : 'hover:shadow-lg active:scale-[0.98]'}`}
       >
           <div className={`absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity ${colorClass.text}`}>
               <Icon size={80} />
@@ -562,7 +583,9 @@ export const AttendanceKiosk: React.FC = () => {
           <h3 className="text-lg font-bold text-gray-900 group-hover:text-teal-700 transition-colors">{title}</h3>
           <p className="text-sm text-gray-500 mt-1 pr-8">{desc}</p>
           {badge && (
-              <span className="absolute top-4 right-4 bg-red-100 text-red-600 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">
+              <span className={`absolute top-4 right-4 text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider ${
+                  disabled ? 'bg-gray-200 text-gray-500' : 'bg-red-100 text-red-600'
+              }`}>
                   {badge}
               </span>
           )}
@@ -601,10 +624,17 @@ export const AttendanceKiosk: React.FC = () => {
                       <span className="text-gray-500 text-sm">Thời gian</span>
                       <span className="font-mono font-bold text-2xl text-gray-800 tracking-tight">{attendanceResult.time}</span>
                   </div>
-                  {attendanceResult.shiftCode && (
+                  
+                  {/* NEW: SESSION DISPLAY */}
+                  {attendanceResult.session && (
                        <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100 bg-gray-50 -mx-6 -mb-6 p-4">
-                          <span className="text-gray-500 text-xs font-bold uppercase">Ca làm việc</span>
-                          <span className="font-bold text-sm text-teal-700">{attendanceResult.shiftCode}</span>
+                          <span className="text-gray-500 text-xs font-bold uppercase flex items-center">
+                              {attendanceResult.session === 'MORNING' ? <Sun size={14} className="mr-1"/> : <Moon size={14} className="mr-1"/>}
+                              Phiên
+                          </span>
+                          <span className="font-bold text-sm text-indigo-700">
+                              {attendanceResult.session === 'MORNING' ? 'Ca Sáng' : 'Ca Chiều'}
+                          </span>
                        </div>
                   )}
               </div>
@@ -663,17 +693,21 @@ export const AttendanceKiosk: React.FC = () => {
             />
             <MethodCard 
                 title="Face ID (AI)" 
-                desc="Nhanh chóng & không cần chạm."
+                desc="Tính năng đang được bảo trì."
                 icon={ScanLine}
-                colorClass={{ bg: 'bg-indigo-50', text: 'text-indigo-600' }}
-                onClick={() => { setAttendanceMode('FACE'); startCamera('user'); }}
+                colorClass={{ bg: 'bg-gray-50', text: 'text-gray-400' }}
+                onClick={() => { /* Disabled */ }}
+                disabled={true}
+                badge="Bảo trì"
             />
             <MethodCard 
                 title="Giọng Nói AI" 
-                desc="Dùng khi tay bẩn hoặc đang bận bê đồ."
+                desc="Tính năng đang phát triển."
                 icon={Mic}
-                colorClass={{ bg: 'bg-purple-50', text: 'text-purple-600' }}
-                onClick={initVoiceMode}
+                colorClass={{ bg: 'bg-gray-50', text: 'text-gray-400' }}
+                onClick={() => { /* Disabled */ }}
+                disabled={true}
+                badge="Sắp ra mắt"
             />
         </div>
       )}

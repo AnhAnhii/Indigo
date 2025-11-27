@@ -1,12 +1,12 @@
 
 import React, { useState } from 'react';
-import { Calendar, Filter, Download, Search, MapPin, Smartphone } from 'lucide-react';
+import { Calendar, Filter, Download, Search, MapPin, Smartphone, Sun, Moon } from 'lucide-react';
 import { AttendanceStatus } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
 export const TimesheetView: React.FC = () => {
   const { logs, employees } = useGlobalContext();
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }));
 
   // Filter logs based on selected date (Mock filtering for demo simplicity)
   // In a real app, logs would likely be fetched by month/day range.
@@ -14,11 +14,11 @@ export const TimesheetView: React.FC = () => {
   const filteredLogs = logs.filter(log => !selectedDate || log.date === selectedDate);
 
   // Calculate stats for the view
-  const workingCount = filteredLogs.length;
+  const workingCount = new Set(filteredLogs.map(l => l.employeeId)).size; // Count unique employees
   const lateCount = filteredLogs.filter(l => l.status === AttendanceStatus.LATE).length;
   
   const totalEmployees = employees.length;
-  const absentCount = totalEmployees - workingCount; 
+  const absentCount = Math.max(0, totalEmployees - workingCount); 
 
   const getStatusBadge = (status: AttendanceStatus) => {
     switch (status) {
@@ -104,7 +104,7 @@ export const TimesheetView: React.FC = () => {
             <thead className="bg-gray-100 text-gray-600 font-bold uppercase text-xs">
               <tr>
                 <th className="px-6 py-4">Nhân viên</th>
-                <th className="px-6 py-4 text-center">Ngày</th>
+                <th className="px-6 py-4 text-center">Phiên (Ca Gãy)</th>
                 <th className="px-6 py-4 text-center">Check-in</th>
                 <th className="px-6 py-4 text-center">Check-out</th>
                 <th className="px-6 py-4 text-center">Số công</th>
@@ -120,11 +120,25 @@ export const TimesheetView: React.FC = () => {
                       <div className="w-8 h-8 rounded-full bg-teal-50 text-teal-700 flex items-center justify-center font-bold text-xs">
                         {log.employeeName.charAt(0)}
                       </div>
-                      {log.employeeName}
+                      <div>
+                          <div>{log.employeeName}</div>
+                          <div className="text-xs text-gray-400 font-normal">{log.date}</div>
+                      </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-center text-gray-600">{log.date}</td>
                   
+                  {/* SESSION COLUMN */}
+                  <td className="px-6 py-4 text-center">
+                      {log.session ? (
+                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-bold ${log.session === 'MORNING' ? 'bg-orange-50 text-orange-700 border border-orange-100' : 'bg-indigo-50 text-indigo-700 border border-indigo-100'}`}>
+                              {log.session === 'MORNING' ? <Sun size={12} className="mr-1"/> : <Moon size={12} className="mr-1"/>}
+                              {log.session === 'MORNING' ? 'Sáng' : 'Chiều'}
+                          </span>
+                      ) : (
+                          <span className="text-gray-300">-</span>
+                      )}
+                  </td>
+
                   {/* Check In Column */}
                   <td className="px-6 py-4 text-center">
                     {log.checkIn ? (

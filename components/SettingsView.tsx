@@ -1,14 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router, Cloud, ToggleRight } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig } from '../types';
-import { sheetService } from '../services/sheetService';
 
 type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE';
 
 export const SettingsView: React.FC = () => {
-  const { settings, updateSettings } = useGlobalContext();
+  const { settings, updateSettings, testNotification } = useGlobalContext();
   const [activeTab, setActiveTab] = useState<SettingsTab>('RULES');
   const [localSettings, setLocalSettings] = useState(settings);
   
@@ -19,12 +18,9 @@ export const SettingsView: React.FC = () => {
 
   const [isLocating, setIsLocating] = useState(false);
   const [locatingProgress, setLocatingProgress] = useState(0);
-  
-  const [sheetUrl, setSheetUrl] = useState('');
 
   useEffect(() => {
       setLocalSettings(settings);
-      setSheetUrl(sheetService.getApiUrl());
   }, [settings]);
 
   const handleSave = () => {
@@ -90,6 +86,32 @@ export const SettingsView: React.FC = () => {
       setEditingWifiId(null);
   };
   
+  // --- SHIFT CONFIG ---
+  const handleAddShift = () => {
+      const newShift: ShiftConfig = {
+          code: `CA_${Date.now().toString().substr(-4)}`,
+          name: 'Ca Mới',
+          startTime: '08:00',
+          endTime: '17:00',
+          isSplitShift: false
+      };
+      setLocalSettings({
+          ...localSettings,
+          shiftConfigs: [...localSettings.shiftConfigs, newShift]
+      });
+  };
+
+  const handleDeleteShift = (index: number) => {
+      if(window.confirm("Bạn có chắc chắn muốn xóa ca làm việc này?")) {
+          const updatedShifts = [...localSettings.shiftConfigs];
+          updatedShifts.splice(index, 1);
+          setLocalSettings({
+              ...localSettings,
+              shiftConfigs: updatedShifts
+          });
+      }
+  };
+
   const updateShift = (index: number, field: keyof ShiftConfig, value: any) => {
       const updatedShifts = [...localSettings.shiftConfigs];
       updatedShifts[index] = { ...updatedShifts[index], [field]: value };
@@ -240,37 +262,93 @@ export const SettingsView: React.FC = () => {
                                     <p className="text-xs text-gray-500 mt-1">Thời gian tối đa khách phải đợi trước khi hệ thống báo động đỏ.</p>
                                 </div>
                             </div>
+                            
+                            <div className="mt-6 border-t pt-4">
+                                <button onClick={testNotification} className="flex items-center text-sm font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-4 py-2 rounded-lg transition-colors">
+                                    <BellRing size={16} className="mr-2"/> Kiểm tra Âm thanh & Thông báo
+                                </button>
+                                <p className="text-xs text-gray-400 mt-1 ml-1">Bấm để kiểm tra quyền thông báo trên trình duyệt của bạn.</p>
+                            </div>
                         </div>
 
                         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Clock className="mr-2 text-teal-600" size={20}/> Cấu hình Ca làm việc</h3>
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="font-bold text-gray-900 flex items-center"><Clock className="mr-2 text-teal-600" size={20}/> Cấu hình Ca làm việc</h3>
+                                <button onClick={handleAddShift} className="text-sm text-white bg-teal-600 font-bold flex items-center hover:bg-teal-700 px-3 py-2 rounded-lg transition-colors shadow-sm">
+                                    <Plus size={16} className="mr-1"/> Thêm ca mới
+                                </button>
+                            </div>
+                            
                             <div className="space-y-4">
+                                {localSettings.shiftConfigs.length === 0 && (
+                                    <p className="text-center text-gray-400 text-sm py-8 bg-gray-50 rounded-xl border border-dashed border-gray-300">Chưa có ca làm việc nào. Bấm "Thêm ca mới" để bắt đầu.</p>
+                                )}
                                 {localSettings.shiftConfigs.map((shift, idx) => (
-                                    <div key={idx} className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                                        <div className="flex justify-between items-center mb-3">
-                                            <h4 className="font-bold text-gray-800">{shift.name} ({shift.code})</h4>
-                                            <span className={`text-xs font-bold px-2 py-1 rounded ${shift.isSplitShift ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                {shift.isSplitShift ? 'Ca Gãy' : 'Ca Thông'}
-                                            </span>
+                                    <div key={idx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group shadow-sm">
+                                        {/* Row 1: Name, Code & Delete */}
+                                        <div className="flex justify-between items-start mb-4 gap-4">
+                                            <div className="grid grid-cols-2 gap-4 flex-1">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Tên ca làm việc</label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={shift.name} 
+                                                        onChange={(e) => updateShift(idx, 'name', e.target.value)}
+                                                        className="w-full border-b border-dashed border-gray-300 focus:border-teal-500 outline-none bg-transparent font-bold text-gray-800 text-sm py-1 transition-colors"
+                                                        placeholder="VD: Ca Sáng"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-gray-400 uppercase mb-1">Mã ca (Code)</label>
+                                                    <input 
+                                                        type="text" 
+                                                        value={shift.code} 
+                                                        onChange={(e) => updateShift(idx, 'code', e.target.value)}
+                                                        className="w-full border-b border-dashed border-gray-300 focus:border-teal-500 outline-none bg-transparent font-mono text-sm text-gray-600 py-1 transition-colors"
+                                                        placeholder="VD: CA_SANG"
+                                                    />
+                                                </div>
+                                            </div>
+                                            <button onClick={() => handleDeleteShift(idx)} className="text-gray-400 hover:text-red-500 p-2 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100">
+                                                <Trash2 size={18}/>
+                                            </button>
                                         </div>
+
+                                        {/* Row 2: Type Toggle */}
+                                        <div className="flex items-center mb-4 bg-white p-2 rounded-lg border border-gray-100 w-fit">
+                                            <label className="flex items-center cursor-pointer select-none relative">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={shift.isSplitShift} 
+                                                    onChange={(e) => updateShift(idx, 'isSplitShift', e.target.checked)}
+                                                    className="sr-only peer"
+                                                />
+                                                <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-600"></div>
+                                                <span className={`ml-2 text-xs font-bold ${shift.isSplitShift ? 'text-purple-600' : 'text-blue-600'}`}>
+                                                    {shift.isSplitShift ? 'Ca Gãy (Có nghỉ giữa giờ)' : 'Ca Thông (Làm liền mạch)'}
+                                                </span>
+                                            </label>
+                                        </div>
+
+                                        {/* Row 3: Times */}
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                             <div>
-                                                <label className="text-xs font-bold text-gray-500">Giờ bắt đầu</label>
-                                                <input type="time" value={shift.startTime} onChange={(e) => updateShift(idx, 'startTime', e.target.value)} className="w-full mt-1 p-1.5 border rounded text-sm font-medium"/>
+                                                <label className="text-xs font-bold text-gray-500 block mb-1">Bắt đầu ca</label>
+                                                <input type="time" value={shift.startTime} onChange={(e) => updateShift(idx, 'startTime', e.target.value)} className="w-full p-2 border rounded-lg text-sm font-medium bg-white focus:ring-2 focus:ring-teal-500 outline-none"/>
                                             </div>
                                             <div>
-                                                <label className="text-xs font-bold text-gray-500">Giờ kết thúc</label>
-                                                <input type="time" value={shift.endTime} onChange={(e) => updateShift(idx, 'endTime', e.target.value)} className="w-full mt-1 p-1.5 border rounded text-sm font-medium"/>
+                                                <label className="text-xs font-bold text-gray-500 block mb-1">Kết thúc ca</label>
+                                                <input type="time" value={shift.endTime} onChange={(e) => updateShift(idx, 'endTime', e.target.value)} className="w-full p-2 border rounded-lg text-sm font-medium bg-white focus:ring-2 focus:ring-teal-500 outline-none"/>
                                             </div>
                                             {shift.isSplitShift && (
                                                 <>
                                                     <div>
-                                                        <label className="text-xs font-bold text-gray-500">Nghỉ từ</label>
-                                                        <input type="time" value={shift.breakStart} onChange={(e) => updateShift(idx, 'breakStart', e.target.value)} className="w-full mt-1 p-1.5 border rounded text-sm font-medium text-orange-600"/>
+                                                        <label className="text-xs font-bold text-orange-600 block mb-1">Nghỉ từ</label>
+                                                        <input type="time" value={shift.breakStart} onChange={(e) => updateShift(idx, 'breakStart', e.target.value)} className="w-full p-2 border border-orange-200 rounded-lg text-sm font-medium bg-orange-50 text-orange-800 focus:ring-2 focus:ring-orange-500 outline-none"/>
                                                     </div>
                                                     <div>
-                                                        <label className="text-xs font-bold text-gray-500">Đến</label>
-                                                        <input type="time" value={shift.breakEnd} onChange={(e) => updateShift(idx, 'breakEnd', e.target.value)} className="w-full mt-1 p-1.5 border rounded text-sm font-medium text-orange-600"/>
+                                                        <label className="text-xs font-bold text-orange-600 block mb-1">Đến</label>
+                                                        <input type="time" value={shift.breakEnd} onChange={(e) => updateShift(idx, 'breakEnd', e.target.value)} className="w-full p-2 border border-orange-200 rounded-lg text-sm font-medium bg-orange-50 text-orange-800 focus:ring-2 focus:ring-orange-500 outline-none"/>
                                                     </div>
                                                 </>
                                             )}
@@ -451,13 +529,16 @@ export const SettingsView: React.FC = () => {
                 {activeTab === 'DATABASE' && (
                     <div className="space-y-6 animate-in fade-in">
                          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                            <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Database className="mr-2 text-teal-600" size={20}/> Kết nối Google Sheet</h3>
-                            <p className="text-sm text-gray-500 mb-4">Hệ thống sử dụng Google Sheet làm cơ sở dữ liệu (Backend). Dán link Web App URL của Apps Script vào đây.</p>
+                            <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Database className="mr-2 text-teal-600" size={20}/> Kết nối Supabase (Cloud Database)</h3>
+                            <p className="text-sm text-gray-500 mb-4">Hệ thống đang sử dụng Supabase cho cơ sở dữ liệu thời gian thực.</p>
                             
-                            <div className="bg-gray-100 p-4 rounded-xl font-mono text-xs break-all border border-gray-200 text-gray-600">
-                                {sheetUrl}
+                            <div className="bg-green-50 p-4 rounded-xl border border-green-200 flex items-center text-green-700 font-bold">
+                                <Cloud size={20} className="mr-2"/> Đã kết nối thành công
                             </div>
-                            <p className="text-xs text-red-500 mt-2 flex items-center"><AlertTriangle size={12} className="mr-1"/> Link này được cấu hình cứng trong mã nguồn (services/sheetService.ts).</p>
+                            
+                            <p className="text-xs text-gray-400 mt-2 font-mono">
+                                Project URL: https://vnuchrpjvfxbghnrqfrq.supabase.co
+                            </p>
                          </div>
                     </div>
                 )}
