@@ -124,32 +124,51 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // --- NOTIFICATION HELPERS ---
   const playSound = () => {
       try {
+          // Use AudioContext or HTML5 Audio
           const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
           audio.volume = 0.5;
-          audio.play().catch(e => console.log("Audio autoplay blocked:", e));
-      } catch (e) {}
+          audio.play().catch(e => console.log("Audio autoplay blocked (User must interact first):", e));
+      } catch (e) {
+          console.error("Sound Error:", e);
+      }
   };
 
   const sendNotification = (title: string, body: string) => {
-      // 1. Play Sound
+      // 1. Play Sound (Always safe to try)
       playSound();
 
-      // 2. Browser Notification
-      if (Notification.permission === 'granted') {
-          try {
-              new Notification(title, {
-                  body: body,
-                  icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png'
-              });
-          } catch (e) {
-              console.error("Notification Error:", e);
+      // 2. Browser Notification (SAFE CHECK for iOS/Mobile)
+      // Check if 'window' exists and 'Notification' exists in window to avoid ReferenceError
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+          if (Notification.permission === 'granted') {
+              try {
+                  new Notification(title, {
+                      body: body,
+                      icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png'
+                  });
+              } catch (e) {
+                  console.error("Notification Creation Error:", e);
+              }
           }
+      } else {
+          console.log("Notifications not supported on this device/browser.");
       }
   };
 
   const requestNotificationPermission = () => {
-      if ('Notification' in window && Notification.permission !== 'granted') {
-          Notification.requestPermission();
+      // Safe check before accessing Notification
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+          if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+              try {
+                  Notification.requestPermission().then(permission => {
+                      if (permission === 'granted') {
+                          console.log("Notification permission granted.");
+                      }
+                  });
+              } catch (e) {
+                  console.error("Permission Request Error:", e);
+              }
+          }
       }
   };
 
