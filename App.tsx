@@ -19,9 +19,8 @@ import { LoginScreen } from './components/LoginScreen';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
-// LOGO CONFIGURATION - EXTERNAL URL FOR RELIABILITY
-// Sử dụng link Github raw image
-export const LOGO_URL = "https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true";
+// LOGO CONFIGURATION - NEW GITHUB RAW LINK
+export const LOGO_URL = "https://github.com/AnhAnhii/png/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true";
 
 const AppContent: React.FC = () => {
   const { currentUser, logout, activeAlerts, dismissedAlertIds, dismissAlert, connectionStatus, isRestoringSession } = useGlobalContext();

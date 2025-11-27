@@ -23,8 +23,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
       body: data,
-      icon: 'https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
-      badge: 'https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
+      icon: 'https://github.com/AnhAnhii/png/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
+      badge: 'https://github.com/AnhAnhii/png/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
       tag: 'push-' + Date.now(),
       renotify: true,
       requireInteraction: true
@@ -45,8 +45,8 @@ self.addEventListener('message', (event) => {
 
     const options = {
         body: body,
-        icon: 'https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
-        badge: 'https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
+        icon: 'https://github.com/AnhAnhii/png/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
+        badge: 'https://github.com/AnhAnhii/png/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
         tag: tag,
         renotify: true, // Rung lại khi có thông báo mới
         requireInteraction: true, // Giữ thông báo không tự tắt
