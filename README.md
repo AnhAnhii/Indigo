@@ -6,7 +6,7 @@
 
 This contains everything you need to run your app locally.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1ZJZKbRRLIIWH4GDBDPXuN2GcjiATlDlw
+View your app in AI Studio: https://indigosapa.vercel.app
 
 ## Run Locally
 
