@@ -70,6 +70,7 @@ interface GlobalContextType {
   reloadData: () => void;
   testNotification: () => void;
   requestNotificationPermission: () => Promise<string>; 
+  unlockAudio: () => void; // NEW FUNCTION
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -87,7 +88,13 @@ const INITIAL_SETTINGS: SystemSettings = {
     wifis: [],
     rules: { allowedLateMinutes: 15 },
     servingConfig: { lateAlertMinutes: 15 },
-    shiftConfigs: []
+    shiftConfigs: [],
+    notificationConfig: {
+        enableGuestArrival: true,
+        enableStaffRequest: true,
+        enableHandover: true,
+        enableSystemAlert: true
+    }
 };
 
 const STORAGE_SESSION_KEY = 'RS_SESSION_V2';
@@ -112,91 +119,150 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
 
+  // Refs for Access inside Callbacks/Intervals without Staleness
   const currentUserRef = useRef(currentUser);
   const servingGroupsRef = useRef(servingGroups);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const settingsRef = useRef(settings); 
+
+  // --- AUDIO CONTEXT SYSTEM (FIX FOR IOS) ---
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  const unlockAudio = useCallback(() => {
+      try {
+          if (!audioContextRef.current) {
+              // @ts-ignore
+              const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+              if (AudioContextClass) {
+                  audioContextRef.current = new AudioContextClass();
+              }
+          }
+          const ctx = audioContextRef.current;
+          if (ctx) {
+              if (ctx.state === 'suspended') {
+                  ctx.resume();
+              }
+              // Play a silent buffer to unlock the audio engine on iOS
+              const buffer = ctx.createBuffer(1, 1, 22050);
+              const source = ctx.createBufferSource();
+              source.buffer = buffer;
+              source.connect(ctx.destination);
+              source.start(0);
+          }
+      } catch (e) {
+          console.warn("Audio unlock failed:", e);
+      }
+  }, []);
+
+  const playSound = () => {
+      try {
+          if (!audioContextRef.current) unlockAudio();
+          
+          const ctx = audioContextRef.current;
+          if (ctx && ctx.state === 'running') {
+              const oscillator = ctx.createOscillator();
+              const gainNode = ctx.createGain();
+
+              oscillator.connect(gainNode);
+              gainNode.connect(ctx.destination);
+
+              // Sound Config: High pitch beep
+              oscillator.type = 'sine';
+              oscillator.frequency.setValueAtTime(880, ctx.currentTime); 
+              oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
+              
+              gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+              gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.5);
+
+              oscillator.start();
+              oscillator.stop(ctx.currentTime + 0.5);
+          }
+      } catch (e) { 
+          console.warn("Sound play error (Oscillator):", e); 
+      }
+  };
 
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
   useEffect(() => { servingGroupsRef.current = servingGroups; }, [servingGroups]);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
 
-  // --- NOTIFICATION CORE ---
-  const playSound = () => {
-      try {
-          if (!audioRef.current) {
-              audioRef.current = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-              audioRef.current.volume = 0.8;
-          }
-          const promise = audioRef.current.play();
-          if (promise !== undefined) {
-              promise.catch(() => console.log("Audio autoplay prevented."));
-          }
-      } catch (e) { console.error("Sound Error:", e); }
-  };
+  // --- NOTIFICATION CORE SYSTEM ---
+  const dispatchNotification = async (title: string, body: string) => {
+      // 1. Play Sound (Oscillator)
+      playSound(); 
 
-  const sendNotification = async (title: string, body: string) => {
-      playSound();
-
+      if (typeof window === 'undefined') return;
       if (!('Notification' in window)) return;
 
-      if (Notification.permission === 'granted') {
-          // METHOD 1: Try Service Worker PostMessage (Best for iOS/PWA)
-          if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      // 2. Try Service Worker (Best for Mobile)
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          try {
               navigator.serviceWorker.controller.postMessage({
                   type: 'SHOW_NOTIFICATION',
                   title: title,
                   body: body
               });
               return;
+          } catch (e) {
+              console.error("SW PostMessage failed:", e);
           }
-
-          // METHOD 2: Fallback to Registration showNotification
-          try {
-              const registration = await navigator.serviceWorker.ready;
-              if (registration) {
-                  await registration.showNotification(title, {
-                      body: body,
-                      icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-                      badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-                      vibrate: [200, 100, 200],
-                      tag: 'indigo-' + Date.now()
-                  } as any);
-                  return;
-              }
-          } catch (e) { console.error("SW Notification failed", e); }
-
-          // METHOD 3: Fallback to legacy Notification API (Desktop mostly)
-          try {
-              new Notification(title, { 
-                  body: body,
-                  icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png'
-              });
-          } catch (e) { console.error("Legacy Notification failed", e); }
       }
+
+      // 3. Fallback: Direct Registration
+      try {
+          const registration = await navigator.serviceWorker.ready;
+          if (registration) {
+              await registration.showNotification(title, {
+                  body: body,
+                  icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+                  badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+                  // @ts-ignore
+                  vibrate: [200, 100, 200], 
+                  tag: 'indigo-app-' + Date.now()
+              });
+              return;
+          }
+      } catch (e) {}
+
+      // 4. Last Resort: Legacy API
+      try {
+          if (Notification.permission === 'granted') {
+              new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png' });
+          }
+      } catch (e) {}
   };
 
   const requestNotificationPermission = async () => {
       if (typeof window !== 'undefined' && 'Notification' in window) {
-          const result = await Notification.requestPermission();
-          if (result === 'granted') {
-              playSound(); // Play sound to unlock audio context on iOS
+          try {
+              const result = await Notification.requestPermission();
+              if (result === 'granted') {
+                  unlockAudio(); // Unlock audio immediately when permission granted
+                  playSound();
+              }
+              return result;
+          } catch (e) {
+              return 'denied';
           }
-          return result;
       }
       return 'denied';
   };
 
   const testNotification = async () => {
-      // 1. Force Request Permission again if needed
-      const permission = await requestNotificationPermission();
-      
-      if (permission === 'granted') {
-          // 2. Fire test notification
-          sendNotification(
-              "🔔 Kiểm tra hệ thống", 
-              "Thông báo hoạt động tốt! Bạn sẽ nhận tin khi có khách mới."
-          );
-      } else {
-          alert("Bạn đã chặn thông báo. Vui lòng vào Cài đặt điện thoại -> Safari/Chrome -> Cho phép thông báo.");
+      try {
+          unlockAudio(); // Ensure audio is unlocked
+          const permission = await requestNotificationPermission();
+          
+          if (permission === 'granted') {
+              await dispatchNotification(
+                  "🔔 Kiểm tra thành công", 
+                  "Âm thanh và thông báo đang hoạt động!"
+              );
+              alert("Đã gửi lệnh thông báo. Bạn có nghe thấy tiếng BÍP không?");
+          } else {
+              alert(`Quyền thông báo đang bị chặn (Status: ${permission}). Hãy bật trong Cài đặt.`);
+          }
+      } catch (e: any) {
+          alert("Lỗi: " + e.message);
       }
   };
 
@@ -213,7 +279,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setSchedules(data.schedules);
           setPrepTasks(data.prepTasks);
           if (data.settings && Object.keys(data.settings).length > 0) {
-              setSettings(prev => ({...prev, ...data.settings}));
+              setSettings(prev => ({...INITIAL_SETTINGS, ...data.settings}));
           }
           const dismissedSet = new Set<string>(data.dismissedAlerts.map((a: any) => String(a.id)));
           setDismissedAlertIds(dismissedSet);
@@ -227,7 +293,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
   }, []);
 
-  // --- INIT & REALTIME SUBSCRIPTION ---
+  // --- REALTIME SUBSCRIPTION ---
   useEffect(() => {
       const initApp = async () => {
           const loadedEmployees = await loadData(false);
@@ -251,34 +317,44 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const channel = supabase.channel('app-db-changes')
           .on('postgres_changes', { event: 'INSERT', schema: 'public' }, (payload) => {
               const user = currentUserRef.current;
-              // NOTIFICATION: NEW REQUEST
+              const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
+              
               if (payload.table === 'requests' && user?.role === EmployeeRole.MANAGER) {
-                  const newReq = payload.new as any;
-                  if (String(newReq.employee_id) !== String(user.id)) {
-                      sendNotification("Đơn từ mới", `${newReq.employee_name}: ${newReq.type}`);
+                  if (config.enableStaffRequest) {
+                      const newReq = payload.new as any;
+                      if (String(newReq.employee_id) !== String(user.id)) {
+                          dispatchNotification("Đơn từ mới", `${newReq.employee_name}: ${newReq.type}`);
+                      }
                   }
               }
-              // NOTIFICATION: NEW GUEST GROUP
+
               if (payload.table === 'serving_groups') {
-                  const newGroup = payload.new as any;
-                  sendNotification("Đoàn khách mới", `${newGroup.name} - Bàn ${newGroup.location}`);
+                  if (config.enableGuestArrival) {
+                      const newGroup = payload.new as any;
+                      dispatchNotification("Khách mới", `${newGroup.name} - Bàn ${newGroup.location}`);
+                  }
               }
-              // NOTIFICATION: HANDOVER
+
               if (payload.table === 'handover_logs') {
-                  sendNotification("Sổ Giao Ca", `Tin nhắn mới từ ${payload.new.author}`);
+                  if (config.enableHandover) {
+                       const log = payload.new as any;
+                       dispatchNotification("Sổ Giao Ca", `${log.type === 'ISSUE' ? '⚠️' : '📝'} Tin nhắn mới từ ${log.author}`);
+                  }
               }
               loadData(true);
           })
           .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'serving_groups' }, (payload) => {
               const newGroupData = payload.new as any;
               const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(newGroupData.id));
-              
-              // NOTIFICATION: GUEST ARRIVED (Start Time Updated)
-              // Only notify if status changed to ACTIVE or start_time was just added
-              if (newGroupData.start_time && (!oldGroupLocal || !oldGroupLocal.startTime)) {
-                  // Check if I am the one who triggered it (to avoid double notify self, 
-                  // but we want feedback so notify anyway)
-                  sendNotification("KHÁCH ĐÃ VÀO!", `Đoàn ${newGroupData.name} @ ${newGroupData.location}`);
+              const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
+
+              if (config.enableGuestArrival) {
+                  const wasNotStarted = !oldGroupLocal || !oldGroupLocal.startTime;
+                  const isNowStarted = !!newGroupData.start_time;
+
+                  if (wasNotStarted && isNowStarted) {
+                      dispatchNotification("KHÁCH ĐÃ VÀO!", `Đoàn ${newGroupData.name} @ ${newGroupData.location}`);
+                  }
               }
               loadData(true);
           })
@@ -293,10 +369,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return () => { supabase.removeChannel(channel); };
   }, []); 
 
-  // --- ALERT SYSTEM ---
+  // --- SYSTEM ALERTS ---
   const runSystemChecks = () => {
+      const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
+      
       const now = new Date();
-      const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
       const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
       const lateThreshold = settings.servingConfig?.lateAlertMinutes || 15;
       const newAlerts: SystemAlert[] = [];
@@ -306,17 +383,29 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               const [sH, sM] = group.startTime.split(':').map(Number);
               let diff = currentTotalMinutes - (sH * 60 + sM);
               if (diff < -1000) diff += 1440; 
+              
               if (diff >= lateThreshold) {
-                  const missing = group.items.filter(i => i.servedQuantity < i.totalQuantity);
-                  if (missing.length > 0) {
+                  const missingItems = group.items.filter(i => i.servedQuantity < i.totalQuantity);
+                  if (missingItems.length > 0) {
                       const alertId = `alert_serving_${group.id}`;
-                      if (!dismissedAlertIds.has(alertId) && !activeAlerts.find(a => a.id === alertId)) {
-                          sendNotification("Ra đồ chậm!", `Bàn ${group.location} đợi ${diff} phút rồi!`);
+                      const missingNames = missingItems.map(i => `${i.name} (x${i.totalQuantity - i.servedQuantity})`).join(', ');
+                      const alertDetails = `Chưa ra: ${missingNames}`;
+                      const alertTitle = `Bàn ${group.location} - ${group.name} (${diff}p)`;
+
+                      if (config.enableSystemAlert) {
+                          if (!dismissedAlertIds.has(alertId) && !activeAlerts.find(a => a.id === alertId)) {
+                              dispatchNotification("Ra đồ chậm!", `${alertTitle}`);
+                          }
                       }
+                      
                       newAlerts.push({
-                          id: alertId, type: 'LATE_SERVING',
-                          message: `Đoàn ${group.name} chờ lâu`,
-                          details: `Đã đợi ${diff} phút.`, groupId: group.id, severity: 'HIGH', timestamp: now.toLocaleTimeString('vi-VN')
+                          id: alertId, 
+                          type: 'LATE_SERVING',
+                          message: alertTitle,
+                          details: alertDetails,
+                          groupId: group.id, 
+                          severity: 'HIGH', 
+                          timestamp: now.toLocaleTimeString('vi-VN')
                       });
                   }
               }
@@ -376,9 +465,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const updateServingGroup = (id: string, updates: Partial<ServingGroup>) => modifyGroup(id, g => ({ ...g, ...updates }));
   const startServingGroup = (id: string) => {
       const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
-      // OPTIMISTIC LOCAL NOTIFICATION
-      const group = servingGroups.find(g => g.id === id);
-      if (group) sendNotification("Bắt đầu phục vụ!", `Đã xác nhận đoàn ${group.name} vào bàn.`);
+      const group = servingGroups.find(g => String(g.id) === String(id));
+      if (group) dispatchNotification("Đã xác nhận!", `Đoàn ${group.name} bắt đầu phục vụ.`);
       modifyGroup(id, g => ({ ...g, startTime: time }));
   };
   const addServingItem = (gId: string, item: ServingItem) => modifyGroup(gId, g => ({ ...g, items: [...g.items, item] }));
@@ -440,7 +528,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       isLoading, isRestoringSession, lastUpdated, connectionStatus,
       reloadData: () => loadData(false),
       testNotification, 
-      requestNotificationPermission 
+      requestNotificationPermission,
+      unlockAudio
     }}>
       {children}
     </GlobalContext.Provider>

@@ -107,21 +107,21 @@ const AppContent: React.FC = () => {
       {bannerAlerts.length > 0 && (
           <div className={`fixed top-0 left-0 right-0 z-50 text-white shadow-lg animate-in slide-in-from-top duration-300 ${bannerAlerts[0].severity === 'HIGH' ? 'bg-red-600' : 'bg-yellow-600'}`}>
               <div className="max-w-7xl mx-auto px-4 py-2 flex items-start justify-between">
-                  <div className="flex items-center flex-1">
-                      <div className="bg-white/20 p-2 rounded-full mr-3 animate-pulse">
+                  <div className="flex items-start md:items-center flex-1">
+                      <div className="bg-white/20 p-2 rounded-full mr-3 animate-pulse mt-0.5 md:mt-0 shrink-0">
                           <AlertTriangle size={20} className="text-white" />
                       </div>
-                      <div>
-                          <p className="font-bold text-sm uppercase tracking-wide">Cảnh báo hệ thống ({bannerAlerts.length})</p>
-                          <p className="text-xs md:text-sm text-white/90 line-clamp-1">
-                              {bannerAlerts[0].message} - {bannerAlerts[0].details}
+                      <div className="overflow-hidden">
+                          <p className="font-bold text-sm uppercase tracking-wide truncate">Cảnh báo hệ thống ({bannerAlerts.length})</p>
+                          <p className="text-xs md:text-sm text-white/90 line-clamp-2 md:line-clamp-1 break-words">
+                              {bannerAlerts[0].message} • {bannerAlerts[0].details}
                           </p>
                       </div>
                   </div>
-                  <div className="flex items-center">
+                  <div className="flex items-center shrink-0 ml-2">
                       <button 
                         onClick={() => setCurrentView(activeAlerts[0].type === 'LATE_SERVING' ? AppView.SERVING : AppView.TIMESHEET)}
-                        className={`ml-4 bg-white text-xs font-bold px-3 py-1.5 rounded-lg whitespace-nowrap hover:bg-opacity-90 ${bannerAlerts[0].severity === 'HIGH' ? 'text-red-600' : 'text-yellow-700'}`}
+                        className={`hidden sm:block ml-4 bg-white text-xs font-bold px-3 py-1.5 rounded-lg whitespace-nowrap hover:bg-opacity-90 ${bannerAlerts[0].severity === 'HIGH' ? 'text-red-600' : 'text-yellow-700'}`}
                       >
                           Xem chi tiết
                       </button>

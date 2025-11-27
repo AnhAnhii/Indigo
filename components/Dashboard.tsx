@@ -65,7 +65,7 @@ const normalizeDate = (dateStr: string | undefined): string => {
 };
 
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
-  const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission } = useGlobalContext();
+  const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission, unlockAudio } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
   // Notification State
@@ -179,6 +179,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings, todayStr]);
 
   const handleEnableNotification = async () => {
+      unlockAudio(); // Unlock audio immediately
       const res = await requestNotificationPermission();
       setPermissionState(res);
   };

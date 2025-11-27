@@ -154,12 +154,21 @@ export interface LocationConfig {
     name: string;
 }
 
+// NEW: Cấu hình bật tắt thông báo
+export interface NotificationConfig {
+    enableGuestArrival: boolean; // Khách mới / Khách vào
+    enableStaffRequest: boolean; // Đơn từ nhân viên
+    enableHandover: boolean;     // Sổ giao ca
+    enableSystemAlert: boolean;  // Cảnh báo hệ thống (chậm món)
+}
+
 export interface SystemSettings {
     location: LocationConfig;
     wifis: WifiConfig[];
     rules: WorkRule;
     servingConfig?: ServingConfig; 
     shiftConfigs: ShiftConfig[];
+    notificationConfig: NotificationConfig; // Added here
     webhook?: {
         url: string;
         enabled: boolean;

@@ -1,10 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router, Cloud, ToggleRight } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router, Cloud, ToggleRight, Smartphone, MessageSquare } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig } from '../types';
 
-type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE';
+type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE' | 'NOTIFICATION';
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings, testNotification } = useGlobalContext();
@@ -171,6 +171,16 @@ export const SettingsView: React.FC = () => {
       collectSample(0);
   };
 
+  const toggleNotificationSetting = (key: keyof typeof localSettings.notificationConfig) => {
+      setLocalSettings(prev => ({
+          ...prev,
+          notificationConfig: {
+              ...prev.notificationConfig,
+              [key]: !prev.notificationConfig[key]
+          }
+      }));
+  };
+
   if (!localSettings || !localSettings.rules) {
       return (
           <div className="flex items-center justify-center h-64">
@@ -205,6 +215,12 @@ export const SettingsView: React.FC = () => {
                     className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'RULES' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
                     <Shield size={18} className="mr-3"/> Ca làm việc & Quy tắc
+                </button>
+                <button 
+                    onClick={() => setActiveTab('NOTIFICATION')}
+                    className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'NOTIFICATION' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                    <BellRing size={18} className="mr-3"/> Cấu hình Thông báo
                 </button>
                 <button 
                     onClick={() => setActiveTab('LOCATION')}
@@ -261,13 +277,6 @@ export const SettingsView: React.FC = () => {
                                     </div>
                                     <p className="text-xs text-gray-500 mt-1">Thời gian tối đa khách phải đợi trước khi hệ thống báo động đỏ.</p>
                                 </div>
-                            </div>
-                            
-                            <div className="mt-6 border-t pt-4">
-                                <button onClick={testNotification} className="flex items-center text-sm font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-4 py-2 rounded-lg transition-colors">
-                                    <BellRing size={16} className="mr-2"/> Kiểm tra Âm thanh & Thông báo
-                                </button>
-                                <p className="text-xs text-gray-400 mt-1 ml-1">Bấm để kiểm tra quyền thông báo trên trình duyệt của bạn.</p>
                             </div>
                         </div>
 
@@ -355,6 +364,81 @@ export const SettingsView: React.FC = () => {
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* TAB: NOTIFICATION */}
+                {activeTab === 'NOTIFICATION' && (
+                    <div className="space-y-6 animate-in fade-in">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                             <h3 className="font-bold text-gray-900 mb-4 flex items-center"><BellRing className="mr-2 text-teal-600" size={20}/> Tùy chọn thông báo</h3>
+                             <p className="text-sm text-gray-500 mb-6">Chọn các sự kiện bạn muốn nhận thông báo đẩy trên điện thoại và máy tính.</p>
+
+                             <div className="space-y-4">
+                                <div className="flex items-center justify-between p-4 border border-gray-100 rounded-xl bg-gray-50">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center"><BellRing size={20}/></div>
+                                        <div>
+                                            <h4 className="font-bold text-gray-800">Khách vào / Khách mới</h4>
+                                            <p className="text-xs text-gray-500">Thông báo khi có đoàn khách mới hoặc khi ấn "Báo khách đến".</p>
+                                        </div>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" checked={localSettings.notificationConfig.enableGuestArrival} onChange={() => toggleNotificationSetting('enableGuestArrival')} className="sr-only peer"/>
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+                                    </label>
+                                </div>
+
+                                <div className="flex items-center justify-between p-4 border border-gray-100 rounded-xl bg-gray-50">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center"><MessageSquare size={20}/></div>
+                                        <div>
+                                            <h4 className="font-bold text-gray-800">Đơn từ & Yêu cầu</h4>
+                                            <p className="text-xs text-gray-500">Thông báo cho Quản lý khi nhân viên tạo đơn xin nghỉ/đổi ca.</p>
+                                        </div>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" checked={localSettings.notificationConfig.enableStaffRequest} onChange={() => toggleNotificationSetting('enableStaffRequest')} className="sr-only peer"/>
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+                                    </label>
+                                </div>
+
+                                <div className="flex items-center justify-between p-4 border border-gray-100 rounded-xl bg-gray-50">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center"><Edit2 size={20}/></div>
+                                        <div>
+                                            <h4 className="font-bold text-gray-800">Sổ Giao Ca</h4>
+                                            <p className="text-xs text-gray-500">Thông báo khi có ghi chú mới trong sổ giao ca.</p>
+                                        </div>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" checked={localSettings.notificationConfig.enableHandover} onChange={() => toggleNotificationSetting('enableHandover')} className="sr-only peer"/>
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+                                    </label>
+                                </div>
+
+                                <div className="flex items-center justify-between p-4 border border-gray-100 rounded-xl bg-gray-50">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 bg-red-100 text-red-600 rounded-full flex items-center justify-center"><AlertTriangle size={20}/></div>
+                                        <div>
+                                            <h4 className="font-bold text-gray-800">Cảnh báo hệ thống (Chậm trễ)</h4>
+                                            <p className="text-xs text-gray-500">Báo động khi khách đợi món quá thời gian quy định.</p>
+                                        </div>
+                                    </div>
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" checked={localSettings.notificationConfig.enableSystemAlert} onChange={() => toggleNotificationSetting('enableSystemAlert')} className="sr-only peer"/>
+                                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-teal-600"></div>
+                                    </label>
+                                </div>
+                             </div>
+
+                             <div className="mt-6 border-t pt-4">
+                                <button onClick={testNotification} className="flex items-center text-sm font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 px-4 py-2 rounded-lg transition-colors">
+                                    <BellRing size={16} className="mr-2"/> Kiểm tra thử thiết bị này
+                                </button>
+                                <p className="text-xs text-gray-400 mt-1 ml-1">Bấm để kiểm tra quyền thông báo trên trình duyệt hiện tại.</p>
                             </div>
                         </div>
                     </div>
