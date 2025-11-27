@@ -162,7 +162,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                           badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
                           // @ts-ignore - vibrate might not be in standard types but works on Android
                           vibrate: [200, 100, 200],
-                          tag: 'indigo-app-notification', // Consistent tag prevents spamming
+                          tag: 'indigo-app-notification-' + Date.now(), // Unique tag to ensure all notifications show
                           renotify: true
                       } as NotificationOptions);
                   } else {
@@ -277,16 +277,20 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               }
               loadData(true);
           })
-          .on('postgres_changes', { event: 'UPDATE', schema: 'public' }, (payload) => {
-              if (payload.table === 'serving_groups') {
-                  const newGroupData = payload.new as any;
-                  const oldGroupLocal = servingGroupsRef.current.find(g => g.id === newGroupData.id);
-                  if (oldGroupLocal && !oldGroupLocal.startTime && newGroupData.start_time) {
-                      sendNotification(
-                          "🔔 KHÁCH ĐÃ ĐẾN!", 
-                          `Đoàn ${newGroupData.name} đã vào bàn ${newGroupData.location}. Bắt đầu phục vụ!`
-                      );
-                  }
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'serving_groups' }, (payload) => {
+              const newGroupData = payload.new as any;
+              // IMPORTANT: Compare using String() to avoid Number vs String ID mismatches
+              const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(newGroupData.id));
+              
+              // Notification Logic:
+              // 1. Group exists locally
+              // 2. Previously had NO start time (or we check payload directly to be sure)
+              // 3. New payload HAS start time
+              if (newGroupData.start_time && (!oldGroupLocal || !oldGroupLocal.startTime)) {
+                  sendNotification(
+                      "🔔 KHÁCH ĐÃ ĐẾN!", 
+                      `Đoàn ${newGroupData.name} đã vào bàn ${newGroupData.location}. Bắt đầu phục vụ!`
+                  );
               }
               loadData(true);
           })
@@ -444,10 +448,19 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   }, []);
 
   const updateServingGroup = (id: string, updates: Partial<ServingGroup>) => modifyGroup(id, g => ({ ...g, ...updates }));
+  
   const startServingGroup = (id: string) => {
       const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
+      
+      // OPTIMISTIC UPDATE: Send notification to SELF immediately to avoid race condition
+      const group = servingGroups.find(g => g.id === id);
+      if (group) {
+           sendNotification("🔔 KHÁCH ĐÃ ĐẾN!", `Đoàn ${group.name} đã vào bàn ${group.location}. Bắt đầu phục vụ!`);
+      }
+
       modifyGroup(id, g => ({ ...g, startTime: time }));
   };
+
   const addServingItem = (groupId: string, item: ServingItem) => modifyGroup(groupId, g => ({ ...g, items: [...g.items, item] }));
   const updateServingItem = (groupId: string, itemId: string, updates: Partial<ServingItem>) => modifyGroup(groupId, g => ({ ...g, items: g.items.map(i => i.id === itemId ? { ...i, ...updates } : i) }));
   const deleteServingItem = (groupId: string, itemId: string) => modifyGroup(groupId, g => ({ ...g, items: g.items.filter(i => i.id !== itemId) }));
