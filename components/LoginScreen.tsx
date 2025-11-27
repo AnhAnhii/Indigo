@@ -1,16 +1,21 @@
+
 import React, { useState } from 'react';
 import { ShieldCheck, User, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
 export const LoginScreen: React.FC = () => {
-  const { login } = useGlobalContext();
+  const { login, requestNotificationPermission } = useGlobalContext();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    
+    // User Gesture: Request Permission here
+    await requestNotificationPermission();
+
     const success = login(username, password);
     if (!success) {
       setError('Mã nhân viên hoặc mật khẩu không đúng.');

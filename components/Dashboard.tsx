@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode, Sparkles, TrendingUp, Users, Clock, AlertCircle
+  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode, Sparkles, TrendingUp, Users, Clock, AlertCircle, BellRing, Download, Smartphone
 } from 'lucide-react';
 import { AppView, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -31,11 +31,25 @@ const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disab
 );
 
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
-  const { logs, currentUser, isLoading, servingGroups, schedules, settings } = useGlobalContext();
+  const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
+  // Notification State
+  const [permissionState, setPermissionState] = useState<string>(Notification.permission);
+  const [isIOS, setIsIOS] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    
+    // Detect iOS
+    const isIosDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    setIsIOS(isIosDevice);
+
+    // Detect Standalone (PWA)
+    const isStandAloneMode = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    setIsStandalone(isStandAloneMode);
+
     return () => clearInterval(timer);
   }, []);
 
@@ -121,9 +135,45 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
       };
   }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings]);
 
+  const handleEnableNotification = async () => {
+      const res = await requestNotificationPermission();
+      setPermissionState(res);
+  };
 
   return (
     <div className="space-y-8 relative">
+
+      {/* NOTIFICATION & PWA ALERTS */}
+      <div className="space-y-3">
+        {permissionState === 'default' && (
+            <div 
+                onClick={handleEnableNotification}
+                className="bg-blue-600 text-white p-4 rounded-xl shadow-lg shadow-blue-200 cursor-pointer hover:bg-blue-700 transition-colors flex items-center justify-between animate-pulse"
+            >
+                <div className="flex items-center">
+                    <div className="bg-white/20 p-2 rounded-full mr-3"><BellRing size={20} /></div>
+                    <div>
+                        <h4 className="font-bold">Bật thông báo ngay</h4>
+                        <p className="text-xs text-blue-100">Để nhận tin nhắn khi có khách mới hoặc đơn từ.</p>
+                    </div>
+                </div>
+                <div className="bg-white text-blue-700 text-xs font-bold px-3 py-2 rounded-lg">Kích hoạt</div>
+            </div>
+        )}
+
+        {isIOS && !isStandalone && (
+            <div className="bg-gray-800 text-white p-4 rounded-xl shadow-lg flex items-center justify-between">
+                 <div className="flex items-center">
+                    <div className="bg-white/10 p-2 rounded-full mr-3"><Smartphone size={20} /></div>
+                    <div>
+                        <h4 className="font-bold">Cài đặt App trên iPhone</h4>
+                        <p className="text-xs text-gray-300">Bấm nút <span className="font-bold border border-gray-600 px-1 rounded">Chia sẻ</span> chọn <span className="font-bold border border-gray-600 px-1 rounded">Thêm vào MH chính</span> để nhận thông báo.</p>
+                    </div>
+                </div>
+            </div>
+        )}
+      </div>
+
       {/* SMART AI BRIEFING CARD */}
       {aiInsights && (
           <div className={`rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden transition-all duration-500 ${aiInsights.isBusy ? 'bg-gradient-to-r from-orange-500 to-red-600' : 'bg-gradient-to-r from-indigo-600 to-purple-700'}`}>

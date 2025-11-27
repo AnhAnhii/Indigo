@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { 
   Employee, TimesheetLog, EmployeeRequest, 
@@ -64,11 +63,12 @@ interface GlobalContextType {
   logout: () => void;
 
   isLoading: boolean;
-  isRestoringSession: boolean; // NEW: Trạng thái đang khôi phục phiên
+  isRestoringSession: boolean; 
   lastUpdated: string;
   connectionStatus: 'CONNECTED' | 'DISCONNECTED' | 'CONNECTING';
   reloadData: () => void;
   testNotification: () => void;
+  requestNotificationPermission: () => Promise<string>; // Expose this
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -95,7 +95,7 @@ const SESSION_DURATION_DAYS = 7;
 
 export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [isRestoringSession, setIsRestoringSession] = useState(true); // Mặc định là đang khôi phục để hiện Splash Screen
+  const [isRestoringSession, setIsRestoringSession] = useState(true); 
   const [lastUpdated, setLastUpdated] = useState<string>('--:--');
   const [connectionStatus, setConnectionStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'>('CONNECTING');
   
@@ -112,9 +112,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
 
-  // REFs to hold latest state without triggering re-renders in useEffect
   const currentUserRef = useRef(currentUser);
   const servingGroupsRef = useRef(servingGroups);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
       currentUserRef.current = currentUser;
@@ -127,24 +127,43 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // --- NOTIFICATION HELPERS ---
   const playSound = () => {
       try {
-          const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-          audio.volume = 0.5;
-          audio.play().catch(e => console.log("Audio autoplay blocked", e));
+          if (!audioRef.current) {
+              audioRef.current = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+              audioRef.current.volume = 0.5;
+          }
+          const promise = audioRef.current.play();
+          if (promise !== undefined) {
+              promise.catch(error => {
+                  console.log("Audio autoplay prevented. User interaction required.");
+              });
+          }
       } catch (e) {
           console.error("Sound Error:", e);
       }
   };
 
-  const sendNotification = (title: string, body: string) => {
+  const sendNotification = async (title: string, body: string) => {
       playSound();
+      
+      // Check permission first
       if (typeof window !== 'undefined' && 'Notification' in window) {
-          const NotificationAPI = window['Notification'] as any;
-          if (NotificationAPI.permission === 'granted') {
+          if (Notification.permission === 'granted') {
               try {
-                  new NotificationAPI(title, {
-                      body: body,
-                      icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png'
-                  });
+                  // Try using ServiceWorkerRegistration (Best for Mobile/PWA)
+                  const registration = await navigator.serviceWorker.getRegistration();
+                  if (registration) {
+                      registration.showNotification(title, {
+                          body: body,
+                          icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+                          vibrate: [200, 100, 200]
+                      } as any);
+                  } else {
+                      // Fallback to standard API (Desktop)
+                      new Notification(title, {
+                          body: body,
+                          icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png'
+                      });
+                  }
               } catch (e) {
                   console.error("Notification Creation Error:", e);
               }
@@ -152,17 +171,16 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
   };
 
-  const requestNotificationPermission = () => {
+  const requestNotificationPermission = async () => {
       if (typeof window !== 'undefined' && 'Notification' in window) {
-          const NotificationAPI = window['Notification'] as any;
-          if (NotificationAPI.permission !== 'granted' && NotificationAPI.permission !== 'denied') {
-              try {
-                  NotificationAPI.requestPermission();
-              } catch (e) {
-                  console.error("Permission Request Error:", e);
-              }
+          const result = await Notification.requestPermission();
+          if (result === 'granted') {
+              // Pre-load audio on user gesture
+              playSound();
           }
+          return result;
       }
+      return 'denied';
   };
 
   // --- INITIAL DATA LOAD & SESSION RESTORE ---
@@ -187,7 +205,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setDismissedAlertIds(dismissedSet);
 
           if (!isBackground) setLastUpdated(new Date().toLocaleTimeString('vi-VN'));
-          return data.employees; // Return employees for session checking
+          return data.employees; 
       } catch (error) {
           console.error("Sync Error:", error);
           return [];
@@ -199,27 +217,22 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   // --- INIT APPLICATION ---
   useEffect(() => {
       const initApp = async () => {
-          // 1. Load Data first
           const loadedEmployees = await loadData(false);
 
-          // 2. Check LocalStorage for Session
           const sessionJson = localStorage.getItem(STORAGE_SESSION_KEY);
           if (sessionJson) {
               try {
                   const session = JSON.parse(sessionJson);
                   const now = Date.now();
-                  // Check expiry (7 days)
                   if (now - session.timestamp < SESSION_DURATION_DAYS * 24 * 60 * 60 * 1000) {
                       const user = loadedEmployees.find(e => e.id === session.userId);
                       if (user) {
                           setCurrentUser(user);
                           console.log("Session restored for:", user.name);
                       } else {
-                          // User ID not found in DB (deleted?)
                           localStorage.removeItem(STORAGE_SESSION_KEY);
                       }
                   } else {
-                      // Session expired
                       console.log("Session expired");
                       localStorage.removeItem(STORAGE_SESSION_KEY);
                   }
@@ -228,14 +241,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               }
           }
           
-          // 3. Finish Restoring
           setIsRestoringSession(false);
-          requestNotificationPermission();
       };
 
       initApp();
 
-      // Realtime Subscription
       const channel = supabase.channel('app-db-changes')
           .on('postgres_changes', { event: 'INSERT', schema: 'public' }, (payload) => {
               const user = currentUserRef.current;
@@ -279,7 +289,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return () => {
           supabase.removeChannel(channel);
       };
-  }, []); // Only run once on mount
+  }, []); 
 
   // --- SYSTEM CHECKS (ALERTS) ---
   const runSystemChecks = () => {
@@ -336,11 +346,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           return prevIds !== newIds ? newAlerts : prev;
       });
   };
-
-  useEffect(() => {
-      const timer = setInterval(runSystemChecks, 5000);
-      return () => clearInterval(timer);
-  }, [servingGroups, logs, settings]);
 
   // --- ACTIONS ---
 
@@ -489,13 +494,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       });
       if (user) {
           setCurrentUser(user);
-          // SAVE SESSION with Expiry
           const sessionData = {
               userId: user.id,
               timestamp: Date.now()
           };
           localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify(sessionData));
-          requestNotificationPermission();
           return true;
       }
       return false;
@@ -506,7 +509,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       localStorage.removeItem(STORAGE_SESSION_KEY);
   };
 
-  // Helper for Prep List (Shortened for brevity but kept functional)
   const generatePrepList = (group: ServingGroup): SauceItem[] => {
       const prepList: SauceItem[] = [];
       const groupNameLower = group.name.toLowerCase();
@@ -541,7 +543,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       isLoading, isRestoringSession, lastUpdated,
       connectionStatus,
       reloadData: () => loadData(false),
-      testNotification: () => sendNotification("Hệ thống hoạt động tốt", "Bạn đã cấu hình thông báo thành công!")
+      testNotification: () => sendNotification("Hệ thống hoạt động tốt", "Bạn đã cấu hình thông báo thành công!"),
+      requestNotificationPermission 
     }}>
       {children}
     </GlobalContext.Provider>
