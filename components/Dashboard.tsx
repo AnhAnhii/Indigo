@@ -30,12 +30,32 @@ const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disab
   </div>
 );
 
+// Helper để chuẩn hóa ngày về YYYY-MM-DD
+const normalizeDate = (dateStr: string | undefined): string => {
+    if (!dateStr) return '';
+    // Nếu là YYYY-MM-DD
+    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return dateStr;
+    
+    // Nếu là DD/MM/YYYY hoặc D/M/YYYY (Hỗ trợ 1 hoặc 2 chữ số)
+    if (dateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+        const parts = dateStr.split('/');
+        const d = parts[0].padStart(2, '0');
+        const m = parts[1].padStart(2, '0');
+        const y = parts[2];
+        return `${y}-${m}-${d}`;
+    }
+    
+    // Nếu là ISO string (có T)
+    if (dateStr.includes('T')) return dateStr.split('T')[0];
+    return dateStr;
+};
+
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
   // Notification State
-  const [permissionState, setPermissionState] = useState<string>(Notification.permission);
+  const [permissionState, setPermissionState] = useState<string>(typeof Notification !== 'undefined' ? Notification.permission : 'default');
   const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
 
@@ -53,7 +73,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
     return () => clearInterval(timer);
   }, []);
 
-  // FIX: Use specific formatter to match what Google Sheets/Context returns (VN Date YYYY-MM-DD)
+  // Format todayStr for log comparison (logs usually use YYYY-MM-DD via Intl 'en-CA')
   const todayStr = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh',
         year: 'numeric',
@@ -82,14 +102,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
       else greeting = "Chào buổi tối";
 
       // 2. Guest Analysis (Total guests today)
-      // Filter groups that match today's date
+      // Lấy ngày hiện tại chuẩn YYYY-MM-DD dựa trên múi giờ Việt Nam
+      const nowVN = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
+      const yyyy = nowVN.getFullYear();
+      const mm = String(nowVN.getMonth() + 1).padStart(2, '0');
+      const dd = String(nowVN.getDate()).padStart(2, '0');
+      const currentYMD = `${yyyy}-${mm}-${dd}`;
+
+      // Lọc các đoàn khớp với ngày hiện tại (Bất kể định dạng lưu trữ)
       const todayGroups = servingGroups.filter(g => {
           if (!g.date) return false;
-          // Normalize date string comparison
-          return g.date === todayStr; 
+          // Normalize both DB date and current Date to ensure match
+          return normalizeDate(g.date) === currentYMD; 
       });
       
-      const totalGuests = todayGroups.reduce((sum, g) => sum + g.guestCount, 0);
+      const totalGuests = todayGroups.reduce((sum, g) => sum + (Number(g.guestCount) || 0), 0);
       const isBusy = totalGuests > 200;
 
       let guestMessage = "";
@@ -133,7 +160,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
           isBusy,
           totalGuests
       };
-  }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings]);
+  }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings, todayStr]);
 
   const handleEnableNotification = async () => {
       const res = await requestNotificationPermission();

@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { 
   Employee, TimesheetLog, EmployeeRequest, 
@@ -151,12 +152,17 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               try {
                   // Try using ServiceWorkerRegistration (Best for Mobile/PWA)
                   const registration = await navigator.serviceWorker.getRegistration();
-                  if (registration) {
-                      registration.showNotification(title, {
+                  if (registration && registration.active) {
+                      // Use showNotification from SW for iOS/Android Banner support
+                      await registration.showNotification(title, {
                           body: body,
                           icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-                          vibrate: [200, 100, 200]
-                      } as any);
+                          badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+                          // @ts-ignore - vibrate might not be in standard types but works
+                          vibrate: [200, 100, 200],
+                          tag: Date.now().toString(), // Unique tag to ensure it shows up
+                          renotify: true
+                      });
                   } else {
                       // Fallback to standard API (Desktop)
                       new Notification(title, {
