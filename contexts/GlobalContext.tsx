@@ -150,21 +150,23 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       if (typeof window !== 'undefined' && 'Notification' in window) {
           if (Notification.permission === 'granted') {
               try {
-                  // Try using ServiceWorkerRegistration (Best for Mobile/PWA)
-                  const registration = await navigator.serviceWorker.getRegistration();
+                  // PRIORITY: Use ServiceWorkerRegistration (Best for Mobile/PWA)
+                  // navigator.serviceWorker.ready is more reliable than getRegistration()
+                  const registration = await navigator.serviceWorker.ready;
+                  
                   if (registration && registration.active) {
                       // Use showNotification from SW for iOS/Android Banner support
                       await registration.showNotification(title, {
                           body: body,
                           icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
                           badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-                          // @ts-ignore - vibrate might not be in standard types but works
+                          // @ts-ignore - vibrate might not be in standard types but works on Android
                           vibrate: [200, 100, 200],
-                          tag: Date.now().toString(), // Unique tag to ensure it shows up
+                          tag: 'indigo-app-notification', // Consistent tag prevents spamming
                           renotify: true
-                      });
+                      } as NotificationOptions);
                   } else {
-                      // Fallback to standard API (Desktop)
+                      // Fallback to standard API (Desktop without SW)
                       new Notification(title, {
                           body: body,
                           icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png'
@@ -172,6 +174,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   }
               } catch (e) {
                   console.error("Notification Creation Error:", e);
+                  // Ultimate fallback
+                  try {
+                      new Notification(title, { body });
+                  } catch (e2) {}
               }
           }
       }
@@ -183,6 +189,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           if (result === 'granted') {
               // Pre-load audio on user gesture
               playSound();
+              // Try to register SW push subscription if needed here
           }
           return result;
       }

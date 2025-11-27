@@ -33,20 +33,34 @@ const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disab
 // Helper để chuẩn hóa ngày về YYYY-MM-DD
 const normalizeDate = (dateStr: string | undefined): string => {
     if (!dateStr) return '';
-    // Nếu là YYYY-MM-DD
+    // 1. Check YYYY-MM-DD (e.g., 2024-03-01)
     if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return dateStr;
     
-    // Nếu là DD/MM/YYYY hoặc D/M/YYYY (Hỗ trợ 1 hoặc 2 chữ số)
-    if (dateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+    // 2. Check DD/MM/YYYY or D/M/YYYY (Hỗ trợ cả 1 chữ số)
+    if (dateStr.includes('/')) {
         const parts = dateStr.split('/');
-        const d = parts[0].padStart(2, '0');
-        const m = parts[1].padStart(2, '0');
-        const y = parts[2];
-        return `${y}-${m}-${d}`;
+        if (parts.length === 3) {
+             const d = parts[0].padStart(2, '0');
+             const m = parts[1].padStart(2, '0');
+             const y = parts[2];
+             return `${y}-${m}-${d}`;
+        }
     }
     
-    // Nếu là ISO string (có T)
+    // 3. ISO String with T
     if (dateStr.includes('T')) return dateStr.split('T')[0];
+    
+    // 4. Check YYYY-M-D (e.g., 2024-3-1)
+    if (dateStr.includes('-')) {
+         const parts = dateStr.split('-');
+         if (parts.length === 3) {
+             const y = parts[0];
+             const m = parts[1].padStart(2, '0');
+             const d = parts[2].padStart(2, '0');
+             return `${y}-${m}-${d}`;
+         }
+    }
+
     return dateStr;
 };
 
@@ -101,31 +115,33 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
       else if (hour < 18) greeting = "Chào buổi chiều";
       else greeting = "Chào buổi tối";
 
-      // 2. Guest Analysis (Total guests today)
-      // Lấy ngày hiện tại chuẩn YYYY-MM-DD dựa trên múi giờ Việt Nam
+      // 2. Guest Analysis
+      // YÊU CẦU MỚI: Tính theo số lượng khách ĐANG PHỤC VỤ (Active) để khớp với màn hình "Ra đồ"
+      const activeGroups = servingGroups.filter(g => g.status !== 'COMPLETED');
+      const activeGuests = activeGroups.reduce((sum, g) => sum + (Number(g.guestCount) || 0), 0);
+
+      // Thống kê phụ: Tổng khách hôm nay (bao gồm đã về)
       const nowVN = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
       const yyyy = nowVN.getFullYear();
       const mm = String(nowVN.getMonth() + 1).padStart(2, '0');
       const dd = String(nowVN.getDate()).padStart(2, '0');
       const currentYMD = `${yyyy}-${mm}-${dd}`;
 
-      // Lọc các đoàn khớp với ngày hiện tại (Bất kể định dạng lưu trữ)
       const todayGroups = servingGroups.filter(g => {
           if (!g.date) return false;
-          // Normalize both DB date and current Date to ensure match
           return normalizeDate(g.date) === currentYMD; 
       });
+      const totalGuestsToday = todayGroups.reduce((sum, g) => sum + (Number(g.guestCount) || 0), 0);
       
-      const totalGuests = todayGroups.reduce((sum, g) => sum + (Number(g.guestCount) || 0), 0);
-      const isBusy = totalGuests > 200;
+      const isBusy = activeGuests > 100;
 
       let guestMessage = "";
-      if (totalGuests === 0) {
-          guestMessage = "Hôm nay chưa có đoàn khách nào. Hãy chuẩn bị sẵn sàng nhé!";
+      if (activeGuests === 0) {
+          guestMessage = `Hiện tại chưa có khách đang ăn. (Tổng lượt đón hôm nay: ${totalGuestsToday})`;
       } else if (isBusy) {
-          guestMessage = `🔥 WOW! Hôm nay nhà hàng đón tới ${totalGuests} khách. Rất đông! Hãy tập trung cao độ và hỗ trợ nhau nhé! 💪`;
+          guestMessage = `🔥 Nhà hàng đang phục vụ ${activeGuests} khách. Rất đông! Hãy tập trung cao độ nhé! 💪 (Tổng hôm nay: ${totalGuestsToday})`;
       } else {
-          guestMessage = `Hôm nay nhà hàng đón ${totalGuests} khách. Nhịp độ ổn định, chúc bạn làm việc hiệu quả! ✨`;
+          guestMessage = `Nhà hàng đang phục vụ ${activeGuests} khách. Nhịp độ ổn định. (Tổng hôm nay: ${totalGuestsToday})`;
       }
 
       // 3. Personal Status Analysis
@@ -158,7 +174,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
           guestMessage,
           personalMessage,
           isBusy,
-          totalGuests
+          totalGuests: activeGuests // Sử dụng Active Guest làm chỉ số chính
       };
   }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings, todayStr]);
 
@@ -224,7 +240,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                       <div className="flex items-center gap-4 pt-2">
                           <div className="flex items-center bg-white/20 rounded-lg px-3 py-1.5 text-sm backdrop-blur-sm">
                               <Users size={16} className="mr-2 text-blue-200"/>
-                              <span className="font-bold">{aiInsights.totalGuests} Khách hôm nay</span>
+                              <span className="font-bold">{aiInsights.totalGuests} Khách đang ăn</span>
                           </div>
                           {aiInsights.isBusy && (
                               <div className="flex items-center bg-red-500/30 border border-red-200/50 rounded-lg px-3 py-1.5 text-sm backdrop-blur-sm animate-pulse">
