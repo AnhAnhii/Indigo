@@ -247,16 +247,18 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const testNotification = async () => {
       try {
           unlockAudio();
-          // Prompt user for text to verify different messages
-          const customText = window.prompt("Nhập nội dung test (để trống sẽ dùng mặc định):", "Kiểm tra hệ thống");
           const permission = await requestNotificationPermission();
           
           if (permission === 'granted') {
-              const textToShow = customText || "Hệ thống hoạt động tốt!";
-              await dispatchNotification("🔔 TEST THÔNG BÁO", textToShow);
-              // alert("Đã gửi lệnh thông báo. Vui lòng chờ 3-5 giây.");
+              // Gửi thông báo MÔ PHỎNG với TEXT ĐẦY ĐỦ ngay lập tức
+              const time = new Date().toLocaleTimeString('vi-VN');
+              await dispatchNotification(
+                  "🔔 [TEST] KHÁCH MỚI ĐẾN", 
+                  `Đoàn: Gia đình Test (Mô phỏng)\nBàn: A01 - Khu vực VIP\nSố lượng: 6 khách\nThời gian: ${time}\n(Đây là tin nhắn kiểm tra hiển thị văn bản)`
+              );
+              alert("Đã gửi thông báo mô phỏng! Hãy kiểm tra trên màn hình.");
           } else {
-              alert(`Quyền thông báo đang bị chặn (${permission}). Hãy vào Cài đặt điện thoại > Safari > Nâng cao > Experimental Features > Bật Push API.`);
+              alert(`Quyền thông báo chưa được cấp (${permission}). Vui lòng kiểm tra cài đặt.`);
           }
       } catch (e: any) {
           alert("Lỗi: " + e.message);
