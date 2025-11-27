@@ -128,23 +128,24 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const unlockAudio = useCallback(() => {
       try {
-          if (!audioContextRef.current) {
-              // @ts-ignore
-              const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-              if (AudioContextClass) {
+          // @ts-ignore
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) {
+              if (!audioContextRef.current) {
                   audioContextRef.current = new AudioContextClass();
               }
-          }
-          const ctx = audioContextRef.current;
-          if (ctx) {
-              if (ctx.state === 'suspended') {
-                  ctx.resume();
+              const ctx = audioContextRef.current;
+              if (ctx) {
+                  if (ctx.state === 'suspended') {
+                      ctx.resume().catch(e => console.warn("Audio resume failed:", e));
+                  }
+                  // Play silent buffer to unlock
+                  const buffer = ctx.createBuffer(1, 1, 22050);
+                  const source = ctx.createBufferSource();
+                  source.buffer = buffer;
+                  source.connect(ctx.destination);
+                  source.start(0);
               }
-              const buffer = ctx.createBuffer(1, 1, 22050);
-              const source = ctx.createBufferSource();
-              source.buffer = buffer;
-              source.connect(ctx.destination);
-              source.start(0);
           }
       } catch (e) {
           console.warn("Audio unlock failed:", e);
@@ -162,7 +163,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               oscillator.connect(gainNode);
               gainNode.connect(ctx.destination);
 
-              // Sound Config: High pitch beep
+              // Sound Config: High pitch beep sequence
               oscillator.type = 'sine';
               oscillator.frequency.setValueAtTime(880, ctx.currentTime); 
               oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
@@ -182,49 +183,62 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   useEffect(() => { servingGroupsRef.current = servingGroups; }, [servingGroups]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
 
-  // --- NOTIFICATION CORE SYSTEM ---
+  // --- OMNI-CHANNEL NOTIFICATION SYSTEM ---
   const dispatchNotification = async (title: string, body: string) => {
-      console.log(`[Notification] Triggering: ${title}`);
+      console.log(`[Notification Dispatch] Title: ${title}`);
       
-      // 1. Play Sound (Sound is critical for Restaurants)
+      // 1. Play Sound first (User interaction requirement)
       playSound(); 
 
-      if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      // Check Permission
+      if (Notification.permission !== 'granted') {
+          console.warn("Notification permission not granted");
           return;
       }
 
+      const tag = 'indigo-' + Date.now();
       const options = {
           body: body,
           icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
           badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
           // @ts-ignore
           vibrate: [200, 100, 200], 
-          tag: 'indigo-' + Date.now(), 
+          tag: tag, 
           renotify: true, 
           requireInteraction: true 
       };
 
-      try {
-          // CHIẾN THUẬT GỬI KÉP (DUAL DISPATCH) ĐỂ ĐẢM BẢO HIỂN THỊ
-          
-          // KÊNH 1: Gọi trực tiếp qua ServiceWorkerRegistration (Chuẩn PWA)
-          const registration = await navigator.serviceWorker.ready;
-          if (registration) {
-              registration.showNotification(title, options)
-                  .catch(e => console.error("Direct show failed:", e));
-              
-              // KÊNH 2: Gửi tin nhắn xuống Service Worker (Dự phòng cho iOS/Foreground)
-              if (navigator.serviceWorker.controller) {
-                  navigator.serviceWorker.controller.postMessage({
-                      type: 'SHOW_NOTIFICATION',
-                      title: title,
-                      body: body,
-                      tag: options.tag
-                  });
+      // CHIẾN THUẬT: THỬ TẤT CẢ CÁC CÁCH (TRY EVERYTHING)
+
+      // CÁCH 1: Service Worker Registration (Chuẩn PWA - Ổn định nhất trên Android/Chrome)
+      if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(registration => {
+              if (registration) {
+                  registration.showNotification(title, options)
+                      .then(() => console.log("Method 1 (SW Ready): Sent"))
+                      .catch(e => console.error("Method 1 Failed:", e));
               }
-          } 
+          });
+      }
+
+      // CÁCH 2: PostMessage xuống SW (Dự phòng cho iOS khi App đang mở - Foreground)
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+              type: 'SHOW_NOTIFICATION',
+              title: title,
+              body: body,
+              tag: tag
+          });
+          console.log("Method 2 (PostMessage): Sent");
+      }
+
+      // CÁCH 3: Legacy Notification API (Dự phòng cho Desktop Safari cũ)
+      try {
+          const n = new Notification(title, options);
+          n.onclick = () => { window.focus(); n.close(); };
+          console.log("Method 3 (Legacy New): Sent");
       } catch (e) {
-          console.error("[Notification] Dispatch Error:", e);
+          console.log("Method 3 Failed (Expected on Android):", e);
       }
   };
 
@@ -246,22 +260,29 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const testNotification = async () => {
       try {
-          unlockAudio();
+          unlockAudio(); // Unlock audio context
           const permission = await requestNotificationPermission();
           
           if (permission === 'granted') {
-              // Gửi thông báo MÔ PHỎNG với TEXT ĐẦY ĐỦ ngay lập tức
+              // Yêu cầu người dùng nhập nội dung để test thực tế
+              // @ts-ignore
+              let textInput = window.prompt("Nhập nội dung thông báo test:", "Nội dung mẫu: Khách đoàn 10 người...");
+              
+              if (textInput === null) return; // User cancelled
+              if (textInput.trim() === "") textInput = "Đây là thông báo mẫu kiểm tra hiển thị.";
+
               const time = new Date().toLocaleTimeString('vi-VN');
+              
               await dispatchNotification(
-                  "🔔 [TEST] KHÁCH MỚI ĐẾN", 
-                  `Đoàn: Gia đình Test (Mô phỏng)\nBàn: A01 - Khu vực VIP\nSố lượng: 6 khách\nThời gian: ${time}\n(Đây là tin nhắn kiểm tra hiển thị văn bản)`
+                  "🔔 TEST HỆ THỐNG", 
+                  `${textInput}\nThời gian: ${time}\n(ID: ${Date.now().toString().slice(-4)})`
               );
-              alert("Đã gửi thông báo mô phỏng! Hãy kiểm tra trên màn hình.");
+              
           } else {
-              alert(`Quyền thông báo chưa được cấp (${permission}). Vui lòng kiểm tra cài đặt.`);
+              alert(`Quyền thông báo đang là: ${permission}. Vui lòng vào cài đặt trình duyệt để BẬT.`);
           }
       } catch (e: any) {
-          alert("Lỗi: " + e.message);
+          alert("Lỗi khi test: " + e.message);
       }
   };
 

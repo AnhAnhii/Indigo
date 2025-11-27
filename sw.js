@@ -1,14 +1,27 @@
 
 self.addEventListener('install', (event) => {
+  // Bắt buộc Service Worker kích hoạt ngay lập tức, không chờ tab cũ đóng
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  // QUAN TRỌNG: Chiếm quyền kiểm soát tất cả các tab đang mở ngay lập tức
+  // Chiếm quyền kiểm soát tất cả các clients (tabs) đang mở ngay lập tức
   event.waitUntil(self.clients.claim());
 });
 
-// 1. Lắng nghe sự kiện Push từ Server (Web Push API - Dự phòng)
+// Cấu hình chung cho thông báo
+const getNotificationOptions = (body, tag) => ({
+  body: body,
+  icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+  badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+  vibrate: [200, 100, 200, 100, 200], // Rung dài hơn để gây chú ý
+  tag: tag || 'general-' + Date.now(), // Tag động để thông báo luôn nổi lên mới
+  renotify: true, // Bắt buộc rung/chuông lại ngay cả khi tag trùng
+  requireInteraction: true, // Giữ thông báo trên màn hình đến khi user tắt
+  data: { url: '/' }
+});
+
+// 1. Xử lý sự kiện Push từ Server (Web Push API)
 self.addEventListener('push', (event) => {
   let data = 'Bạn có thông báo mới';
   let title = 'Indigo Restaurant';
@@ -23,45 +36,32 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const options = {
-    body: data,
-    icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-    badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-    vibrate: [200, 100, 200],
-    data: { url: '/' },
-    tag: 'push-' + Date.now(), // Tag động để không bị ghi đè
-    renotify: true, // Bắt buộc rung/chuông lại
-    requireInteraction: true // Giữ thông báo trên màn hình
-  };
-
   event.waitUntil(
-    self.registration.showNotification(title, options)
+    self.registration.showNotification(title, getNotificationOptions(data, 'push-' + Date.now()))
   );
 });
 
-// 2. Lắng nghe lệnh từ Main Thread (Client gửi xuống)
-// Đây là giải pháp cho iOS khi App đang mở (Foreground)
+// 2. Xử lý lệnh từ Main Thread (App gửi xuống)
+// Đây là luồng quan trọng nhất cho iOS khi App đang mở
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    const title = event.data.title || 'Thông báo';
-    const options = {
-      body: event.data.body,
-      icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-      badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-      vibrate: [200, 100, 200],
-      tag: 'msg-' + Date.now(), // Luôn tạo tag mới
-      renotify: true,
-      requireInteraction: true 
-    };
+    const title = event.data.title || 'Thông báo hệ thống';
+    const body = event.data.body || '';
+    const tag = event.data.tag || 'msg-' + Date.now();
+
+    // Gửi phản hồi lại Client (Optional debugging)
+    event.ports[0]?.postMessage({ status: 'received' });
 
     event.waitUntil(
-      self.registration.showNotification(title, options)
+      self.registration.showNotification(title, getNotificationOptions(body, tag))
     );
   }
 });
 
+// 3. Xử lý khi người dùng bấm vào thông báo
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
+  event.notification.close(); // Đóng thông báo
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       // Nếu có tab đang mở, focus vào nó
@@ -70,7 +70,7 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      // Nếu không, mở cửa sổ mới
+      // Nếu không, mở cửa sổ mới về trang chủ
       if (clients.openWindow) {
         return clients.openWindow('/');
       }
