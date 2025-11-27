@@ -7,9 +7,8 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// Lắng nghe sự kiện Push từ server (hoặc giả lập từ client)
+// 1. Lắng nghe sự kiện Push từ Server (Web Push API)
 self.addEventListener('push', (event) => {
-  // Payload có thể là text hoặc JSON
   let data = 'Bạn có thông báo mới';
   let title = 'Indigo Restaurant';
   
@@ -28,9 +27,8 @@ self.addEventListener('push', (event) => {
     icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
     badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
     vibrate: [100, 50, 100],
-    data: {
-      url: '/' // URL để mở khi click
-    }
+    data: { url: '/' },
+    tag: 'push-notification'
   };
 
   event.waitUntil(
@@ -38,20 +36,39 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// Xử lý khi người dùng click vào thông báo
+// 2. Lắng nghe lệnh từ Main Thread (Client gửi xuống để hiển thị thông báo)
+// Đây là cách fix lỗi cho iOS khi gọi từ giao diện không hiện
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
+    const title = event.data.title || 'Thông báo hệ thống';
+    const options = {
+      body: event.data.body,
+      icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+      badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+      vibrate: [200, 100, 200],
+      data: { url: '/' },
+      tag: 'manual-notification-' + Date.now()
+    };
+
+    event.waitUntil(
+      self.registration.showNotification(title, options)
+    );
+  }
+});
+
+// 3. Xử lý khi click vào thông báo
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   
-  // Mở app hoặc focus vào tab đang mở
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Nếu có tab đang mở, focus vào nó
       for (const client of clientList) {
-        // Nếu tab đã mở và đúng URL, focus vào nó
         if (client.url && 'focus' in client) {
           return client.focus();
         }
       }
-      // Nếu chưa mở, mở cửa sổ mới về trang chủ
+      // Nếu không, mở tab mới
       if (clients.openWindow) {
         return clients.openWindow('/');
       }
