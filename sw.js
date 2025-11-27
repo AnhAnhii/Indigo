@@ -7,7 +7,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// 1. Lắng nghe sự kiện Push từ Server (Web Push API)
+// 1. Lắng nghe sự kiện Push từ Server (Web Push API - Dự phòng)
 self.addEventListener('push', (event) => {
   let data = 'Bạn có thông báo mới';
   let title = 'Indigo Restaurant';
@@ -26,9 +26,11 @@ self.addEventListener('push', (event) => {
     body: data,
     icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
     badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-    vibrate: [100, 50, 100],
+    vibrate: [200, 100, 200],
     data: { url: '/' },
-    tag: 'push-notification'
+    tag: 'push-notification-' + Date.now(), // Tag động để không bị gom nhóm
+    renotify: true, // Bắt buộc rung/chuông lại khi có tin mới
+    requireInteraction: true // Giữ thông báo trên màn hình đến khi user tắt
   };
 
   event.waitUntil(
@@ -37,7 +39,7 @@ self.addEventListener('push', (event) => {
 });
 
 // 2. Lắng nghe lệnh từ Main Thread (Client gửi xuống để hiển thị thông báo)
-// Đây là cách fix lỗi cho iOS khi gọi từ giao diện không hiện
+// Đây là luồng chính cho iOS PWA khi App đang chạy
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
     const title = event.data.title || 'Thông báo hệ thống';
@@ -47,7 +49,9 @@ self.addEventListener('message', (event) => {
       badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
       vibrate: [200, 100, 200],
       data: { url: '/' },
-      tag: 'manual-notification-' + Date.now()
+      tag: event.data.tag || 'manual-notification-' + Date.now(),
+      renotify: true, // Quan trọng: Rung máy lại cho mỗi thông báo
+      requireInteraction: true // Quan trọng: Giữ banner hiển thị lâu hơn
     };
 
     event.waitUntil(

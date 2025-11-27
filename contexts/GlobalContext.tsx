@@ -193,13 +193,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       if (typeof window === 'undefined') return;
       if (!('Notification' in window)) return;
 
-      // 2. Try Service Worker (Best for Mobile)
+      // 2. Try Service Worker (Best for Mobile) - Ưu tiên phương pháp này
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
           try {
               navigator.serviceWorker.controller.postMessage({
                   type: 'SHOW_NOTIFICATION',
                   title: title,
-                  body: body
+                  body: body,
+                  // Gửi thêm timestamp để đảm bảo tag là duy nhất hoặc dùng logic trong sw.js
               });
               return;
           } catch (e) {
@@ -217,7 +218,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
                   // @ts-ignore
                   vibrate: [200, 100, 200], 
-                  tag: 'indigo-app-' + Date.now()
+                  tag: 'indigo-app-' + Date.now(), // Tag độc nhất để hiển thị nhiều thông báo
+                  renotify: true // Rung lại ngay cả khi có thông báo cũ
               });
               return;
           }
@@ -255,7 +257,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           if (permission === 'granted') {
               await dispatchNotification(
                   "🔔 Kiểm tra thành công", 
-                  "Âm thanh và thông báo đang hoạt động!"
+                  "Thông báo đã hoạt động.\nHệ thống sẵn sàng nhận tin!"
               );
               alert("Đã gửi lệnh thông báo. Bạn có nghe thấy tiếng BÍP không?");
           } else {
@@ -331,7 +333,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               if (payload.table === 'serving_groups') {
                   if (config.enableGuestArrival) {
                       const newGroup = payload.new as any;
-                      dispatchNotification("Khách mới", `${newGroup.name} - Bàn ${newGroup.location}`);
+                      // Format rõ ràng hơn
+                      dispatchNotification(
+                          "🔔 KHÁCH MỚI ĐẾN", 
+                          `Đoàn: ${newGroup.name}\nTại bàn: ${newGroup.location}\nSố khách: ${newGroup.guest_count || '?'} pax`
+                      );
                   }
               }
 
@@ -353,7 +359,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   const isNowStarted = !!newGroupData.start_time;
 
                   if (wasNotStarted && isNowStarted) {
-                      dispatchNotification("KHÁCH ĐÃ VÀO!", `Đoàn ${newGroupData.name} @ ${newGroupData.location}`);
+                      // Thông báo khi bấm "Báo khách đến"
+                      dispatchNotification(
+                          "🚀 KHÁCH ĐÃ VÀO", 
+                          `Đoàn: ${newGroupData.name}\nBàn: ${newGroupData.location}\nGiờ vào: ${newGroupData.start_time}`
+                      );
                   }
               }
               loadData(true);
@@ -394,7 +404,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
                       if (config.enableSystemAlert) {
                           if (!dismissedAlertIds.has(alertId) && !activeAlerts.find(a => a.id === alertId)) {
-                              dispatchNotification("Ra đồ chậm!", `${alertTitle}`);
+                              dispatchNotification("⚠️ RA ĐỒ CHẬM!", `${alertTitle}\n${alertDetails}`);
                           }
                       }
                       
@@ -466,7 +476,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const startServingGroup = (id: string) => {
       const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
       const group = servingGroups.find(g => String(g.id) === String(id));
-      if (group) dispatchNotification("Đã xác nhận!", `Đoàn ${group.name} bắt đầu phục vụ.`);
+      // Thông báo local cho người bấm
+      if (group) dispatchNotification("✅ ĐÃ XÁC NHẬN", `Đoàn: ${group.name}\nBàn: ${group.location} | Giờ: ${time}`);
       modifyGroup(id, g => ({ ...g, startTime: time }));
   };
   const addServingItem = (gId: string, item: ServingItem) => modifyGroup(gId, g => ({ ...g, items: [...g.items, item] }));
