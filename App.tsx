@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -21,7 +21,7 @@ import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
 const AppContent: React.FC = () => {
-  const { currentUser, logout, activeAlerts, dismissedAlertIds, dismissAlert, connectionStatus } = useGlobalContext();
+  const { currentUser, logout, activeAlerts, dismissedAlertIds, dismissAlert, connectionStatus, isLoading } = useGlobalContext();
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -38,6 +38,19 @@ const AppContent: React.FC = () => {
       }
       setIsMobileMenuOpen(false);
   }, [currentView, isAdmin, currentUser]);
+
+  // HANDLE INITIAL LOADING (Show splash screen instead of Login if recovering session)
+  if (isLoading && !currentUser) {
+      return (
+          <div className="min-h-screen bg-teal-800 flex flex-col items-center justify-center">
+              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                  <ShieldCheck size={40} className="text-white" />
+              </div>
+              <Loader2 size={32} className="text-white animate-spin" />
+              <p className="text-white/80 mt-2 font-medium">Đang khởi động hệ thống...</p>
+          </div>
+      );
+  }
 
   if (!currentUser) return <LoginScreen />;
 

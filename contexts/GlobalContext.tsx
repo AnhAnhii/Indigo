@@ -91,8 +91,10 @@ const INITIAL_SETTINGS: SystemSettings = {
 // SIMPLE BEEP SOUND (Base64 MP3)
 const NOTIFICATION_SOUND = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjIwLjEwMAAAAAAAAAAAAAAA//uQZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWgAAAA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//uQZAAJQAAAA0AAAA0AAAA0AAAA0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//uQZAAJLAAABAAAAIAAAACUAAAAnAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
+const STORAGE_USER_ID_KEY = 'RS_USER_ID';
+
 export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // Default true to handle initial check
   const [lastUpdated, setLastUpdated] = useState<string>('--:--');
   const [connectionStatus, setConnectionStatus] = useState<'CONNECTED' | 'DISCONNECTED' | 'CONNECTING'>('CONNECTING');
   
@@ -138,11 +140,12 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       playSound();
 
       // 2. Browser Notification (SAFE CHECK for iOS/Mobile)
-      // Check if 'window' exists and 'Notification' exists in window to avoid ReferenceError
       if (typeof window !== 'undefined' && 'Notification' in window) {
-          if (Notification.permission === 'granted') {
+          // Use window['Notification'] to avoid ReferenceError on some iOS versions/browsers
+          const NotificationAPI = window['Notification'] as any;
+          if (NotificationAPI.permission === 'granted') {
               try {
-                  new Notification(title, {
+                  new NotificationAPI(title, {
                       body: body,
                       icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png'
                   });
@@ -156,11 +159,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const requestNotificationPermission = () => {
-      // Safe check before accessing Notification
       if (typeof window !== 'undefined' && 'Notification' in window) {
-          if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+          const NotificationAPI = window['Notification'] as any;
+          if (NotificationAPI.permission !== 'granted' && NotificationAPI.permission !== 'denied') {
               try {
-                  Notification.requestPermission().then(permission => {
+                  NotificationAPI.requestPermission().then((permission: any) => {
                       if (permission === 'granted') {
                           console.log("Notification permission granted.");
                       }
@@ -193,10 +196,19 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           const dismissedSet = new Set<string>(data.dismissedAlerts.map((a: any) => String(a.id)));
           setDismissedAlertIds(dismissedSet);
 
-          // Update currentUser if they exist in the fetched data (to keep profile fresh)
-          if (currentUserRef.current) {
-              const updatedMe = data.employees.find(e => e.id === currentUserRef.current?.id);
-              if (updatedMe) setCurrentUser(updatedMe);
+          // --- SESSION RESTORATION LOGIC ---
+          const storedUserId = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_USER_ID_KEY) : null;
+          const targetUserId = currentUserRef.current?.id || storedUserId;
+
+          if (targetUserId) {
+              const foundUser = data.employees.find(e => e.id === targetUserId);
+              if (foundUser) {
+                  setCurrentUser(foundUser);
+              } else if (storedUserId) {
+                  // ID exists in storage but not in DB (deleted user) -> Clear storage
+                  localStorage.removeItem(STORAGE_USER_ID_KEY);
+                  setCurrentUser(null);
+              }
           }
 
           if (!isBackground) setLastUpdated(new Date().toLocaleTimeString('vi-VN'));
@@ -454,13 +466,19 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       });
       if (user) {
           setCurrentUser(user);
+          // SAVE SESSION
+          localStorage.setItem(STORAGE_USER_ID_KEY, user.id);
           requestNotificationPermission();
           return true;
       }
       return false;
   };
 
-  const logout = () => setCurrentUser(null);
+  const logout = () => {
+      setCurrentUser(null);
+      // CLEAR SESSION
+      localStorage.removeItem(STORAGE_USER_ID_KEY);
+  };
 
   const generatePrepList = (group: ServingGroup): SauceItem[] => {
       const prepList: SauceItem[] = [];
