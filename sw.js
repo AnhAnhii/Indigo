@@ -1,4 +1,3 @@
-
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
@@ -24,8 +23,8 @@ self.addEventListener('push', (event) => {
 
   const options = {
       body: data,
-      icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-      badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+      icon: 'https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
+      badge: 'https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
       tag: 'push-' + Date.now(),
       renotify: true,
       requireInteraction: true
@@ -46,8 +45,8 @@ self.addEventListener('message', (event) => {
 
     const options = {
         body: body,
-        icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-        badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+        icon: 'https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
+        badge: 'https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
         tag: tag,
         renotify: true, // Rung lại khi có thông báo mới
         requireInteraction: true, // Giữ thông báo không tự tắt

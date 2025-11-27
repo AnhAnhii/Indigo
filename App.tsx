@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
@@ -19,6 +18,10 @@ import { QrStation } from './components/QrStation';
 import { LoginScreen } from './components/LoginScreen';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
+
+// LOGO CONFIGURATION - EXTERNAL URL FOR RELIABILITY
+// Sử dụng link Github raw image
+export const LOGO_URL = "https://github.com/AnhAnhii/Indigo/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true";
 
 const AppContent: React.FC = () => {
   const { currentUser, logout, activeAlerts, dismissedAlertIds, dismissAlert, connectionStatus, isRestoringSession } = useGlobalContext();
@@ -43,8 +46,8 @@ const AppContent: React.FC = () => {
   if (isRestoringSession) {
       return (
           <div className="min-h-screen bg-teal-800 flex flex-col items-center justify-center">
-              <div className="w-20 h-20 bg-white/20 rounded-full flex items-center justify-center mb-4 animate-pulse">
-                  <ShieldCheck size={40} className="text-white" />
+              <div className="w-24 h-24 bg-white/10 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                   <img src={LOGO_URL} alt="Logo" className="w-20 h-20 object-contain" />
               </div>
               <Loader2 size={32} className="text-white animate-spin" />
               <p className="text-white/80 mt-2 font-medium">Đang khởi động hệ thống...</p>
@@ -138,9 +141,9 @@ const AppContent: React.FC = () => {
       )}
 
       <div className={`md:hidden bg-white border-b p-4 flex justify-between items-center sticky top-0 z-20 shadow-sm shrink-0 ${bannerAlerts.length > 0 ? 'mt-14' : ''}`}>
-        <div className="flex items-center space-x-2 font-bold text-xl text-teal-700">
-          <ShieldCheck />
-          <span>Indigo Restaurant</span>
+        <div className="flex items-center space-x-3 font-bold text-xl text-teal-700">
+           <img src={LOGO_URL} alt="Logo" className="w-10 h-10 object-contain" />
+           <span className="text-lg">Indigo Sapa</span>
         </div>
         <div className="flex items-center gap-3">
             <button onClick={() => setCurrentView(AppView.NOTIFICATIONS)} className="relative p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg">
@@ -159,12 +162,10 @@ const AppContent: React.FC = () => {
         }`}
       >
         <div className="p-6 border-b flex items-center space-x-3 shrink-0">
-          <div className="p-2 bg-teal-600 rounded-xl text-white shadow-lg shadow-teal-200">
-             <ShieldCheck size={24} />
-          </div>
+          <img src={LOGO_URL} alt="Logo" className="w-12 h-12 object-contain" />
           <div>
-            <h1 className="text-lg font-bold text-gray-900 leading-tight tracking-tight">Indigo Restaurant</h1>
-            <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider mt-0.5">Nhà hàng Lá Chàm Sapa</p>
+            <h1 className="text-lg font-bold text-gray-900 leading-tight tracking-tight">Indigo Sapa</h1>
+            <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider mt-0.5">Restaurant & Bar</p>
           </div>
         </div>
 

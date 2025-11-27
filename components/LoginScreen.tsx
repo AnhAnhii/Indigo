@@ -1,7 +1,7 @@
-
 import React, { useState } from 'react';
-import { ShieldCheck, User, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { User, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
+import { LOGO_URL } from '../App';
 
 export const LoginScreen: React.FC = () => {
   const { login, requestNotificationPermission, unlockAudio } = useGlobalContext();
@@ -30,10 +30,12 @@ export const LoginScreen: React.FC = () => {
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col relative">
         
         {/* Header */}
-        <div className="bg-gray-50 p-8 text-center border-b border-gray-100">
-          <div className="w-16 h-16 bg-teal-100 text-teal-700 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
-             <ShieldCheck size={32} />
-          </div>
+        <div className="bg-gray-50 p-8 text-center border-b border-gray-100 flex flex-col items-center">
+          <img 
+            src={LOGO_URL} 
+            alt="Indigo Logo" 
+            className="w-32 h-32 object-contain mb-4 drop-shadow-sm" 
+          />
           <h1 className="text-2xl font-extrabold text-gray-900">Indigo Restaurant</h1>
           <p className="text-sm text-gray-500 mt-1 font-medium">Nhà hàng Lá Chàm Sapa</p>
         </div>
