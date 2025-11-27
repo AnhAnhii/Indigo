@@ -7,7 +7,7 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-// 1. Lắng nghe sự kiện Push từ Server (Web Push API - Future proof)
+// 1. Lắng nghe sự kiện Push từ Server (Web Push API)
 self.addEventListener('push', (event) => {
   let data = 'Bạn có thông báo mới';
   let title = 'Indigo Restaurant';
@@ -28,8 +28,7 @@ self.addEventListener('push', (event) => {
     badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
     vibrate: [100, 50, 100],
     data: { url: '/' },
-    tag: 'push-' + Date.now(), // Unique tag to ensure banner shows
-    renotify: true
+    tag: 'push-notification'
   };
 
   event.waitUntil(
@@ -38,27 +37,22 @@ self.addEventListener('push', (event) => {
 });
 
 // 2. Lắng nghe lệnh từ Main Thread (Client gửi xuống để hiển thị thông báo)
-// FIX: Đảm bảo hiển thị banner trên iOS/Android ngay cả khi app đang mở
+// Đây là cách fix lỗi cho iOS khi gọi từ giao diện không hiện
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
     const title = event.data.title || 'Thông báo hệ thống';
-    const body = event.data.body || '';
-    
     const options = {
-      body: body,
+      body: event.data.body,
       icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
       badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
       vibrate: [200, 100, 200],
       data: { url: '/' },
-      tag: 'msg-' + Date.now(), // Bắt buộc unique để hiện banner mới
-      renotify: true,           // Bắt buộc rung/chuông lại
-      requireInteraction: true  // Giữ thông báo không tự tắt (trên Desktop/Android)
+      tag: 'manual-notification-' + Date.now()
     };
 
-    const promise = self.registration.showNotification(title, options);
-    if (event.waitUntil) {
-        event.waitUntil(promise);
-    }
+    event.waitUntil(
+      self.registration.showNotification(title, options)
+    );
   }
 });
 

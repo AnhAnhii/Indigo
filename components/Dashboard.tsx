@@ -10,6 +10,7 @@ interface DashboardProps {
     onViewChange: (view: AppView) => void;
 }
 
+// Move component outside to prevent re-creation on every render
 const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disabled = false }: any) => (
   <div 
     onClick={!disabled ? onClick : undefined} 
@@ -29,9 +30,13 @@ const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disab
   </div>
 );
 
+// Helper để chuẩn hóa ngày về YYYY-MM-DD
 const normalizeDate = (dateStr: string | undefined): string => {
     if (!dateStr) return '';
+    // 1. Check YYYY-MM-DD (e.g., 2024-03-01)
     if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return dateStr;
+    
+    // 2. Check DD/MM/YYYY or D/M/YYYY (Hỗ trợ cả 1 chữ số)
     if (dateStr.includes('/')) {
         const parts = dateStr.split('/');
         if (parts.length === 3) {
@@ -41,7 +46,11 @@ const normalizeDate = (dateStr: string | undefined): string => {
              return `${y}-${m}-${d}`;
         }
     }
+    
+    // 3. ISO String with T
     if (dateStr.includes('T')) return dateStr.split('T')[0];
+    
+    // 4. Check YYYY-M-D (e.g., 2024-3-1)
     if (dateStr.includes('-')) {
          const parts = dateStr.split('-');
          if (parts.length === 3) {
@@ -51,6 +60,7 @@ const normalizeDate = (dateStr: string | undefined): string => {
              return `${y}-${m}-${d}`;
          }
     }
+
     return dateStr;
 };
 
@@ -58,19 +68,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission, unlockAudio } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
+  // Notification State
   const [permissionState, setPermissionState] = useState<string>(typeof Notification !== 'undefined' ? Notification.permission : 'default');
   const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    
+    // Detect iOS
     const isIosDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
     setIsIOS(isIosDevice);
+
+    // Detect Standalone (PWA)
     const isStandAloneMode = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
     setIsStandalone(isStandAloneMode);
+
     return () => clearInterval(timer);
   }, []);
 
+  // Format todayStr for log comparison (logs usually use YYYY-MM-DD via Intl 'en-CA')
   const todayStr = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'Asia/Ho_Chi_Minh',
         year: 'numeric',
@@ -87,17 +104,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const dateDisplay = currentTime.toLocaleDateString('vi-VN', dateOptions);
   const timeDisplay = currentTime.toLocaleTimeString('vi-VN', { hour12: false });
 
+  // --- SMART AI ANALYSIS LOGIC ---
   const aiInsights = useMemo(() => {
       if (!currentUser) return null;
+
+      // 1. Time Greeting
       const hour = currentTime.getHours();
       let greeting = "Chào bạn";
       if (hour < 12) greeting = "Chào buổi sáng";
       else if (hour < 18) greeting = "Chào buổi chiều";
       else greeting = "Chào buổi tối";
 
+      // 2. Guest Analysis
+      // YÊU CẦU MỚI: Tính theo số lượng khách ĐANG PHỤC VỤ (Active) để khớp với màn hình "Ra đồ"
       const activeGroups = servingGroups.filter(g => g.status !== 'COMPLETED');
       const activeGuests = activeGroups.reduce((sum, g) => sum + (Number(g.guestCount) || 0), 0);
 
+      // Thống kê phụ: Tổng khách hôm nay (bao gồm đã về)
       const nowVN = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Ho_Chi_Minh"}));
       const yyyy = nowVN.getFullYear();
       const mm = String(nowVN.getMonth() + 1).padStart(2, '0');
@@ -121,7 +144,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
           guestMessage = `Nhà hàng đang phục vụ ${activeGuests} khách. Nhịp độ ổn định. (Tổng hôm nay: ${totalGuestsToday})`;
       }
 
+      // 3. Personal Status Analysis
       let personalMessage = "";
+      // Check schedule
       const mySchedule = schedules.find(s => s.employeeId === currentUser.id && s.date === todayStr);
       const shiftName = mySchedule ? settings.shiftConfigs.find(s => s.code === mySchedule.shiftCode)?.name : null;
 
@@ -134,6 +159,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
               personalMessage = "Bạn đã chấm công đúng giờ. Tuyệt vời! Giữ vững phong độ nhé! 🌟";
           }
       } else {
+          // Not checked in yet
           if (mySchedule && mySchedule.shiftCode !== 'OFF') {
               personalMessage = `Bạn có lịch ${shiftName || 'làm việc'} hôm nay. Đừng quên chấm công khi đến nhé!`;
           } else if (mySchedule && mySchedule.shiftCode === 'OFF') {
@@ -148,12 +174,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
           guestMessage,
           personalMessage,
           isBusy,
-          totalGuests: activeGuests 
+          totalGuests: activeGuests // Sử dụng Active Guest làm chỉ số chính
       };
   }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings, todayStr]);
 
   const handleEnableNotification = async () => {
-      unlockAudio(); 
+      unlockAudio(); // Unlock audio immediately
       const res = await requestNotificationPermission();
       setPermissionState(res);
   };
@@ -161,6 +187,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   return (
     <div className="space-y-8 relative">
 
+      {/* NOTIFICATION & PWA ALERTS */}
       <div className="space-y-3">
         {permissionState === 'default' && (
             <div 
@@ -170,8 +197,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 <div className="flex items-center">
                     <div className="bg-white/20 p-2 rounded-full mr-3"><BellRing size={20} /></div>
                     <div>
-                        <h4 className="font-bold">Bật thông báo & Âm thanh</h4>
-                        <p className="text-xs text-blue-100">Bấm vào đây để cấp quyền hiển thị thông báo khách mới.</p>
+                        <h4 className="font-bold">Bật thông báo ngay</h4>
+                        <p className="text-xs text-blue-100">Để nhận tin nhắn khi có khách mới hoặc đơn từ.</p>
                     </div>
                 </div>
                 <div className="bg-white text-blue-700 text-xs font-bold px-3 py-2 rounded-lg">Kích hoạt</div>
@@ -183,16 +210,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                  <div className="flex items-center">
                     <div className="bg-white/10 p-2 rounded-full mr-3"><Smartphone size={20} /></div>
                     <div>
-                        <h4 className="font-bold">Cài đặt App để nhận thông báo</h4>
-                        <p className="text-xs text-gray-300">Bấm nút <span className="font-bold border border-gray-600 px-1 rounded">Chia sẻ</span> chọn <span className="font-bold border border-gray-600 px-1 rounded">Thêm vào MH chính</span> để App chạy ổn định hơn.</p>
+                        <h4 className="font-bold">Cài đặt App trên iPhone</h4>
+                        <p className="text-xs text-gray-300">Bấm nút <span className="font-bold border border-gray-600 px-1 rounded">Chia sẻ</span> chọn <span className="font-bold border border-gray-600 px-1 rounded">Thêm vào MH chính</span> để nhận thông báo.</p>
                     </div>
                 </div>
             </div>
         )}
       </div>
 
+      {/* SMART AI BRIEFING CARD */}
       {aiInsights && (
           <div className={`rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden transition-all duration-500 ${aiInsights.isBusy ? 'bg-gradient-to-r from-orange-500 to-red-600' : 'bg-gradient-to-r from-indigo-600 to-purple-700'}`}>
+              {/* Background Shapes */}
               <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
               <div className="absolute bottom-0 left-0 -ml-10 -mb-10 w-40 h-40 bg-white/10 rounded-full blur-2xl"></div>
               
@@ -255,6 +284,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
           </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* QR Check-in */}
               <MethodCard 
                 title="Quét Mã QR" 
                 sub="Chính xác tuyệt đối" 
@@ -264,6 +294,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 onClick={() => onViewChange(AppView.ATTENDANCE)} 
               />
               
+              {/* GPS */}
               <MethodCard 
                 title="Chấm công GPS" 
                 sub="Định vị Hybrid" 
@@ -273,6 +304,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 onClick={() => onViewChange(AppView.ATTENDANCE)} 
               />
               
+              {/* Face ID - DISABLED */}
               <MethodCard 
                 title="Face ID (AI)" 
                 sub="Nhận diện khuôn mặt" 
@@ -283,6 +315,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 onClick={() => {}} 
               />
 
+              {/* Voice AI - DISABLED */}
               <MethodCard 
                 title="Giọng Nói AI" 
                 sub="Đọc mã xác thực" 

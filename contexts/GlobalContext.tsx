@@ -70,7 +70,7 @@ interface GlobalContextType {
   reloadData: () => void;
   testNotification: () => void;
   requestNotificationPermission: () => Promise<string>; 
-  unlockAudio: () => void; 
+  unlockAudio: () => void; // NEW FUNCTION
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -119,9 +119,12 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
 
+  // Refs for Access inside Callbacks/Intervals without Staleness
   const currentUserRef = useRef(currentUser);
   const servingGroupsRef = useRef(servingGroups);
   const settingsRef = useRef(settings); 
+
+  // --- AUDIO CONTEXT SYSTEM (FIX FOR IOS) ---
   const audioContextRef = useRef<AudioContext | null>(null);
 
   const unlockAudio = useCallback(() => {
@@ -138,6 +141,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               if (ctx.state === 'suspended') {
                   ctx.resume();
               }
+              // Play a silent buffer to unlock the audio engine on iOS
               const buffer = ctx.createBuffer(1, 1, 22050);
               const source = ctx.createBufferSource();
               source.buffer = buffer;
@@ -157,18 +161,23 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           if (ctx && ctx.state === 'running') {
               const oscillator = ctx.createOscillator();
               const gainNode = ctx.createGain();
+
               oscillator.connect(gainNode);
               gainNode.connect(ctx.destination);
+
+              // Sound Config: High pitch beep
               oscillator.type = 'sine';
               oscillator.frequency.setValueAtTime(880, ctx.currentTime); 
               oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
+              
               gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
               gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.5);
+
               oscillator.start();
               oscillator.stop(ctx.currentTime + 0.5);
           }
       } catch (e) { 
-          console.warn("Sound play error:", e); 
+          console.warn("Sound play error (Oscillator):", e); 
       }
   };
 
@@ -178,17 +187,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // --- NOTIFICATION CORE SYSTEM ---
   const dispatchNotification = async (title: string, body: string) => {
-      // 1. Play Sound first
+      // 1. Play Sound (Oscillator)
       playSound(); 
 
       if (typeof window === 'undefined') return;
       if (!('Notification' in window)) return;
-      
-      // Check permission silently
-      if (Notification.permission !== 'granted') return;
 
-      // 2. Try Service Worker POST MESSAGE (Preferred for Mobile PWA to show Banner)
-      if (navigator.serviceWorker.controller) {
+      // 2. Try Service Worker (Best for Mobile)
+      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
           try {
               navigator.serviceWorker.controller.postMessage({
                   type: 'SHOW_NOTIFICATION',
@@ -197,11 +203,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               });
               return;
           } catch (e) {
-              console.error("SW PostMessage failed, falling back...");
+              console.error("SW PostMessage failed:", e);
           }
       }
 
-      // 3. Fallback: Direct Registration Call
+      // 3. Fallback: Direct Registration
       try {
           const registration = await navigator.serviceWorker.ready;
           if (registration) {
@@ -209,18 +215,20 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   body: body,
                   icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
                   badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-                  tag: 'indigo-app-' + Date.now(), // Unique tag to ensure banner pops up
                   // @ts-ignore
-                  renotify: true
+                  vibrate: [200, 100, 200], 
+                  tag: 'indigo-app-' + Date.now()
               });
               return;
           }
-      } catch (e) {
-          // 4. Last Resort: Legacy API
-          try {
+      } catch (e) {}
+
+      // 4. Last Resort: Legacy API
+      try {
+          if (Notification.permission === 'granted') {
               new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png' });
-          } catch (err) {}
-      }
+          }
+      } catch (e) {}
   };
 
   const requestNotificationPermission = async () => {
@@ -228,7 +236,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           try {
               const result = await Notification.requestPermission();
               if (result === 'granted') {
-                  unlockAudio(); 
+                  unlockAudio(); // Unlock audio immediately when permission granted
                   playSound();
               }
               return result;
@@ -241,24 +249,24 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const testNotification = async () => {
       try {
-          unlockAudio();
+          unlockAudio(); // Ensure audio is unlocked
           const permission = await requestNotificationPermission();
           
           if (permission === 'granted') {
               await dispatchNotification(
-                  "🔔 KIỂM TRA HỆ THỐNG", 
-                  "Nếu bạn đọc được dòng này, thông báo đang hoạt động tốt!"
+                  "🔔 Kiểm tra thành công", 
+                  "Âm thanh và thông báo đang hoạt động!"
               );
-              // Visual feedback inside app in case banner is hidden by OS
-              alert("Đã gửi lệnh thông báo. Vui lòng kiểm tra thanh thông báo của điện thoại.");
+              alert("Đã gửi lệnh thông báo. Bạn có nghe thấy tiếng BÍP không?");
           } else {
-              alert(`Quyền thông báo đang bị chặn (Status: ${permission}). Hãy vào Cài đặt > Thông báo để bật.`);
+              alert(`Quyền thông báo đang bị chặn (Status: ${permission}). Hãy bật trong Cài đặt.`);
           }
       } catch (e: any) {
           alert("Lỗi: " + e.message);
       }
   };
 
+  // --- DATA LOADING & SYNC ---
   const loadData = useCallback(async (isBackground = false) => {
       if (!isBackground) setIsLoading(true);
       try {
@@ -278,12 +286,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           if (!isBackground) setLastUpdated(new Date().toLocaleTimeString('vi-VN'));
           return data.employees; 
       } catch (error) {
+          console.error("Sync Error:", error);
           return [];
       } finally {
           if (!isBackground) setIsLoading(false);
       }
   }, []);
 
+  // --- REALTIME SUBSCRIPTION ---
   useEffect(() => {
       const initApp = async () => {
           const loadedEmployees = await loadData(false);
@@ -313,7 +323,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   if (config.enableStaffRequest) {
                       const newReq = payload.new as any;
                       if (String(newReq.employee_id) !== String(user.id)) {
-                          dispatchNotification("📝 ĐƠN TỪ MỚI", `${newReq.employee_name}: ${newReq.type}`);
+                          dispatchNotification("Đơn từ mới", `${newReq.employee_name}: ${newReq.type}`);
                       }
                   }
               }
@@ -321,15 +331,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               if (payload.table === 'serving_groups') {
                   if (config.enableGuestArrival) {
                       const newGroup = payload.new as any;
-                      // Clearer notification text
-                      dispatchNotification("🔔 KHÁCH MỚI ĐẾN", `${newGroup.name} (Bàn ${newGroup.location})`);
+                      dispatchNotification("Khách mới", `${newGroup.name} - Bàn ${newGroup.location}`);
                   }
               }
 
               if (payload.table === 'handover_logs') {
                   if (config.enableHandover) {
                        const log = payload.new as any;
-                       dispatchNotification("📒 SỔ GIAO CA", `${log.type === 'ISSUE' ? '⚠️' : 'ℹ️'} Tin nhắn mới từ ${log.author}`);
+                       dispatchNotification("Sổ Giao Ca", `${log.type === 'ISSUE' ? '⚠️' : '📝'} Tin nhắn mới từ ${log.author}`);
                   }
               }
               loadData(true);
@@ -343,9 +352,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   const wasNotStarted = !oldGroupLocal || !oldGroupLocal.startTime;
                   const isNowStarted = !!newGroupData.start_time;
 
-                  // Manual trigger from "Báo khách đến" button
                   if (wasNotStarted && isNowStarted) {
-                      dispatchNotification("📢 KHÁCH ĐÃ VÀO!", `Đoàn ${newGroupData.name} đang ngồi tại bàn ${newGroupData.location}`);
+                      dispatchNotification("KHÁCH ĐÃ VÀO!", `Đoàn ${newGroupData.name} @ ${newGroupData.location}`);
                   }
               }
               loadData(true);
@@ -361,6 +369,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return () => { supabase.removeChannel(channel); };
   }, []); 
 
+  // --- SYSTEM ALERTS ---
   const runSystemChecks = () => {
       const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
       
@@ -381,11 +390,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                       const alertId = `alert_serving_${group.id}`;
                       const missingNames = missingItems.map(i => `${i.name} (x${i.totalQuantity - i.servedQuantity})`).join(', ');
                       const alertDetails = `Chưa ra: ${missingNames}`;
-                      const alertTitle = `⚠️ RA ĐỒ CHẬM: Bàn ${group.location}`;
+                      const alertTitle = `Bàn ${group.location} - ${group.name} (${diff}p)`;
 
                       if (config.enableSystemAlert) {
                           if (!dismissedAlertIds.has(alertId) && !activeAlerts.find(a => a.id === alertId)) {
-                              dispatchNotification(alertTitle, `Khách đã đợi ${diff} phút. ${alertDetails}`);
+                              dispatchNotification("Ra đồ chậm!", `${alertTitle}`);
                           }
                       }
                       
@@ -411,10 +420,12 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   useEffect(() => {
-      const interval = setInterval(runSystemChecks, 60000); 
+      const interval = setInterval(runSystemChecks, 60000); // Check every minute
       return () => clearInterval(interval);
   }, [servingGroups, logs, settings]);
 
+
+  // --- CRUD HELPERS ---
   const addEmployee = (e: Employee) => { setEmployees(prev => [...prev, e]); supabaseService.upsertEmployee(e); };
   const updateEmployee = (e: Employee) => { setEmployees(prev => prev.map(x => x.id === e.id ? e : x)); if (currentUser?.id === e.id) setCurrentUser(e); supabaseService.upsertEmployee(e); };
   const deleteEmployee = (id: string) => { setEmployees(prev => prev.filter(x => x.id !== id)); supabaseService.deleteEmployee(id); };
