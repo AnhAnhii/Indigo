@@ -1,27 +1,13 @@
 
 self.addEventListener('install', (event) => {
-  // Bắt buộc Service Worker kích hoạt ngay lập tức, không chờ tab cũ đóng
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  // Chiếm quyền kiểm soát tất cả các clients (tabs) đang mở ngay lập tức
   event.waitUntil(self.clients.claim());
 });
 
-// Cấu hình chung cho thông báo
-const getNotificationOptions = (body, tag) => ({
-  body: body,
-  icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-  badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-  vibrate: [200, 100, 200, 100, 200], // Rung dài hơn để gây chú ý
-  tag: tag || 'general-' + Date.now(), // Tag động để thông báo luôn nổi lên mới
-  renotify: true, // Bắt buộc rung/chuông lại ngay cả khi tag trùng
-  requireInteraction: true, // Giữ thông báo trên màn hình đến khi user tắt
-  data: { url: '/' }
-});
-
-// 1. Xử lý sự kiện Push từ Server (Web Push API)
+// Xử lý sự kiện Push (từ Server)
 self.addEventListener('push', (event) => {
   let data = 'Bạn có thông báo mới';
   let title = 'Indigo Restaurant';
@@ -36,44 +22,52 @@ self.addEventListener('push', (event) => {
     }
   }
 
+  const options = {
+      body: data,
+      icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+      badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+      tag: 'push-' + Date.now(),
+      renotify: true,
+      requireInteraction: true
+  };
+
   event.waitUntil(
-    self.registration.showNotification(title, getNotificationOptions(data, 'push-' + Date.now()))
+    self.registration.showNotification(title, options)
   );
 });
 
-// 2. Xử lý lệnh từ Main Thread (App gửi xuống)
-// Đây là luồng quan trọng nhất cho iOS khi App đang mở
+// Xử lý tin nhắn từ App (Local Notification) - Quan trọng cho iOS PWA
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    const title = event.data.title || 'Thông báo hệ thống';
-    const body = event.data.body || '';
+    // Lấy dữ liệu trực tiếp, tránh qua hàm trung gian để đảm bảo không mất mát dữ liệu
+    const title = event.data.title || 'Thông báo';
+    const body = event.data.body || 'Nội dung chi tiết...';
     const tag = event.data.tag || 'msg-' + Date.now();
 
-    // Gửi phản hồi lại Client (Optional debugging)
-    event.ports[0]?.postMessage({ status: 'received' });
+    const options = {
+        body: body,
+        icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+        badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+        tag: tag,
+        renotify: true, // Rung lại khi có thông báo mới
+        requireInteraction: true, // Giữ thông báo không tự tắt
+        data: { url: '/' }
+    };
 
     event.waitUntil(
-      self.registration.showNotification(title, getNotificationOptions(body, tag))
+      self.registration.showNotification(title, options)
     );
   }
 });
 
-// 3. Xử lý khi người dùng bấm vào thông báo
 self.addEventListener('notificationclick', (event) => {
-  event.notification.close(); // Đóng thông báo
-
+  event.notification.close();
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Nếu có tab đang mở, focus vào nó
       for (const client of clientList) {
-        if (client.url && 'focus' in client) {
-          return client.focus();
-        }
+        if (client.url && 'focus' in client) return client.focus();
       }
-      // Nếu không, mở cửa sổ mới về trang chủ
-      if (clients.openWindow) {
-        return clients.openWindow('/');
-      }
+      if (clients.openWindow) return clients.openWindow('/');
     })
   );
 });

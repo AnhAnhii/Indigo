@@ -185,9 +185,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // --- OMNI-CHANNEL NOTIFICATION SYSTEM ---
   const dispatchNotification = async (title: string, body: string) => {
-      console.log(`[Notification Dispatch] Title: ${title}`);
+      console.log(`[Notification Dispatch] Title: ${title} | Body: ${body}`);
       
-      // 1. Play Sound first (User interaction requirement)
+      // 1. Play Sound first
       playSound(); 
 
       // Check Permission
@@ -201,44 +201,39 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           body: body,
           icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
           badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-          // @ts-ignore
-          vibrate: [200, 100, 200], 
           tag: tag, 
           renotify: true, 
           requireInteraction: true 
       };
 
-      // CHIẾN THUẬT: THỬ TẤT CẢ CÁC CÁCH (TRY EVERYTHING)
+      // CHIẾN THUẬT: THỬ TẤT CẢ CÁC CÁCH ĐỂ ĐẨY TEXT LÊN MÀN HÌNH
 
-      // CÁCH 1: Service Worker Registration (Chuẩn PWA - Ổn định nhất trên Android/Chrome)
-      if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.ready.then(registration => {
-              if (registration) {
-                  registration.showNotification(title, options)
-                      .then(() => console.log("Method 1 (SW Ready): Sent"))
-                      .catch(e => console.error("Method 1 Failed:", e));
-              }
-          });
-      }
-
-      // CÁCH 2: PostMessage xuống SW (Dự phòng cho iOS khi App đang mở - Foreground)
+      // CÁCH 1: Gửi qua PostMessage (Cách tốt nhất cho iOS PWA khi App đang mở)
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
           navigator.serviceWorker.controller.postMessage({
               type: 'SHOW_NOTIFICATION',
               title: title,
-              body: body,
+              body: body, // Truyền trực tiếp chuỗi văn bản
               tag: tag
           });
-          console.log("Method 2 (PostMessage): Sent");
       }
 
-      // CÁCH 3: Legacy Notification API (Dự phòng cho Desktop Safari cũ)
+      // CÁCH 2: Gọi trực tiếp từ Registration (Dự phòng cho Android/Desktop)
+      if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.ready.then(registration => {
+              if (registration) {
+                  registration.showNotification(title, options)
+                      .catch(e => console.error("SW ShowNotification Failed:", e));
+              }
+          });
+      }
+
+      // CÁCH 3: Legacy API (Dự phòng cuối cùng)
       try {
           const n = new Notification(title, options);
           n.onclick = () => { window.focus(); n.close(); };
-          console.log("Method 3 (Legacy New): Sent");
       } catch (e) {
-          console.log("Method 3 Failed (Expected on Android):", e);
+          // Ignore error on mobile browsers that don't support new Notification()
       }
   };
 
@@ -260,26 +255,19 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const testNotification = async () => {
       try {
-          unlockAudio(); // Unlock audio context
+          unlockAudio(); // Đảm bảo âm thanh được mở khóa
           const permission = await requestNotificationPermission();
           
           if (permission === 'granted') {
-              // Yêu cầu người dùng nhập nội dung để test thực tế
-              // @ts-ignore
-              let textInput = window.prompt("Nhập nội dung thông báo test:", "Nội dung mẫu: Khách đoàn 10 người...");
-              
-              if (textInput === null) return; // User cancelled
-              if (textInput.trim() === "") textInput = "Đây là thông báo mẫu kiểm tra hiển thị.";
-
-              const time = new Date().toLocaleTimeString('vi-VN');
-              
-              await dispatchNotification(
+              const time = new Date().toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'});
+              // NỘI DUNG TEST CỨNG (HARDCODED) ĐỂ KIỂM TRA HIỂN THỊ CHỮ
+              dispatchNotification(
                   "🔔 TEST HỆ THỐNG", 
-                  `${textInput}\nThời gian: ${time}\n(ID: ${Date.now().toString().slice(-4)})`
+                  `Đoàn: Gia đình Anh Nam (VIP)\nBàn: A1, A2 • Khách: 12 pax\nGiờ vào: ${time}\nĐây là dòng kiểm tra hiển thị văn bản nhiều dòng.`
               );
-              
+              alert("Đã gửi lệnh thông báo test.\nHãy khóa màn hình hoặc chuyển tab để kiểm tra.");
           } else {
-              alert(`Quyền thông báo đang là: ${permission}. Vui lòng vào cài đặt trình duyệt để BẬT.`);
+              alert(`Quyền thông báo đang bị CHẶN (${permission}).\nVui lòng vào Cài đặt -> Thông báo -> Bật cho Indigo Restaurant.`);
           }
       } catch (e: any) {
           alert("Lỗi khi test: " + e.message);
