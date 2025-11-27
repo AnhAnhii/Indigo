@@ -15,6 +15,9 @@ export const ScheduleView: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCell, setEditingCell] = useState<{ empId: string, dateStr: string, empName: string, currentShift: string } | null>(null);
 
+  // LỌC NHÂN VIÊN: Quản lý không cần xếp lịch cho chính mình (ẩn khỏi danh sách)
+  const staffList = useMemo(() => employees.filter(e => e.role !== EmployeeRole.MANAGER), [employees]);
+
   // Helper: Get 7 days of the current week (Starting Monday)
   const weekDays = useMemo(() => {
       const startOfWeek = new Date(currentDate);
@@ -137,7 +140,7 @@ export const ScheduleView: React.FC = () => {
                     {/* Header Row */}
                     <div className="grid grid-cols-[200px_repeat(7,_1fr)] sticky top-0 z-30 bg-white shadow-sm">
                         <div className="p-4 font-bold text-gray-500 text-xs uppercase tracking-wider border-b border-r bg-gray-50 flex items-center">
-                            Nhân sự ({employees.length})
+                            Nhân sự ({staffList.length})
                         </div>
                         {weekDays.map((day, idx) => {
                             const dateKey = formatDateKey(day);
@@ -156,8 +159,8 @@ export const ScheduleView: React.FC = () => {
                         })}
                     </div>
                     
-                    {/* Employee Rows */}
-                    {employees.map((emp) => (
+                    {/* Employee Rows - USING STAFFLIST INSTEAD OF EMPLOYEES */}
+                    {staffList.map((emp) => (
                         <div key={emp.id} className="grid grid-cols-[200px_repeat(7,_1fr)] group hover:bg-gray-50 transition-colors">
                             {/* Employee Name Column (Sticky) */}
                             <div className="sticky left-0 z-20 bg-white group-hover:bg-gray-50 border-r border-b p-3 flex items-center space-x-3 transition-colors shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">

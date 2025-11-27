@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { MoreHorizontal, Phone, Mail, MapPin, X, Edit2, Trash2, History, Calendar, ScanFace, Camera, Lock, DollarSign, Eye, EyeOff } from 'lucide-react';
+import { MoreHorizontal, Phone, Mail, MapPin, X, Edit2, Trash2, History, Calendar, ScanFace, Camera, Lock, DollarSign, Eye, EyeOff, Upload } from 'lucide-react';
 import { EmployeeRole, Employee, TimesheetLog } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
@@ -26,6 +26,7 @@ export const EmployeeList: React.FC = () => {
 
   // Face Registration State
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [faceStep, setFaceStep] = useState<'READY' | 'CAPTURING' | 'DONE'>('READY');
 
@@ -83,6 +84,28 @@ export const EmployeeList: React.FC = () => {
       setIsFaceModalOpen(true);
   }
 
+  // --- IMAGE PROCESSING ---
+  const processImage = (imageSource: CanvasImageSource, width: number, height: number) => {
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 400;
+      const scale = MAX_WIDTH / width;
+      canvas.width = MAX_WIDTH;
+      canvas.height = height * scale;
+      
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(imageSource, 0, 0, canvas.width, canvas.height);
+      
+      const base64 = canvas.toDataURL('image/jpeg', 0.6);
+      
+      if (selectedEmployee) {
+          registerEmployeeFace(selectedEmployee.id, base64);
+      }
+      
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      setStream(null);
+      setFaceStep('DONE');
+  };
+
   const startFaceCamera = async () => {
       try {
           const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
@@ -98,28 +121,24 @@ export const EmployeeList: React.FC = () => {
 
   const captureFace = () => {
       if (videoRef.current) {
-          const canvas = document.createElement('canvas');
-          // RESIZE LOGIC: Giảm kích thước ảnh để vừa với giới hạn Google Sheet (50k ký tự)
-          const MAX_WIDTH = 400;
-          const scale = MAX_WIDTH / videoRef.current.videoWidth;
-          canvas.width = MAX_WIDTH;
-          canvas.height = videoRef.current.videoHeight * scale;
-          
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          
-          // COMPRESSION: Giảm chất lượng xuống 0.6
-          const base64 = canvas.toDataURL('image/jpeg', 0.6);
-          
-          if (selectedEmployee) {
-              registerEmployeeFace(selectedEmployee.id, base64);
-          }
-          
-          if (stream) stream.getTracks().forEach(t => t.stop());
-          setStream(null);
-          setFaceStep('DONE');
+          processImage(videoRef.current, videoRef.current.videoWidth, videoRef.current.videoHeight);
       }
   }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+              const img = new Image();
+              img.onload = () => {
+                  processImage(img, img.width, img.height);
+              };
+              img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+      }
+  };
 
   const closeFaceModal = () => {
       if (stream) stream.getTracks().forEach(t => t.stop());
@@ -268,9 +287,21 @@ export const EmployeeList: React.FC = () => {
                   </div>
                   <div className="aspect-square bg-gray-900 relative flex items-center justify-center">
                       {faceStep === 'READY' && (
-                          <button onClick={startFaceCamera} className="bg-white px-6 py-3 rounded-full font-bold flex items-center gap-2">
-                              <Camera size={20} /> Bật Camera
-                          </button>
+                          <div className="flex flex-col gap-3">
+                              <button onClick={startFaceCamera} className="bg-white px-6 py-3 rounded-full font-bold flex items-center gap-2 hover:bg-gray-100">
+                                  <Camera size={20} /> Bật Camera
+                              </button>
+                              <button onClick={() => fileInputRef.current?.click()} className="bg-gray-700 text-white px-6 py-3 rounded-full font-bold flex items-center gap-2 hover:bg-gray-600">
+                                  <Upload size={20} /> Tải ảnh lên
+                              </button>
+                              <input 
+                                  type="file" 
+                                  ref={fileInputRef} 
+                                  className="hidden" 
+                                  accept="image/*"
+                                  onChange={handleFileUpload}
+                              />
+                          </div>
                       )}
                       {faceStep === 'CAPTURING' && (
                           <>

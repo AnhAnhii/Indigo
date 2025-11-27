@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { User, Lock, Camera, Mail, Phone, Shield, Key, Save, DollarSign } from 'lucide-react';
+import { User, Lock, Camera, Mail, Phone, Shield, Key, Save, DollarSign, Upload } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
 export const ProfileView: React.FC = () => {
@@ -17,9 +17,10 @@ export const ProfileView: React.FC = () => {
   const [newPass, setNewPass] = useState('');
   const [confirmPass, setConfirmPass] = useState('');
   
-  // Camera State
+  // Camera & Upload State
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
 
   if (!currentUser) return null;
@@ -54,7 +55,26 @@ export const ProfileView: React.FC = () => {
       setConfirmPass('');
   }
 
-  // Camera Logic
+  // --- IMAGE PROCESSING LOGIC ---
+  const processImage = (imageSource: CanvasImageSource, width: number, height: number) => {
+      const canvas = document.createElement('canvas');
+      // RESIZE FOR OPTIMIZATION (Max 400px width)
+      const MAX_WIDTH = 400;
+      const scale = MAX_WIDTH / width;
+      canvas.width = MAX_WIDTH;
+      canvas.height = height * scale;
+
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+          ctx.drawImage(imageSource, 0, 0, canvas.width, canvas.height);
+          // Compress quality 0.7
+          const base64 = canvas.toDataURL('image/jpeg', 0.7);
+          registerEmployeeFace(currentUser.id, base64); // Updates avatar
+          alert("Đã cập nhật ảnh đại diện!");
+      }
+  };
+
+  // 1. Camera Logic
   const startCamera = async () => {
       try {
           const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
@@ -70,20 +90,7 @@ export const ProfileView: React.FC = () => {
 
   const capturePhoto = () => {
       if (videoRef.current) {
-          const canvas = document.createElement('canvas');
-          // RESIZE FOR GOOGLE SHEETS STORAGE (Max 50k chars)
-          const MAX_WIDTH = 400;
-          const scale = MAX_WIDTH / videoRef.current.videoWidth;
-          canvas.width = MAX_WIDTH;
-          canvas.height = videoRef.current.videoHeight * scale;
-
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-          
-          // Compress quality 0.6
-          const base64 = canvas.toDataURL('image/jpeg', 0.6);
-          
-          registerEmployeeFace(currentUser.id, base64); // Also updates avatar
+          processImage(videoRef.current, videoRef.current.videoWidth, videoRef.current.videoHeight);
           stopCamera();
       }
   }
@@ -93,6 +100,22 @@ export const ProfileView: React.FC = () => {
       setStream(null);
       setIsCameraOpen(false);
   }
+
+  // 2. File Upload Logic
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+              const img = new Image();
+              img.onload = () => {
+                  processImage(img, img.width, img.height);
+              };
+              img.src = event.target?.result as string;
+          };
+          reader.readAsDataURL(file);
+      }
+  };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -109,9 +132,33 @@ export const ProfileView: React.FC = () => {
                           currentUser.name.charAt(0)
                       )}
                   </div>
-                  <button onClick={startCamera} className="absolute bottom-0 right-0 bg-teal-600 text-white p-2 rounded-full shadow-md hover:bg-teal-700 transition-colors">
-                      <Camera size={16} />
-                  </button>
+                  
+                  {/* Action Buttons */}
+                  <div className="absolute -bottom-2 -right-2 flex gap-1">
+                      <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="bg-white text-gray-600 p-1.5 rounded-full shadow-md hover:bg-gray-50 border border-gray-200 transition-colors"
+                        title="Tải ảnh lên"
+                      >
+                          <Upload size={14} />
+                      </button>
+                      <button 
+                        onClick={startCamera} 
+                        className="bg-teal-600 text-white p-1.5 rounded-full shadow-md hover:bg-teal-700 transition-colors"
+                        title="Chụp ảnh"
+                      >
+                          <Camera size={14} />
+                      </button>
+                  </div>
+                  
+                  {/* Hidden File Input */}
+                  <input 
+                      type="file" 
+                      ref={fileInputRef} 
+                      className="hidden" 
+                      accept="image/*" 
+                      onChange={handleFileUpload} 
+                  />
               </div>
           </div>
           
