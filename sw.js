@@ -4,6 +4,7 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
+  // QUAN TRỌNG: Chiếm quyền kiểm soát tất cả các tab đang mở ngay lập tức
   event.waitUntil(self.clients.claim());
 });
 
@@ -28,9 +29,9 @@ self.addEventListener('push', (event) => {
     badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
     vibrate: [200, 100, 200],
     data: { url: '/' },
-    tag: 'push-notification-' + Date.now(), // Tag động để không bị gom nhóm
-    renotify: true, // Bắt buộc rung/chuông lại khi có tin mới
-    requireInteraction: true // Giữ thông báo trên màn hình đến khi user tắt
+    tag: 'push-' + Date.now(), 
+    renotify: true,
+    requireInteraction: true 
   };
 
   event.waitUntil(
@@ -38,20 +39,18 @@ self.addEventListener('push', (event) => {
   );
 });
 
-// 2. Lắng nghe lệnh từ Main Thread (Client gửi xuống để hiển thị thông báo)
-// Đây là luồng chính cho iOS PWA khi App đang chạy
+// 2. Lắng nghe lệnh từ Main Thread (Client gửi xuống)
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
-    const title = event.data.title || 'Thông báo hệ thống';
+    const title = event.data.title || 'Thông báo';
     const options = {
       body: event.data.body,
       icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
       badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
       vibrate: [200, 100, 200],
-      data: { url: '/' },
-      tag: event.data.tag || 'manual-notification-' + Date.now(),
-      renotify: true, // Quan trọng: Rung máy lại cho mỗi thông báo
-      requireInteraction: true // Quan trọng: Giữ banner hiển thị lâu hơn
+      tag: event.data.tag || 'msg-' + Date.now(),
+      renotify: true,
+      requireInteraction: true 
     };
 
     event.waitUntil(
@@ -60,19 +59,15 @@ self.addEventListener('message', (event) => {
   }
 });
 
-// 3. Xử lý khi click vào thông báo
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Nếu có tab đang mở, focus vào nó
       for (const client of clientList) {
         if (client.url && 'focus' in client) {
           return client.focus();
         }
       }
-      // Nếu không, mở tab mới
       if (clients.openWindow) {
         return clients.openWindow('/');
       }

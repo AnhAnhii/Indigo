@@ -187,50 +187,44 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // --- NOTIFICATION CORE SYSTEM ---
   const dispatchNotification = async (title: string, body: string) => {
-      // 1. Play Sound (Oscillator)
+      console.log(`[Notification] Triggering: ${title}`);
+      
+      // 1. Play Sound (Always try first)
       playSound(); 
 
-      if (typeof window === 'undefined') return;
-      if (!('Notification' in window)) return;
-
-      // 2. Try Service Worker (Best for Mobile) - Ưu tiên phương pháp này
-      if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          try {
-              navigator.serviceWorker.controller.postMessage({
-                  type: 'SHOW_NOTIFICATION',
-                  title: title,
-                  body: body,
-                  // Gửi thêm timestamp để đảm bảo tag là duy nhất hoặc dùng logic trong sw.js
-              });
-              return;
-          } catch (e) {
-              console.error("SW PostMessage failed:", e);
-          }
+      if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+          console.warn("Service Worker not supported.");
+          return;
       }
 
-      // 3. Fallback: Direct Registration
       try {
+          // 2. PRIMARY METHOD: Use Registration directly (Best for PWA)
+          // Waiting for ready ensures we have an active SW registration
           const registration = await navigator.serviceWorker.ready;
+          
           if (registration) {
+              console.log("[Notification] Sending via Registration.showNotification");
               await registration.showNotification(title, {
                   body: body,
                   icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
                   badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
                   // @ts-ignore
                   vibrate: [200, 100, 200], 
-                  tag: 'indigo-app-' + Date.now(), // Tag độc nhất để hiển thị nhiều thông báo
-                  renotify: true // Rung lại ngay cả khi có thông báo cũ
+                  tag: 'indigo-app-' + Date.now(), // Tag động để hiện nhiều thông báo
+                  renotify: true, // Rung lại cho tin mới
+                  requireInteraction: true // Giữ trên màn hình
               });
-              return;
+          } else {
+              console.error("[Notification] Registration not found!");
           }
-      } catch (e) {}
-
-      // 4. Last Resort: Legacy API
-      try {
+      } catch (e) {
+          console.error("[Notification] Error dispatching:", e);
+          
+          // 3. FALLBACK: Normal Notification API
           if (Notification.permission === 'granted') {
-              new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png' });
+               new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png' });
           }
-      } catch (e) {}
+      }
   };
 
   const requestNotificationPermission = async () => {
@@ -238,7 +232,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           try {
               const result = await Notification.requestPermission();
               if (result === 'granted') {
-                  unlockAudio(); // Unlock audio immediately when permission granted
+                  unlockAudio(); 
                   playSound();
               }
               return result;
@@ -251,17 +245,17 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const testNotification = async () => {
       try {
-          unlockAudio(); // Ensure audio is unlocked
+          unlockAudio();
           const permission = await requestNotificationPermission();
           
           if (permission === 'granted') {
               await dispatchNotification(
-                  "🔔 Kiểm tra thành công", 
-                  "Thông báo đã hoạt động.\nHệ thống sẵn sàng nhận tin!"
+                  "🔔 TEST THÀNH CÔNG", 
+                  "Hệ thống thông báo hoạt động tốt!\nÂm thanh và Banner đều hiển thị."
               );
-              alert("Đã gửi lệnh thông báo. Bạn có nghe thấy tiếng BÍP không?");
+              // alert("Đã gửi lệnh thông báo. Kiểm tra trung tâm thông báo của bạn.");
           } else {
-              alert(`Quyền thông báo đang bị chặn (Status: ${permission}). Hãy bật trong Cài đặt.`);
+              alert(`Quyền thông báo đang bị chặn (${permission}). Vui lòng kiểm tra cài đặt điện thoại.`);
           }
       } catch (e: any) {
           alert("Lỗi: " + e.message);
@@ -333,7 +327,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               if (payload.table === 'serving_groups') {
                   if (config.enableGuestArrival) {
                       const newGroup = payload.new as any;
-                      // Format rõ ràng hơn
                       dispatchNotification(
                           "🔔 KHÁCH MỚI ĐẾN", 
                           `Đoàn: ${newGroup.name}\nTại bàn: ${newGroup.location}\nSố khách: ${newGroup.guest_count || '?'} pax`
@@ -359,7 +352,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   const isNowStarted = !!newGroupData.start_time;
 
                   if (wasNotStarted && isNowStarted) {
-                      // Thông báo khi bấm "Báo khách đến"
                       dispatchNotification(
                           "🚀 KHÁCH ĐÃ VÀO", 
                           `Đoàn: ${newGroupData.name}\nBàn: ${newGroupData.location}\nGiờ vào: ${newGroupData.start_time}`
