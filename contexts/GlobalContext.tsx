@@ -70,7 +70,7 @@ interface GlobalContextType {
   reloadData: () => void;
   testNotification: () => void;
   requestNotificationPermission: () => Promise<string>; 
-  unlockAudio: () => void; // NEW FUNCTION
+  unlockAudio: () => void; 
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -119,7 +119,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
 
-  // Refs for Access inside Callbacks/Intervals without Staleness
   const currentUserRef = useRef(currentUser);
   const servingGroupsRef = useRef(servingGroups);
   const settingsRef = useRef(settings); 
@@ -141,7 +140,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               if (ctx.state === 'suspended') {
                   ctx.resume();
               }
-              // Play a silent buffer to unlock the audio engine on iOS
               const buffer = ctx.createBuffer(1, 1, 22050);
               const source = ctx.createBufferSource();
               source.buffer = buffer;
@@ -156,7 +154,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const playSound = () => {
       try {
           if (!audioContextRef.current) unlockAudio();
-          
           const ctx = audioContextRef.current;
           if (ctx && ctx.state === 'running') {
               const oscillator = ctx.createOscillator();
@@ -189,41 +186,45 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const dispatchNotification = async (title: string, body: string) => {
       console.log(`[Notification] Triggering: ${title}`);
       
-      // 1. Play Sound (Always try first)
+      // 1. Play Sound (Sound is critical for Restaurants)
       playSound(); 
 
       if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
-          console.warn("Service Worker not supported.");
           return;
       }
 
+      const options = {
+          body: body,
+          icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+          badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
+          // @ts-ignore
+          vibrate: [200, 100, 200], 
+          tag: 'indigo-' + Date.now(), 
+          renotify: true, 
+          requireInteraction: true 
+      };
+
       try {
-          // 2. PRIMARY METHOD: Use Registration directly (Best for PWA)
-          // Waiting for ready ensures we have an active SW registration
+          // CHIẾN THUẬT GỬI KÉP (DUAL DISPATCH) ĐỂ ĐẢM BẢO HIỂN THỊ
+          
+          // KÊNH 1: Gọi trực tiếp qua ServiceWorkerRegistration (Chuẩn PWA)
           const registration = await navigator.serviceWorker.ready;
-          
           if (registration) {
-              console.log("[Notification] Sending via Registration.showNotification");
-              await registration.showNotification(title, {
-                  body: body,
-                  icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-                  badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-                  // @ts-ignore
-                  vibrate: [200, 100, 200], 
-                  tag: 'indigo-app-' + Date.now(), // Tag động để hiện nhiều thông báo
-                  renotify: true, // Rung lại cho tin mới
-                  requireInteraction: true // Giữ trên màn hình
-              });
-          } else {
-              console.error("[Notification] Registration not found!");
-          }
+              registration.showNotification(title, options)
+                  .catch(e => console.error("Direct show failed:", e));
+              
+              // KÊNH 2: Gửi tin nhắn xuống Service Worker (Dự phòng cho iOS/Foreground)
+              if (navigator.serviceWorker.controller) {
+                  navigator.serviceWorker.controller.postMessage({
+                      type: 'SHOW_NOTIFICATION',
+                      title: title,
+                      body: body,
+                      tag: options.tag
+                  });
+              }
+          } 
       } catch (e) {
-          console.error("[Notification] Error dispatching:", e);
-          
-          // 3. FALLBACK: Normal Notification API
-          if (Notification.permission === 'granted') {
-               new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png' });
-          }
+          console.error("[Notification] Dispatch Error:", e);
       }
   };
 
@@ -246,16 +247,16 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const testNotification = async () => {
       try {
           unlockAudio();
+          // Prompt user for text to verify different messages
+          const customText = window.prompt("Nhập nội dung test (để trống sẽ dùng mặc định):", "Kiểm tra hệ thống");
           const permission = await requestNotificationPermission();
           
           if (permission === 'granted') {
-              await dispatchNotification(
-                  "🔔 TEST THÀNH CÔNG", 
-                  "Hệ thống thông báo hoạt động tốt!\nÂm thanh và Banner đều hiển thị."
-              );
-              // alert("Đã gửi lệnh thông báo. Kiểm tra trung tâm thông báo của bạn.");
+              const textToShow = customText || "Hệ thống hoạt động tốt!";
+              await dispatchNotification("🔔 TEST THÔNG BÁO", textToShow);
+              // alert("Đã gửi lệnh thông báo. Vui lòng chờ 3-5 giây.");
           } else {
-              alert(`Quyền thông báo đang bị chặn (${permission}). Vui lòng kiểm tra cài đặt điện thoại.`);
+              alert(`Quyền thông báo đang bị chặn (${permission}). Hãy vào Cài đặt điện thoại > Safari > Nâng cao > Experimental Features > Bật Push API.`);
           }
       } catch (e: any) {
           alert("Lỗi: " + e.message);
@@ -468,7 +469,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const startServingGroup = (id: string) => {
       const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
       const group = servingGroups.find(g => String(g.id) === String(id));
-      // Thông báo local cho người bấm
       if (group) dispatchNotification("✅ ĐÃ XÁC NHẬN", `Đoàn: ${group.name}\nBàn: ${group.location} | Giờ: ${time}`);
       modifyGroup(id, g => ({ ...g, startTime: time }));
   };

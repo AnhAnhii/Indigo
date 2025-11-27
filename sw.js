@@ -29,9 +29,9 @@ self.addEventListener('push', (event) => {
     badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
     vibrate: [200, 100, 200],
     data: { url: '/' },
-    tag: 'push-' + Date.now(), 
-    renotify: true,
-    requireInteraction: true 
+    tag: 'push-' + Date.now(), // Tag động để không bị ghi đè
+    renotify: true, // Bắt buộc rung/chuông lại
+    requireInteraction: true // Giữ thông báo trên màn hình
   };
 
   event.waitUntil(
@@ -40,6 +40,7 @@ self.addEventListener('push', (event) => {
 });
 
 // 2. Lắng nghe lệnh từ Main Thread (Client gửi xuống)
+// Đây là giải pháp cho iOS khi App đang mở (Foreground)
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
     const title = event.data.title || 'Thông báo';
@@ -48,7 +49,7 @@ self.addEventListener('message', (event) => {
       icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
       badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
       vibrate: [200, 100, 200],
-      tag: event.data.tag || 'msg-' + Date.now(),
+      tag: 'msg-' + Date.now(), // Luôn tạo tag mới
       renotify: true,
       requireInteraction: true 
     };
@@ -63,11 +64,13 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Nếu có tab đang mở, focus vào nó
       for (const client of clientList) {
         if (client.url && 'focus' in client) {
           return client.focus();
         }
       }
+      // Nếu không, mở cửa sổ mới
       if (clients.openWindow) {
         return clients.openWindow('/');
       }
