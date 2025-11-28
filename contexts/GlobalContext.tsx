@@ -156,6 +156,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const currentUserRef = useRef(currentUser);
   const servingGroupsRef = useRef(servingGroups);
   const settingsRef = useRef(settings); 
+  const tasksRef = useRef(tasks);
 
   // --- AUDIO CONTEXT SYSTEM (FIX FOR IOS) ---
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -272,6 +273,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
   useEffect(() => { servingGroupsRef.current = servingGroups; }, [servingGroups]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   // --- LOGGING HELPER ---
   const addSystemLog = (event: string, details: string, type: 'INFO' | 'WARNING' | 'ERROR' | 'DB_CHANGE') => {
@@ -470,40 +472,54 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   }
               }
               
-              // --- TASK / QUEST NOTIFICATIONS ---
+              // --- TASK / KPI NOTIFICATIONS (UPDATED) ---
               if (payload.table === 'tasks') {
                   const newTask = payload.new as any;
                   const oldTask = payload.old as any;
                   const myId = currentUserRef.current?.id;
 
                   if (myId) {
-                      // 1. New Quest Available (Broadcast to all except creator)
+                      // 1. New Task Available (Broadcast to all except creator)
                       if (payload.eventType === 'INSERT' && newTask.status === 'OPEN') {
                            if (newTask.creator_id !== myId) {
-                               dispatchNotification("📜 NHIỆM VỤ MỚI", `Guild Master vừa treo thưởng: ${newTask.title}`);
+                               dispatchNotification("📋 CÔNG VIỆC MỚI", `Quản lý vừa giao việc: ${newTask.title}`);
                            }
                       }
 
-                      // 2. Quest Status Update (Check if involved)
+                      // 2. Task Updates
                       if (payload.eventType === 'UPDATE') {
+                           // Check if I am involved (Assignee or Participant)
                            const participants = newTask.participants || [];
                            const isParticipant = participants.includes(myId);
                            const isAssignee = newTask.assignee_id === myId;
                            const isCreator = newTask.creator_id === myId;
 
-                           // If I am doing the quest
+                           // --- INVITATION NOTIFICATION (New Logic) ---
+                           // Check if I was just added to the participants list by someone else
+                           if (isParticipant && newTask.assignee_id !== myId) {
+                               // Find local version to check if I was already in it
+                               const localTask = tasksRef.current.find(t => t.id === newTask.id);
+                               const wasInList = localTask?.participants?.includes(myId);
+                               
+                               // If I wasn't in list before, or status changed to IN_PROGRESS and I'm in list
+                               if (!wasInList && newTask.status === 'IN_PROGRESS') {
+                                   dispatchNotification("🤝 LỜI MỜI HỢP TÁC", `Bạn được ${newTask.assignee_name} thêm vào nhóm nhiệm vụ "${newTask.title}". Hãy cùng hoàn thành nhé!`, 'SUCCESS');
+                               }
+                           }
+
+                           // --- STATUS NOTIFICATIONS ---
                            if (isAssignee || isParticipant) {
-                               // Verified
+                               // Verified (Approved)
                                if (newTask.status === 'VERIFIED' && oldTask.status !== 'VERIFIED') {
-                                   dispatchNotification("🎉 QUEST HOÀN THÀNH", `Nhiệm vụ "${newTask.title}" đã được duyệt!\n+${newTask.xp_reward} XP`, 'SUCCESS');
+                                   dispatchNotification("✅ ĐÃ ĐƯỢC DUYỆT", `Nhiệm vụ "${newTask.title}" đã hoàn thành!\n+${newTask.xp_reward} XP`, 'SUCCESS');
                                }
                                // Rejected
                                if (newTask.status === 'REJECTED' && oldTask.status !== 'REJECTED') {
-                                    dispatchNotification("💀 QUEST THẤT BẠI", `Nhiệm vụ "${newTask.title}" bị từ chối.\nLý do: ${newTask.rejection_reason}\nPhạt: -${newTask.penalty_xp} XP`, 'ERROR');
+                                    dispatchNotification("⚠️ CẦN LÀM LẠI", `Nhiệm vụ "${newTask.title}" bị từ chối.\nLý do: ${newTask.rejection_reason}\nPhạt: -${newTask.penalty_xp} XP`, 'ERROR');
                                }
                            }
                            
-                           // If I am the creator (Guild Master)
+                           // If I am the creator (Manager)
                            if (isCreator) {
                                 if (newTask.status === 'COMPLETED' && oldTask.status !== 'COMPLETED') {
                                     dispatchNotification("📸 BÁO CÁO MỚI", `${newTask.assignee_name} đã nộp bằng chứng cho "${newTask.title}". Hãy kiểm tra ngay!`);
@@ -690,6 +706,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           };
           setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
           supabaseService.upsertTask(updated);
+          
+          // NOTIFY LEADER IMMEDIATELY
+          if (currentUser?.id === employeeId) {
+              dispatchNotification("🚀 ĐÃ NHẬN VIỆC", `Bạn đã nhận nhiệm vụ "${task.title}". Hãy bắt đầu ngay!`, 'SUCCESS');
+          }
       }
   };
 
