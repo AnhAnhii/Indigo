@@ -21,6 +21,7 @@ export enum AppView {
 export enum EmployeeRole {
   DEV = 'Developer',
   MANAGER = 'Quản lý',
+  DEPARTMENT_HEAD = 'Trưởng bộ phận',
   CHEF = 'Bếp trưởng',
   WAITER = 'Phục vụ',
   BARTENDER = 'Pha chế',

@@ -6,7 +6,11 @@ import { useGlobalContext } from '../contexts/GlobalContext';
 
 export const ScheduleView: React.FC = () => {
   const { employees, settings, schedules, assignShift, currentUser } = useGlobalContext();
-  const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV;
+  
+  // ALLOW MANAGER, DEV, and DEPARTMENT_HEAD to edit schedule
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER || 
+                  currentUser?.role === EmployeeRole.DEV || 
+                  currentUser?.role === EmployeeRole.DEPARTMENT_HEAD;
 
   // State for current week view
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -15,7 +19,8 @@ export const ScheduleView: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCell, setEditingCell] = useState<{ empId: string, dateStr: string, empName: string, currentShift: string } | null>(null);
 
-  // LỌC NHÂN VIÊN: Quản lý không cần xếp lịch cho chính mình (ẩn khỏi danh sách)
+  // LỌC NHÂN VIÊN: Quản lý và Dev không cần xếp lịch cho chính mình (ẩn khỏi danh sách)
+  // Trưởng bộ phận vẫn hiển thị để tự xếp lịch cho mình
   const staffList = useMemo(() => employees.filter(e => e.role !== EmployeeRole.MANAGER && e.role !== EmployeeRole.DEV), [employees]);
 
   // Helper: Get 7 days of the current week (Starting Monday)
