@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { 
   Employee, TimesheetLog, EmployeeRequest, 
@@ -74,6 +73,8 @@ interface GlobalContextType {
   requestNotificationPermission: () => Promise<string>; 
   unlockAudio: () => void;
   notificationPermissionStatus: NotificationPermission;
+  
+  submitGuestOrder: (tableId: string, cartItems: {item: MenuItem, quantity: number}[]) => Promise<void>;
 
   // DEV FEATURES
   onlineUsers: OnlineUser[];
@@ -418,13 +419,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                         userId: p.user_id,
                         name: p.name,
                         role: p.role,
-                        online_at: p.online_at,
+                        onlineAt: p.online_at,
                         platform: p.platform
                     });
                 });
             }
             // Sort by recent online
-            users.sort((a, b) => new Date(b.online_at).getTime() - new Date(a.online_at).getTime());
+            users.sort((a, b) => new Date(b.onlineAt).getTime() - new Date(a.onlineAt).getTime());
             setOnlineUsers(users);
           })
           .on('presence', { event: 'join' }, ({ key, newPresences }) => {
@@ -637,6 +638,49 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const togglePrepTask = (id: string) => { const t = prepTasks.find(x => x.id === id); if (t) { const u = { ...t, isCompleted: !t.isCompleted }; setPrepTasks(prev => prev.map(x => x.id === id ? u : x)); supabaseService.upsertPrepTask(u); } };
   const deletePrepTask = (id: string) => { setPrepTasks(prev => prev.filter(x => x.id !== id)); supabaseService.deletePrepTask(id); };
 
+  // --- NEW: GUEST ORDER SUBMISSION ---
+  const submitGuestOrder = async (tableId: string, cartItems: {item: MenuItem, quantity: number}[]) => {
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' });
+      const timeStr = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
+      
+      const newItems: ServingItem[] = cartItems.map((cartItem, idx) => ({
+          id: `${Date.now()}_${idx}`,
+          name: cartItem.item.name,
+          totalQuantity: cartItem.quantity,
+          servedQuantity: 0,
+          unit: 'Phần',
+          note: 'Khách tự gọi'
+      }));
+
+      // Check if active group exists for this table
+      const existingGroup = servingGroups.find(g => 
+          g.status === 'ACTIVE' && 
+          g.location === tableId && 
+          g.date === todayStr
+      );
+
+      if (existingGroup) {
+          // Update existing group
+          const updatedItems = [...existingGroup.items, ...newItems];
+          modifyGroup(existingGroup.id, g => ({ ...g, items: updatedItems }));
+      } else {
+          // Create new group
+          const newGroup: ServingGroup = {
+              id: Date.now().toString(),
+              name: `Khách bàn ${tableId}`,
+              location: tableId,
+              guestCount: 0, // Staff can update later
+              startTime: timeStr,
+              date: todayStr,
+              status: 'ACTIVE',
+              items: newItems,
+              tableCount: 1,
+              tableSplit: ''
+          };
+          addServingGroup(newGroup);
+      }
+  };
+
   const login = (idOrPhone: string, pass: string) => {
       const cleanInput = idOrPhone.replace(/\D/g, '');
       const user = employees.find(e => {
@@ -687,6 +731,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       requestNotificationPermission,
       unlockAudio,
       notificationPermissionStatus,
+      submitGuestOrder,
       onlineUsers, systemLogs
     }}>
       {children}

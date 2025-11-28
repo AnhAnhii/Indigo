@@ -15,7 +15,8 @@ export enum AppView {
   PROFILE = 'PROFILE',
   NOTIFICATIONS = 'NOTIFICATIONS',
   QR_STATION = 'QR_STATION', 
-  DEV_TOOLS = 'DEV_TOOLS', // New view for Developers
+  DEV_TOOLS = 'DEV_TOOLS',
+  GUEST_MENU = 'GUEST_MENU' // New View for Guest
 }
 
 export enum EmployeeRole {
@@ -70,7 +71,7 @@ export interface TimesheetLog {
     lateMinutes: number;
     device: string;
     shiftCode?: string; 
-    session?: 'MORNING' | 'AFTERNOON'; // NEW: Phân biệt ca sáng/chiều cho ca gãy
+    session?: 'MORNING' | 'AFTERNOON';
 }
 
 export enum ShiftType {
@@ -157,15 +158,13 @@ export interface LocationConfig {
     name: string;
 }
 
-// NEW: Cấu hình bật tắt thông báo
 export interface NotificationConfig {
-    enableGuestArrival: boolean; // Khách mới / Khách vào
-    enableStaffRequest: boolean; // Đơn từ nhân viên
-    enableHandover: boolean;     // Sổ giao ca
-    enableSystemAlert: boolean;  // Cảnh báo hệ thống (chậm món)
+    enableGuestArrival: boolean;
+    enableStaffRequest: boolean;
+    enableHandover: boolean;
+    enableSystemAlert: boolean;
 }
 
-// NEW: Cấu hình NTP Time
 export interface TimeConfig {
     ntpServer: string;
     timezone: string;
@@ -178,7 +177,7 @@ export interface SystemSettings {
     servingConfig?: ServingConfig; 
     shiftConfigs: ShiftConfig[];
     notificationConfig: NotificationConfig; 
-    timeConfig: TimeConfig; // Added here
+    timeConfig: TimeConfig; 
     webhook?: {
         url: string;
         enabled: boolean;
@@ -186,11 +185,17 @@ export interface SystemSettings {
     };
 }
 
+// Updated MenuItem for Digital Menu
 export interface MenuItem {
     id: string;
     name: string;
-    category: string;
+    nameEn?: string;
+    category: 'MAIN' | 'APPETIZER' | 'DRINK' | 'DESSERT' | 'OTHER';
     price: number;
+    description?: string;
+    descriptionEn?: string;
+    image?: string;
+    isAvailable: boolean;
 }
 
 export interface SauceItem {
@@ -242,7 +247,6 @@ export interface SystemAlert {
     timestamp: string;
 }
 
-// NEW: For Dev Logs
 export interface SystemLog {
     id: string;
     timestamp: string;
@@ -251,7 +255,6 @@ export interface SystemLog {
     type: 'INFO' | 'WARNING' | 'ERROR' | 'DB_CHANGE';
 }
 
-// NEW: For Online Presence
 export interface OnlineUser {
     userId: string;
     name: string;

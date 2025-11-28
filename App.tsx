@@ -18,6 +18,7 @@ import { NotificationsView } from './components/NotificationsView';
 import { QrStation } from './components/QrStation'; 
 import { DevTools } from './components/DevTools';
 import { LoginScreen } from './components/LoginScreen';
+import { GuestMenu } from './components/GuestMenu'; // Import Guest Menu
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
@@ -28,6 +29,7 @@ const AppContent: React.FC = () => {
   const { currentUser, logout, activeAlerts, dismissedAlertIds, dismissAlert, connectionStatus, isRestoringSession } = useGlobalContext();
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [guestTableId, setGuestTableId] = useState<string | null>(null);
 
   const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV;
   const isDev = currentUser?.role === EmployeeRole.DEV;
@@ -36,6 +38,14 @@ const AppContent: React.FC = () => {
   const alertCount = bannerAlerts.length;
 
   useEffect(() => {
+      // CHECK FOR GUEST MODE URL PARAMETERS
+      const params = new URLSearchParams(window.location.search);
+      const tableParam = params.get('table');
+      if (tableParam) {
+          setGuestTableId(tableParam);
+          return;
+      }
+
       if (!isAdmin && currentUser) {
           const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT, AppView.QR_STATION, AppView.DEV_TOOLS];
           if (restrictedViews.includes(currentView)) {
@@ -44,6 +54,15 @@ const AppContent: React.FC = () => {
       }
       setIsMobileMenuOpen(false);
   }, [currentView, isAdmin, currentUser]);
+
+  // RENDER GUEST MENU IF TABLE ID PRESENT
+  if (guestTableId) {
+      return (
+        <GlobalProvider>
+            <GuestMenu tableId={guestTableId} />
+        </GlobalProvider>
+      );
+  }
 
   // HANDLE INITIAL LOADING (Show splash screen instead of Login if restoring session)
   if (isRestoringSession) {
