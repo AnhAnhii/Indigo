@@ -157,6 +157,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const servingGroupsRef = useRef(servingGroups);
   const settingsRef = useRef(settings); 
   const tasksRef = useRef(tasks);
+  const employeesRef = useRef(employees);
 
   // --- AUDIO CONTEXT SYSTEM (FIX FOR IOS) ---
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -274,6 +275,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   useEffect(() => { servingGroupsRef.current = servingGroups; }, [servingGroups]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  useEffect(() => { employeesRef.current = employees; }, [employees]);
 
   // --- LOGGING HELPER ---
   const addSystemLog = (event: string, details: string, type: 'INFO' | 'WARNING' | 'ERROR' | 'DB_CHANGE') => {
@@ -479,10 +481,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   const myId = currentUserRef.current?.id;
 
                   if (myId) {
-                      // 1. New Task Available (Broadcast to all except creator)
+                      // 1. New Task Available (Strict Check for ALL new tasks)
                       if (payload.eventType === 'INSERT' && newTask.status === 'OPEN') {
                            if (newTask.creator_id !== myId) {
-                               dispatchNotification("📋 CÔNG VIỆC MỚI", `Quản lý vừa giao việc: ${newTask.title}`);
+                               dispatchNotification("📋 NHIỆM VỤ MỚI", `Có việc mới: ${newTask.title}\nNhấn để nhận ngay!`, 'ALERT');
                            }
                       }
 
@@ -724,7 +726,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const verifyTask = (taskId: string, managerId: string) => {
-      const task = tasks.find(t => t.id === taskId);
+      // USE REFS TO GET LATEST DATA TO AVOID STALE STATE
+      const task = tasksRef.current.find(t => t.id === taskId);
+      
       if (task && task.status === TaskStatus.COMPLETED) {
           const updated = { ...task, status: TaskStatus.VERIFIED, verifiedBy: managerId };
           setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
@@ -736,20 +740,23 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                              : (task.assigneeId ? [task.assigneeId] : []);
 
           recipients.forEach(empId => {
-              const emp = employees.find(e => e.id === empId);
+              const emp = employeesRef.current.find(e => e.id === empId);
               if (emp) {
                   const currentXp = emp.xp || 0;
                   const newXp = currentXp + task.xpReward;
                   const newLevel = Math.floor(newXp / 100) + 1; // Simple leveling
                   const updatedEmp = { ...emp, xp: newXp, level: newLevel };
                   updateEmployee(updatedEmp);
+                  
+                  // Optional: Log/Notify individual
+                  console.log(`XP Added: ${emp.name} +${task.xpReward}`);
               }
           });
       }
   };
 
   const rejectTask = (taskId: string, reason: string, penalty: number) => {
-      const task = tasks.find(t => t.id === taskId);
+      const task = tasksRef.current.find(t => t.id === taskId);
       if (task) {
           const updated = { 
               ...task, 
@@ -766,7 +773,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                              : (task.assigneeId ? [task.assigneeId] : []);
 
            recipients.forEach(empId => {
-               const emp = employees.find(e => e.id === empId);
+               const emp = employeesRef.current.find(e => e.id === empId);
                if (emp && penalty > 0) {
                    const currentXp = emp.xp || 0;
                    const newXp = Math.max(0, currentXp - penalty);
