@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode, Sparkles, TrendingUp, Users, Clock, AlertCircle, BellRing, Download, Smartphone
+  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode, Sparkles, TrendingUp, Users, Clock, AlertCircle, BellRing, Download, Smartphone, Lock
 } from 'lucide-react';
 import { AppView, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -65,11 +65,10 @@ const normalizeDate = (dateStr: string | undefined): string => {
 };
 
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
-  const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission, unlockAudio } = useGlobalContext();
+  const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission, notificationPermissionStatus } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
   // Notification State
-  const [permissionState, setPermissionState] = useState<string>(typeof Notification !== 'undefined' ? Notification.permission : 'default');
   const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
 
@@ -179,9 +178,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings, todayStr]);
 
   const handleEnableNotification = async () => {
-      unlockAudio(); // Unlock audio immediately
-      const res = await requestNotificationPermission();
-      setPermissionState(res);
+      await requestNotificationPermission();
   };
 
   return (
@@ -189,7 +186,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
 
       {/* NOTIFICATION & PWA ALERTS */}
       <div className="space-y-3">
-        {permissionState === 'default' && (
+        {notificationPermissionStatus === 'default' && (
             <div 
                 onClick={handleEnableNotification}
                 className="bg-blue-600 text-white p-4 rounded-xl shadow-lg shadow-blue-200 cursor-pointer hover:bg-blue-700 transition-colors flex items-center justify-between animate-pulse"
@@ -203,6 +200,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                 </div>
                 <div className="bg-white text-blue-700 text-xs font-bold px-3 py-2 rounded-lg">Kích hoạt</div>
             </div>
+        )}
+
+        {notificationPermissionStatus === 'denied' && (
+             <div className="bg-orange-100 text-orange-800 p-4 rounded-xl border border-orange-200 flex items-start gap-3">
+                 <AlertCircle className="shrink-0 mt-1" size={20} />
+                 <div>
+                     <h4 className="font-bold text-sm">Thông báo đang bị CHẶN</h4>
+                     <p className="text-xs mt-1">
+                         Bạn đã bấm "Chặn" trước đó. Để mở lại: 
+                         <span className="block mt-1 font-semibold flex items-center">
+                             <Lock size={12} className="mr-1"/> Bấm vào ổ khóa trên thanh địa chỉ {'->'} Quyền/Thông báo {'->'} Cho phép.
+                         </span>
+                     </p>
+                 </div>
+             </div>
         )}
 
         {isIOS && !isStandalone && (

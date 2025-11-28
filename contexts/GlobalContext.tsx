@@ -73,6 +73,7 @@ interface GlobalContextType {
   testNotification: () => void;
   requestNotificationPermission: () => Promise<string>; 
   unlockAudio: () => void;
+  notificationPermissionStatus: NotificationPermission;
 
   // DEV FEATURES
   onlineUsers: OnlineUser[];
@@ -128,6 +129,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
+  const [notificationPermissionStatus, setNotificationPermissionStatus] = useState<NotificationPermission>('default');
 
   // DEV FEATURES STATE
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
@@ -140,8 +142,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // --- AUDIO CONTEXT SYSTEM (FIX FOR IOS) ---
   const audioContextRef = useRef<AudioContext | null>(null);
+  const audioUnlockedRef = useRef<boolean>(false);
 
   const unlockAudio = useCallback(() => {
+      if (audioUnlockedRef.current) return;
+
       try {
           // @ts-ignore
           const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -152,9 +157,15 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               const ctx = audioContextRef.current;
               if (ctx) {
                   if (ctx.state === 'suspended') {
-                      ctx.resume().catch(e => console.warn("Audio resume failed:", e));
+                      ctx.resume().then(() => {
+                          console.log("AudioContext resumed successfully");
+                          audioUnlockedRef.current = true;
+                      }).catch(e => console.warn("Audio resume failed:", e));
+                  } else if (ctx.state === 'running') {
+                       audioUnlockedRef.current = true;
                   }
-                  // Play silent buffer to unlock
+                  
+                  // Play silent buffer to unlock iOS
                   const buffer = ctx.createBuffer(1, 1, 22050);
                   const source = ctx.createBufferSource();
                   source.buffer = buffer;
@@ -166,6 +177,34 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           console.warn("Audio unlock failed:", e);
       }
   }, []);
+
+  // GLOBAL AUTO-UNLOCK LISTENER
+  useEffect(() => {
+      const handleUserInteraction = () => {
+          unlockAudio();
+          // Remove listener after first successful interaction to save resources
+          if (audioUnlockedRef.current) {
+              window.removeEventListener('click', handleUserInteraction);
+              window.removeEventListener('touchstart', handleUserInteraction);
+              window.removeEventListener('keydown', handleUserInteraction);
+          }
+      };
+
+      window.addEventListener('click', handleUserInteraction);
+      window.addEventListener('touchstart', handleUserInteraction);
+      window.addEventListener('keydown', handleUserInteraction);
+
+      // Check Notification Permission on load
+      if (typeof Notification !== 'undefined') {
+          setNotificationPermissionStatus(Notification.permission);
+      }
+
+      return () => {
+          window.removeEventListener('click', handleUserInteraction);
+          window.removeEventListener('touchstart', handleUserInteraction);
+          window.removeEventListener('keydown', handleUserInteraction);
+      };
+  }, [unlockAudio]);
 
   const playSound = () => {
       try {
@@ -188,6 +227,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
               oscillator.start();
               oscillator.stop(ctx.currentTime + 0.5);
+          } else {
+              // Try unlock again if it failed before
+              unlockAudio();
           }
       } catch (e) { 
           console.warn("Sound play error (Oscillator):", e); 
@@ -266,13 +308,18 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const requestNotificationPermission = async () => {
       if (typeof window !== 'undefined' && 'Notification' in window) {
           try {
+              // Unlock audio first thing on interaction
+              unlockAudio();
+              
               const result = await Notification.requestPermission();
+              setNotificationPermissionStatus(result);
+
               if (result === 'granted') {
-                  unlockAudio(); 
                   playSound();
-              }
+              } 
               return result;
           } catch (e) {
+              console.error(e);
               return 'denied';
           }
       }
@@ -291,9 +338,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   "🔔 TEST HỆ THỐNG", 
                   `Đoàn: Gia đình Anh Nam (VIP)\nBàn: A1, A2 • Khách: 12 pax\nGiờ vào: ${time}\nĐây là dòng kiểm tra hiển thị văn bản nhiều dòng.`
               );
-              alert("Đã gửi lệnh thông báo test.\nHãy khóa màn hình hoặc chuyển tab để kiểm tra.");
+              alert("Đã gửi lệnh thông báo test.\nHãy kiểm tra âm thanh và banner.");
           } else {
-              alert(`Quyền thông báo đang bị CHẶN (${permission}).\nVui lòng vào Cài đặt -> Thông báo -> Bật cho Indigo Restaurant.`);
+              // Hướng dẫn người dùng nếu bị chặn
+              alert(`⚠️ QUYỀN THÔNG BÁO BỊ CHẶN!\n\nDo bạn đã từng bấm 'Chặn' (Block), ứng dụng không thể tự bật lại.\n\nCách khắc phục:\n1. Bấm vào biểu tượng Ổ khóa (🔒) hoặc Setting trên thanh địa chỉ.\n2. Chọn 'Quyền riêng tư' hoặc 'Cài đặt trang web'.\n3. Tìm mục 'Thông báo' và chọn 'Cho phép'.\n4. Tải lại trang.`);
           }
       } catch (e: any) {
           alert("Lỗi khi test: " + e.message);
@@ -370,13 +418,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                         userId: p.user_id,
                         name: p.name,
                         role: p.role,
-                        onlineAt: p.online_at,
+                        online_at: p.online_at,
                         platform: p.platform
                     });
                 });
             }
             // Sort by recent online
-            users.sort((a, b) => new Date(b.onlineAt).getTime() - new Date(a.onlineAt).getTime());
+            users.sort((a, b) => new Date(b.online_at).getTime() - new Date(a.online_at).getTime());
             setOnlineUsers(users);
           })
           .on('presence', { event: 'join' }, ({ key, newPresences }) => {
@@ -638,6 +686,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       testNotification, 
       requestNotificationPermission,
       unlockAudio,
+      notificationPermissionStatus,
       onlineUsers, systemLogs
     }}>
       {children}

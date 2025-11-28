@@ -1,10 +1,11 @@
+
 import React, { useState } from 'react';
 import { User, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { LOGO_URL } from '../App';
 
 export const LoginScreen: React.FC = () => {
-  const { login, requestNotificationPermission, unlockAudio } = useGlobalContext();
+  const { login, unlockAudio } = useGlobalContext();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -15,9 +16,6 @@ export const LoginScreen: React.FC = () => {
     
     // CRITICAL FOR IOS: Unlock audio on user interaction
     unlockAudio();
-
-    // User Gesture: Request Permission here if not granted
-    await requestNotificationPermission();
 
     const success = login(username, password);
     if (!success) {
