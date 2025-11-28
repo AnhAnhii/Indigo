@@ -190,15 +190,19 @@ export interface SystemSettings {
     };
 }
 
-// Updated MenuItem for Digital Menu
+// Updated MenuItem for Digital Menu with Multi-language
 export interface MenuItem {
     id: string;
     name: string;
     nameEn?: string;
+    nameKo?: string; // Korean
+    nameFr?: string; // French
     category: 'MAIN' | 'APPETIZER' | 'DRINK' | 'DESSERT' | 'OTHER';
     price: number;
     description?: string;
     descriptionEn?: string;
+    descriptionKo?: string;
+    descriptionFr?: string;
     image?: string;
     isAvailable: boolean;
 }
