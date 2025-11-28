@@ -126,6 +126,15 @@ const INITIAL_SETTINGS: SystemSettings = {
 const STORAGE_SESSION_KEY = 'RS_SESSION_V2';
 const SESSION_DURATION_DAYS = 7;
 
+// --- RPG LEVEL CALCULATION ---
+// Formula: Level = Floor(Sqrt(XP / 50)) + 1
+// XP 0-49: Level 1
+// XP 50-199: Level 2
+// XP 200-449: Level 3
+const calculateRpgLevel = (xp: number) => {
+    return Math.floor(Math.sqrt(Math.max(0, xp) / 50)) + 1;
+};
+
 export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState(true); 
@@ -742,14 +751,24 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           recipients.forEach(empId => {
               const emp = employeesRef.current.find(e => e.id === empId);
               if (emp) {
-                  const currentXp = emp.xp || 0;
+                  const currentXp = (emp.xp || 0);
                   const newXp = currentXp + task.xpReward;
-                  const newLevel = Math.floor(newXp / 100) + 1; // Simple leveling
+                  // Use Exponential Formula: Level = Floor(Sqrt(XP/50)) + 1
+                  const newLevel = calculateRpgLevel(newXp);
+                  
                   const updatedEmp = { ...emp, xp: newXp, level: newLevel };
+                  
+                  console.log(`[Gamification] Giving XP to ${emp.name}: ${currentXp} -> ${newXp} (Level ${newLevel})`);
+                  
                   updateEmployee(updatedEmp);
                   
-                  // Optional: Log/Notify individual
-                  console.log(`XP Added: ${emp.name} +${task.xpReward}`);
+                  // Specific Notification for Recipient
+                  if (empId === currentUserRef.current?.id) {
+                      const levelUpMsg = newLevel > (emp.level || 1) ? `\n🔥 LÊN CẤP ${newLevel}!` : '';
+                      dispatchNotification("🎉 CHÚC MỪNG!", `Bạn nhận được +${task.xpReward} XP.${levelUpMsg}`, 'SUCCESS');
+                  }
+              } else {
+                  console.warn(`[Gamification] Employee ID ${empId} not found in local state.`);
               }
           });
       }
@@ -777,7 +796,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                if (emp && penalty > 0) {
                    const currentXp = emp.xp || 0;
                    const newXp = Math.max(0, currentXp - penalty);
-                   const newLevel = Math.floor(newXp / 100) + 1;
+                   // Recalculate level (can drop level)
+                   const newLevel = calculateRpgLevel(newXp);
+                   
                    const updatedEmp = { ...emp, xp: newXp, level: newLevel };
                    updateEmployee(updatedEmp);
                }

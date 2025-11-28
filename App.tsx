@@ -195,9 +195,12 @@ const AppContent: React.FC = () => {
       )}
 
       <div className={`md:hidden bg-white border-b p-4 flex justify-between items-center sticky top-0 z-20 shadow-sm shrink-0 ${bannerAlerts.length > 0 ? 'mt-14' : ''}`}>
-        <div className="flex items-center space-x-3 font-bold text-xl text-teal-700">
+        <div className="flex items-center space-x-3 text-teal-700">
            <img src={LOGO_URL} alt="Logo" className="w-10 h-10 object-contain" />
-           <span className="text-lg">Indigo Sapa</span>
+           <div className="flex flex-col">
+               <span className="text-lg font-bold leading-none">Indigo Sapa</span>
+               <span className="text-[9px] text-gray-400 font-medium font-mono mt-0.5">by Rambu - Sabu</span>
+           </div>
         </div>
         <div className="flex items-center gap-3">
             <button onClick={() => setCurrentView(AppView.NOTIFICATIONS)} className="relative p-1.5 text-gray-600 hover:bg-gray-100 rounded-lg">
@@ -220,6 +223,7 @@ const AppContent: React.FC = () => {
           <div>
             <h1 className="text-lg font-bold text-gray-900 leading-tight tracking-tight">Indigo Sapa</h1>
             <p className="text-[10px] text-gray-500 font-medium uppercase tracking-wider mt-0.5">Restaurant & Bar</p>
+            <p className="text-[9px] text-gray-400 font-mono mt-1 font-medium">by Rambu - Sabu</p>
           </div>
         </div>
 

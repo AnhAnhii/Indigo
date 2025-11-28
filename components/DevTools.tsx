@@ -70,15 +70,23 @@ create table if not exists public.feedback (
     tags text[],
     sentiment text,
     created_at text,
-    is_resolved boolean default false
+    is_resolved boolean default false,
+    staff_id text,
+    staff_name text,
+    type text default 'INTERNAL_FEEDBACK'
 );
+
+-- 3. Update Employees Table (For Gamification)
+-- CHẠY DÒNG NÀY NẾU BẠN CHƯA THẤY XP ĐƯỢC CỘNG
+alter table public.employees add column if not exists xp int default 0;
+alter table public.employees add column if not exists level int default 1;
 
 -- Enable RLS
 alter table public.tasks enable row level security;
-create policy "Public Access" on public.tasks for all using (true) with check (true);
+create policy "Public Access Tasks" on public.tasks for all using (true) with check (true);
 
 alter table public.feedback enable row level security;
-create policy "Public Access" on public.feedback for all using (true) with check (true);
+create policy "Public Access Feedback" on public.feedback for all using (true) with check (true);
 `;
 
   const handleCopySQL = () => {

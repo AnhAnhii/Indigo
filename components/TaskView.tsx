@@ -97,6 +97,15 @@ export const TaskView: React.FC = () => {
         }
     }
 
+    // Helper: Calculate XP required for next level
+    // Inverse Formula: XP = 50 * (Level - 1)^2
+    // XP for Level L: 50 * (L-1)^2. XP for Level L+1: 50 * L^2.
+    const getLevelRange = (level: number) => {
+        const startXP = 50 * Math.pow(level - 1, 2);
+        const endXP = 50 * Math.pow(level, 2);
+        return { startXP, endXP };
+    };
+
     // --- ACTIONS ---
 
     const handleCreateTask = () => {
@@ -567,28 +576,60 @@ export const TaskView: React.FC = () => {
                             <p className="font-medium opacity-90">Vinh danh nhân viên xuất sắc nhất</p>
                         </div>
                         
-                        {leaderboard.map((emp, idx) => (
-                            <div key={emp.id} className={`flex items-center gap-4 p-4 rounded-2xl border-2 relative overflow-hidden transition-transform hover:scale-[1.02] ${idx === 0 ? 'bg-yellow-50 border-yellow-400 shadow-md' : idx === 1 ? 'bg-gray-50 border-gray-300' : idx === 2 ? 'bg-orange-50 border-orange-300' : 'bg-white border-transparent'}`}>
-                                <div className={`w-8 h-8 flex items-center justify-center font-black text-lg rounded-full ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-400 text-white' : idx === 2 ? 'bg-orange-400 text-white' : 'text-gray-400'}`}>
-                                    {idx + 1}
-                                </div>
-                                <div className="w-14 h-14 rounded-full bg-gray-200 overflow-hidden border-2 border-white shadow-sm shrink-0">
-                                    {emp.avatar ? <img src={emp.avatar} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-gray-400">{emp.name.charAt(0)}</div>}
-                                </div>
-                                <div className="flex-1">
-                                    <h4 className="font-bold text-gray-900 text-lg">{emp.name}</h4>
-                                    <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
-                                        <span className="text-teal-600 bg-teal-50 px-2 py-0.5 rounded">LV.{emp.level || 1}</span>
-                                        <span>{emp.role}</span>
+                        {leaderboard.map((emp, idx) => {
+                            const level = emp.level || 1;
+                            const { startXP, endXP } = getLevelRange(level);
+                            const currentXP = emp.xp || 0;
+                            // Calculate percentage progress for this level
+                            // Progress = (Current - Start) / (End - Start)
+                            let progress = 0;
+                            if (endXP > startXP) {
+                                progress = Math.min(100, Math.max(0, ((currentXP - startXP) / (endXP - startXP)) * 100));
+                            } else {
+                                progress = 0; // Level 1 start
+                                if (level === 1) progress = Math.min(100, (currentXP / 50) * 100);
+                            }
+
+                            return (
+                                <div key={emp.id} className={`flex flex-col p-4 rounded-2xl border-2 relative overflow-hidden transition-transform hover:scale-[1.02] ${idx === 0 ? 'bg-yellow-50 border-yellow-400 shadow-md' : idx === 1 ? 'bg-gray-50 border-gray-300' : idx === 2 ? 'bg-orange-50 border-orange-300' : 'bg-white border-transparent'}`}>
+                                    <div className="flex items-center gap-4 relative z-10">
+                                        <div className={`w-8 h-8 flex items-center justify-center font-black text-lg rounded-full ${idx === 0 ? 'bg-yellow-400 text-white' : idx === 1 ? 'bg-gray-400 text-white' : idx === 2 ? 'bg-orange-400 text-white' : 'text-gray-400'}`}>
+                                            {idx + 1}
+                                        </div>
+                                        <div className="w-14 h-14 rounded-full bg-gray-200 overflow-hidden border-2 border-white shadow-sm shrink-0">
+                                            {emp.avatar ? <img src={emp.avatar} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center font-bold text-gray-400">{emp.name.charAt(0)}</div>}
+                                        </div>
+                                        <div className="flex-1">
+                                            <h4 className="font-bold text-gray-900 text-lg">{emp.name}</h4>
+                                            <div className="flex items-center gap-2 text-xs font-bold text-gray-500">
+                                                <span className="text-teal-600 bg-teal-50 px-2 py-0.5 rounded">LV.{level}</span>
+                                                <span>{emp.role}</span>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="font-black text-2xl text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-red-600">{currentXP}</div>
+                                            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total XP</div>
+                                        </div>
                                     </div>
+                                    
+                                    {/* XP Progress Bar */}
+                                    <div className="mt-3 relative z-10">
+                                        <div className="flex justify-between text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-wider">
+                                            <span>Level {level}</span>
+                                            <span>Next: Level {level + 1} ({endXP - currentXP} XP left)</span>
+                                        </div>
+                                        <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
+                                            <div 
+                                                className={`h-full rounded-full transition-all duration-1000 ${idx === 0 ? 'bg-yellow-400' : 'bg-teal-500'}`} 
+                                                style={{ width: `${progress}%` }}
+                                            ></div>
+                                        </div>
+                                    </div>
+
+                                    {idx === 0 && <Award className="absolute -top-4 -right-4 text-yellow-500 opacity-20 rotate-12" size={80} />}
                                 </div>
-                                <div className="text-right">
-                                    <div className="font-black text-2xl text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-red-600">{emp.xp || 0}</div>
-                                    <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">XP</div>
-                                </div>
-                                {idx === 0 && <Award className="absolute -top-4 -right-4 text-yellow-500 opacity-20 rotate-12" size={80} />}
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </div>
