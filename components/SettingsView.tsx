@@ -4,7 +4,7 @@ import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, Check
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig } from '../types';
 
-type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE' | 'NOTIFICATION';
+type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE' | 'NOTIFICATION' | 'TIME';
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings, testNotification } = useGlobalContext();
@@ -233,6 +233,12 @@ export const SettingsView: React.FC = () => {
                     className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'WIFI' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
                     <Wifi size={18} className="mr-3"/> Wifi Chấm công
+                </button>
+                <button 
+                    onClick={() => setActiveTab('TIME')}
+                    className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'TIME' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                    <Clock size={18} className="mr-3"/> Thời gian & NTP
                 </button>
                  <button 
                     onClick={() => setActiveTab('DATABASE')}
@@ -604,6 +610,58 @@ export const SettingsView: React.FC = () => {
                                          </div>
                                      </div>
                                  ))}
+                             </div>
+                        </div>
+                    </div>
+                )}
+                
+                {/* TAB: TIME */}
+                {activeTab === 'TIME' && (
+                    <div className="space-y-6 animate-in fade-in">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                             <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Clock className="mr-2 text-teal-600" size={20}/> Cấu hình Đồng bộ Thời gian (NTP)</h3>
+                             <p className="text-sm text-gray-500 mb-6">Thiết lập máy chủ thời gian để đảm bảo tính chính xác khi chấm công trên các thiết bị trạm.</p>
+                             
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                 <div>
+                                     <label className="block text-sm font-bold text-gray-700 mb-2">NTP Server Address</label>
+                                     <div className="relative">
+                                        <Globe className="absolute left-3 top-2.5 text-gray-400" size={18}/>
+                                        <input 
+                                            type="text" 
+                                            value={localSettings.timeConfig?.ntpServer || 'pool.ntp.org'}
+                                            onChange={(e) => setLocalSettings(prev => ({...prev, timeConfig: { ...prev.timeConfig, ntpServer: e.target.value }}))}
+                                            placeholder="VD: pool.ntp.org"
+                                            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                                        />
+                                     </div>
+                                     <p className="text-xs text-gray-400 mt-1">Mặc định: pool.ntp.org (Việt Nam)</p>
+                                 </div>
+                                 
+                                 <div>
+                                     <label className="block text-sm font-bold text-gray-700 mb-2">Múi giờ hệ thống</label>
+                                     <div className="relative">
+                                        <Clock className="absolute left-3 top-2.5 text-gray-400" size={18}/>
+                                        <input 
+                                            type="text" 
+                                            value={localSettings.timeConfig?.timezone || 'Asia/Ho_Chi_Minh'}
+                                            onChange={(e) => setLocalSettings(prev => ({...prev, timeConfig: { ...prev.timeConfig, timezone: e.target.value }}))}
+                                            placeholder="VD: Asia/Ho_Chi_Minh"
+                                            className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
+                                        />
+                                     </div>
+                                 </div>
+                             </div>
+
+                             <div className="mt-6 p-4 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-3">
+                                <Info className="text-blue-600 shrink-0 mt-0.5" size={18} />
+                                <div>
+                                    <h4 className="font-bold text-blue-800 text-sm">Lưu ý về đồng bộ</h4>
+                                    <p className="text-xs text-blue-700 mt-1">
+                                        Cấu hình này sẽ được áp dụng cho các thiết bị chấm công chuyên dụng (Android/Kiosk) để đồng bộ giờ hệ thống. 
+                                        Trên trình duyệt web thông thường, hệ thống sẽ sử dụng giờ của thiết bị người dùng nhưng đối chiếu với Server Time để phát hiện gian lận.
+                                    </p>
+                                </div>
                              </div>
                         </div>
                     </div>

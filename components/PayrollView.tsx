@@ -8,7 +8,7 @@ export const PayrollView: React.FC = () => {
   const { employees, logs, currentUser } = useGlobalContext();
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
 
-  const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV;
 
   // Helper to format currency
   const formatCurrency = (amount: number) => {

@@ -6,7 +6,7 @@ import { useGlobalContext } from '../contexts/GlobalContext';
 
 export const RequestManager: React.FC = () => {
   const { requests, addRequest, updateRequestStatus, currentUser, settings } = useGlobalContext();
-  const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV;
 
   // Nếu là Admin thì mặc định vào tab Duyệt, nhân viên thì mặc định là Mine
   const [activeTab, setActiveTab] = useState<'ALL' | 'MINE' | 'TO_APPROVE'>(isAdmin ? 'TO_APPROVE' : 'MINE');

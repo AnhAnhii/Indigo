@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -15,6 +16,7 @@ import { HandoverView } from './components/HandoverView';
 import { ProfileView } from './components/ProfileView';
 import { NotificationsView } from './components/NotificationsView'; 
 import { QrStation } from './components/QrStation'; 
+import { DevTools } from './components/DevTools';
 import { LoginScreen } from './components/LoginScreen';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
@@ -27,13 +29,15 @@ const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV;
+  const isDev = currentUser?.role === EmployeeRole.DEV;
+
   const bannerAlerts = activeAlerts.filter(a => !dismissedAlertIds.has(a.id));
   const alertCount = bannerAlerts.length;
 
   useEffect(() => {
       if (!isAdmin && currentUser) {
-          const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT, AppView.QR_STATION];
+          const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT, AppView.QR_STATION, AppView.DEV_TOOLS];
           if (restrictedViews.includes(currentView)) {
               setCurrentView(AppView.DASHBOARD);
           }
@@ -60,8 +64,9 @@ const AppContent: React.FC = () => {
       return <QrStation onBack={() => setCurrentView(AppView.DASHBOARD)} />;
   }
 
-  const NavItem = ({ view, icon: Icon, label, restricted = false, badge = 0 }: { view: AppView; icon: any; label: string, restricted?: boolean, badge?: number }) => {
+  const NavItem = ({ view, icon: Icon, label, restricted = false, devOnly = false, badge = 0 }: { view: AppView; icon: any; label: string, restricted?: boolean, devOnly?: boolean, badge?: number }) => {
     if (restricted && !isAdmin) return null;
+    if (devOnly && !isDev) return null;
 
     return (
         <button
@@ -99,6 +104,7 @@ const AppContent: React.FC = () => {
       case AppView.PROFILE: return <ProfileView />;
       case AppView.NOTIFICATIONS: return <NotificationsView onViewChange={setCurrentView} />;
       case AppView.AI_ASSISTANT: return isAdmin ? <AiAssistant /> : null;
+      case AppView.DEV_TOOLS: return isDev ? <DevTools /> : null;
       default: return <Dashboard onViewChange={setCurrentView} />;
     }
   };
@@ -192,6 +198,13 @@ const AppContent: React.FC = () => {
             <NavItem view={AppView.AI_ASSISTANT} icon={MessageSquare} label="Trợ lý AI Gemini" restricted={true} />
             </>
           )}
+
+          {isDev && (
+             <>
+             <div className="pt-4 pb-2 text-[11px] font-bold text-indigo-400 uppercase tracking-widest">Developer</div>
+             <NavItem view={AppView.DEV_TOOLS} icon={Terminal} label="Logs & Online" devOnly={true} />
+             </>
+          )}
         </nav>
         
         <div className="w-full p-4 border-t bg-gray-50 shrink-0 space-y-3">
@@ -235,7 +248,7 @@ const AppContent: React.FC = () => {
       )}
 
       <main className={`flex-1 overflow-y-auto h-screen bg-[#f8fafc] ${bannerAlerts.length > 0 ? 'pt-14 md:pt-12' : ''}`}>
-        <div className="p-3 md:p-8 max-w-7xl mx-auto pb-24 md:pb-8">
+        <div className="p-3 md:p-8 max-w-7xl mx-auto pb-24 md:pb-8 h-full">
           {renderContent()}
         </div>
       </main>

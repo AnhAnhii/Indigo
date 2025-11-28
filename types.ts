@@ -15,9 +15,11 @@ export enum AppView {
   PROFILE = 'PROFILE',
   NOTIFICATIONS = 'NOTIFICATIONS',
   QR_STATION = 'QR_STATION', 
+  DEV_TOOLS = 'DEV_TOOLS', // New view for Developers
 }
 
 export enum EmployeeRole {
+  DEV = 'Developer',
   MANAGER = 'Quản lý',
   CHEF = 'Bếp trưởng',
   WAITER = 'Phục vụ',
@@ -162,13 +164,20 @@ export interface NotificationConfig {
     enableSystemAlert: boolean;  // Cảnh báo hệ thống (chậm món)
 }
 
+// NEW: Cấu hình NTP Time
+export interface TimeConfig {
+    ntpServer: string;
+    timezone: string;
+}
+
 export interface SystemSettings {
     location: LocationConfig;
     wifis: WifiConfig[];
     rules: WorkRule;
     servingConfig?: ServingConfig; 
     shiftConfigs: ShiftConfig[];
-    notificationConfig: NotificationConfig; // Added here
+    notificationConfig: NotificationConfig; 
+    timeConfig: TimeConfig; // Added here
     webhook?: {
         url: string;
         enabled: boolean;
@@ -230,6 +239,24 @@ export interface SystemAlert {
     groupId?: string; 
     severity: 'HIGH' | 'MEDIUM';
     timestamp: string;
+}
+
+// NEW: For Dev Logs
+export interface SystemLog {
+    id: string;
+    timestamp: string;
+    event: string;
+    details: string;
+    type: 'INFO' | 'WARNING' | 'ERROR' | 'DB_CHANGE';
+}
+
+// NEW: For Online Presence
+export interface OnlineUser {
+    userId: string;
+    name: string;
+    role: string;
+    onlineAt: string;
+    platform?: string;
 }
 
 export const RESTAURANT_LOCATION = {

@@ -98,7 +98,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const todayLog = logs.find(log => log.date === todayStr && log.employeeName === currentUser?.name);
   const isCheckedIn = !!todayLog;
   const isCheckedOut = todayLog && !!todayLog.checkOut;
-  const isAdmin = currentUser?.role === EmployeeRole.MANAGER;
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV;
 
   const dateOptions: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
   const dateDisplay = currentTime.toLocaleDateString('vi-VN', dateOptions);

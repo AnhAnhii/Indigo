@@ -172,8 +172,9 @@ export const EmployeeList: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-gray-900">{emp.name}</h3>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 items-center">
                       <span className="text-xs font-medium px-2 py-1 bg-gray-100 text-gray-600 rounded-full">{emp.role}</span>
+                      {emp.role === EmployeeRole.DEV && <span className="text-[10px] font-bold px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded border border-purple-200">DEV</span>}
                       <span className="text-xs font-medium px-2 py-1 bg-blue-50 text-blue-600 rounded-full">ID: {emp.id}</span>
                   </div>
                 </div>
@@ -185,7 +186,7 @@ export const EmployeeList: React.FC = () => {
                 <div className="absolute right-0 top-8 w-40 bg-white border rounded-lg shadow-lg py-1 hidden group-hover/menu:block z-10">
                     <button onClick={() => openEdit(emp)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center"><Edit2 size={14} className="mr-2"/> Sửa</button>
                     <button onClick={() => openFaceRegistration(emp)} className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center text-blue-600"><ScanFace size={14} className="mr-2"/> Đăng ký Face</button>
-                    <button onClick={() => handleDelete(emp.id)} className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 flex items-center"><Trash2 size={14} className="mr-2"/> Xóa</button>
+                    <button onClick={() => handleDelete(emp.id)} disabled={emp.role === EmployeeRole.DEV} className="w-full text-left px-4 py-2 text-sm hover:bg-red-50 text-red-600 flex items-center disabled:opacity-50 disabled:cursor-not-allowed"><Trash2 size={14} className="mr-2"/> Xóa</button>
                 </div>
               </div>
             </div>
@@ -219,9 +220,16 @@ export const EmployeeList: React.FC = () => {
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-xs font-bold text-gray-500 mb-1">Vai trò</label>
-                            <select value={role} onChange={(e) => setRole(e.target.value as EmployeeRole)} className="w-full border rounded-lg p-2.5">
-                                {Object.values(EmployeeRole).map(r => <option key={r} value={r}>{r}</option>)}
-                            </select>
+                            {role === EmployeeRole.DEV ? (
+                                <div className="w-full border rounded-lg p-2.5 bg-gray-100 text-gray-500 font-bold flex items-center justify-between">
+                                    <span>{EmployeeRole.DEV}</span>
+                                    <Lock size={12} />
+                                </div>
+                            ) : (
+                                <select value={role} onChange={(e) => setRole(e.target.value as EmployeeRole)} className="w-full border rounded-lg p-2.5">
+                                    {Object.values(EmployeeRole).filter(r => r !== EmployeeRole.DEV).map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                            )}
                         </div>
                         <div>
                              <label className="block text-xs font-bold text-gray-500 mb-1">Số điện thoại</label>

@@ -5,10 +5,12 @@ import {
   AttendanceStatus, EmployeeRole, RequestStatus, 
   SystemSettings, MenuItem, PrepTask,
   ServingGroup, ServingItem, SauceItem,
-  HandoverLog, WorkSchedule, SystemAlert, RequestType
+  HandoverLog, WorkSchedule, SystemAlert, RequestType,
+  SystemLog, OnlineUser
 } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { supabaseService } from '../services/supabaseService';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface GlobalContextType {
   employees: Employee[];
@@ -70,7 +72,11 @@ interface GlobalContextType {
   reloadData: () => void;
   testNotification: () => void;
   requestNotificationPermission: () => Promise<string>; 
-  unlockAudio: () => void; 
+  unlockAudio: () => void;
+
+  // DEV FEATURES
+  onlineUsers: OnlineUser[];
+  systemLogs: SystemLog[];
 }
 
 const GlobalContext = createContext<GlobalContextType | undefined>(undefined);
@@ -94,6 +100,10 @@ const INITIAL_SETTINGS: SystemSettings = {
         enableStaffRequest: true,
         enableHandover: true,
         enableSystemAlert: true
+    },
+    timeConfig: {
+        ntpServer: 'pool.ntp.org',
+        timezone: 'Asia/Ho_Chi_Minh'
     }
 };
 
@@ -118,6 +128,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
   const [prepTasks, setPrepTasks] = useState<PrepTask[]>([]);
   const [currentUser, setCurrentUser] = useState<Employee | null>(null); 
+
+  // DEV FEATURES STATE
+  const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
+  const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
+  const channelRef = useRef<RealtimeChannel | null>(null);
 
   const currentUserRef = useRef(currentUser);
   const servingGroupsRef = useRef(servingGroups);
@@ -182,6 +197,17 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
   useEffect(() => { servingGroupsRef.current = servingGroups; }, [servingGroups]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+  // --- LOGGING HELPER ---
+  const addSystemLog = (event: string, details: string, type: 'INFO' | 'WARNING' | 'ERROR' | 'DB_CHANGE') => {
+      setSystemLogs(prev => [{
+          id: Date.now().toString() + Math.random().toString(),
+          timestamp: new Date().toLocaleTimeString('vi-VN'),
+          event,
+          details,
+          type
+      }, ...prev].slice(0, 100)); // Keep last 100 logs
+  };
 
   // --- OMNI-CHANNEL NOTIFICATION SYSTEM ---
   const dispatchNotification = async (title: string, body: string) => {
@@ -279,7 +305,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       if (!isBackground) setIsLoading(true);
       try {
           const data = await supabaseService.fetchAllData();
-          setEmployees(data.employees);
+          
+          // FORCE DEV ROLE FOR ADMIN ID
+          const processedEmployees = data.employees.map(e => 
+            e.id === 'admin' ? { ...e, role: EmployeeRole.DEV } : e
+          );
+
+          setEmployees(processedEmployees);
           setLogs(data.logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
           setRequests(data.requests);
           setServingGroups(data.servingGroups);
@@ -292,7 +324,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           const dismissedSet = new Set<string>(data.dismissedAlerts.map((a: any) => String(a.id)));
           setDismissedAlertIds(dismissedSet);
           if (!isBackground) setLastUpdated(new Date().toLocaleTimeString('vi-VN'));
-          return data.employees; 
+          return processedEmployees; 
       } catch (error) {
           console.error("Sync Error:", error);
           return [];
@@ -301,7 +333,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
   }, []);
 
-  // --- REALTIME SUBSCRIPTION ---
+  // --- REALTIME SUBSCRIPTION & PRESENCE ---
   useEffect(() => {
       const initApp = async () => {
           const loadedEmployees = await loadData(false);
@@ -322,11 +354,46 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
       initApp();
 
-      const channel = supabase.channel('app-db-changes')
+      // SETUP CHANNEL
+      const channel = supabase.channel('app-db-changes');
+      channelRef.current = channel;
+
+      channel
+          // PRESENCE TRACKING
+          .on('presence', { event: 'sync' }, () => {
+            const newState = channel.presenceState();
+            const users: OnlineUser[] = [];
+            for (const key in newState) {
+                const presenceList = newState[key] as any[];
+                presenceList.forEach(p => {
+                    users.push({
+                        userId: p.user_id,
+                        name: p.name,
+                        role: p.role,
+                        onlineAt: p.online_at,
+                        platform: p.platform
+                    });
+                });
+            }
+            // Sort by recent online
+            users.sort((a, b) => new Date(b.onlineAt).getTime() - new Date(a.onlineAt).getTime());
+            setOnlineUsers(users);
+          })
+          .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+              newPresences.forEach((p: any) => addSystemLog('USER_ONLINE', `${p.name} (${p.role}) vừa truy cập`, 'INFO'));
+          })
+          .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+             leftPresences.forEach((p: any) => addSystemLog('USER_OFFLINE', `${p.name} đã rời đi`, 'INFO'));
+          })
+
+          // DB CHANGES TRACKING
           .on('postgres_changes', { event: 'INSERT', schema: 'public' }, (payload) => {
               const user = currentUserRef.current;
               const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
               
+              // LOGGING FOR DEV
+              addSystemLog('DB_INSERT', `Table: ${payload.table} | New ID: ${(payload.new as any).id}`, 'DB_CHANGE');
+
               if (payload.table === 'requests' && user?.role === EmployeeRole.MANAGER) {
                   if (config.enableStaffRequest) {
                       const newReq = payload.new as any;
@@ -359,6 +426,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(newGroupData.id));
               const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
 
+              addSystemLog('DB_UPDATE', `ServingGroup Updated: ${newGroupData.name}`, 'DB_CHANGE');
+
               if (config.enableGuestArrival) {
                   const wasNotStarted = !oldGroupLocal || !oldGroupLocal.startTime;
                   const isNowStarted = !!newGroupData.start_time;
@@ -372,16 +441,39 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               }
               loadData(true);
           })
-          .on('postgres_changes', { event: 'DELETE', schema: 'public' }, () => {
+          .on('postgres_changes', { event: 'DELETE', schema: 'public' }, (payload) => {
+              addSystemLog('DB_DELETE', `Table: ${payload.table} | ID: ${(payload.old as any).id}`, 'WARNING');
               loadData(true);
           })
           .subscribe((status) => {
-              if (status === 'SUBSCRIBED') setConnectionStatus('CONNECTED');
+              if (status === 'SUBSCRIBED') {
+                setConnectionStatus('CONNECTED');
+                addSystemLog('SYSTEM', 'Connected to Realtime Server', 'INFO');
+              }
               else setConnectionStatus(status === 'CLOSED' ? 'DISCONNECTED' : 'CONNECTING');
           });
 
       return () => { supabase.removeChannel(channel); };
   }, []); 
+
+  // --- TRACK PRESENCE WHEN USER LOGS IN ---
+  useEffect(() => {
+      if (currentUser && channelRef.current) {
+          const trackPresence = async () => {
+              const status = await channelRef.current?.track({
+                  user_id: currentUser.id,
+                  name: currentUser.name,
+                  role: currentUser.role,
+                  online_at: new Date().toISOString(),
+                  platform: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+              });
+              if (status === 'ok') {
+                  console.log("Presence tracked for", currentUser.name);
+              }
+          };
+          trackPresence();
+      }
+  }, [currentUser, connectionStatus]);
 
   // --- SYSTEM ALERTS ---
   const runSystemChecks = () => {
@@ -506,7 +598,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           return cleanInput && empPhone && cleanInput === empPhone;
       });
       if (user) {
-          setCurrentUser(user);
+          // Double check force logic if it wasn't caught in loadData
+          const finalUser = user.id === 'admin' ? { ...user, role: EmployeeRole.DEV } : user;
+          setCurrentUser(finalUser);
           localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify({ userId: user.id, timestamp: Date.now() }));
           return true;
       }
@@ -543,7 +637,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       reloadData: () => loadData(false),
       testNotification, 
       requestNotificationPermission,
-      unlockAudio
+      unlockAudio,
+      onlineUsers, systemLogs
     }}>
       {children}
     </GlobalContext.Provider>

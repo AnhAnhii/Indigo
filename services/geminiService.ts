@@ -56,39 +56,51 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
     try {
         const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
-        // PROMPT V3: Tối ưu cho chữ viết tay Tiếng Việt & Ký hiệu Order
+        // PROMPT V17: STRICT LOCATION ZONES + V16 GROUP NAME + V15 NEM LOGIC
         const prompt = `
-            Bạn là Captain nhà hàng chuyên đọc phiếu Order viết tay (Handwriting OCR).
-            
-            NHIỆM VỤ: Trích xuất thông tin Order từ ảnh chụp.
+            Bạn là Quản lý nhà hàng (AI Order Parser). Nhiệm vụ: Số hóa phiếu order từ ảnh menu.
 
-            1. PHÂN TÍCH LOGIC SỐ BÀN (QUAN TRỌNG NHẤT):
-               - Tìm các ký hiệu góc tờ giấy: "x8", "8T", "T8", "Bàn 8".
-               - Tìm phép cộng bàn: "1x5 + 7x4" => Tổng 8 bàn. "3x6, 2x5" => Tổng 5 bàn.
-               - Nếu ghi "33 pax", "33k" => Khách = 33. Nếu không ghi số bàn, ước tính = ceil(33/6).
+            QUY TẮC V17 - NHẬN DIỆN VỊ TRÍ & LOGIC CŨ:
 
-            2. PHÂN TÍCH MÓN ĂN (ITEMS):
-               - Bỏ qua các dòng: "Note:", "NB:", "Lưu ý", "Tổng cộng".
-               - Chữ viết tắt: "G" = Gà, "C" = Cơm, "R" = Rau.
-               - Số lượng: Thường đứng đầu dòng "2 Gà" hoặc cuối dòng "Gà x 2".
-            
-            3. SUY LUẬN (Chain of Thought):
-               - Nếu thấy "Do Thai" -> groupName chứa "Do Thai".
-               - Nếu thấy "Han" -> groupName chứa "Han".
-               - Nếu món là "Lẩu", "Gà luộc", "Cá" -> Số lượng thường = Số bàn (tableCount).
-               - Nếu món là "Súp", "Bát cơm" -> Số lượng thường = Số khách (guestCount).
+            1. VỊ TRÍ (location) - TỰ ĐỘNG NHẬN DIỆN THEO KHU VỰC:
+               - Hãy tìm thông tin bàn/khu vực ở phần đầu phiếu.
+               - CHỈ CHẤP NHẬN các khu vực sau:
+                 + Khu A1, A2, B1, B2, C1, C2: Số bàn từ 1 đến 14. (Ví dụ: "A1-5", "Bàn 10 C2", "C1 2").
+                 + Khu Ban công (BC): Số bàn từ 1 đến 6. (Ví dụ: "BC 3", "Ban công 1", "BC-2").
+               - Nếu tìm thấy chữ viết tay khớp quy tắc trên -> Điền vào field "location".
+               - Nếu không tìm thấy hoặc không thuộc các khu trên -> Để chuỗi rỗng "".
+
+            2. TÊN ĐOÀN (groupName):
+               - Cấu trúc: "{Số khách} {Loại khách} ({Tên Cty/Người đặt})".
+               - Ví dụ: "17 Âu (Vido)", "33 Do Thái (Mr. Vương)".
+
+            3. LOGIC MÓN NEM (V15):
+               - Món Nem (Rau/Tôm/Thập cẩm...): KHÔNG TÁCH DÒNG.
+               - Quantity = Tổng số bàn.
+               - Note: Tạo hướng dẫn chia (VD: "2 đĩa cho bàn 7 người • 1 đĩa cho bàn 6 người").
+
+            4. LOGIC CHUNG:
+               - Súp/Cháo: Quantity = Tổng khách (Unit: Bát).
+               - Món khác (Lẩu, Gà, Rau...): Quantity = Tổng số bàn (Unit: Đĩa/Nồi).
+               - Bỏ qua các dòng ghi chú nội bộ (NB, Nbo...) ở cuối phiếu.
 
             OUTPUT JSON (Array):
             [
                 {
-                    "groupName": "Tên đoàn (VD: 33 pax Do Thai)",
-                    "location": "Vị trí (VD: A1)", 
-                    "guestCount": 33,
-                    "tableCount": 8,
-                    "tableSplit": "1x5, 7x4", 
+                    "groupName": "17 Âu (Vido)", 
+                    "location": "A1-5", 
+                    "guestCount": 17,
+                    "tableCount": 3,
+                    "tableSplit": "2x7, 1x3", 
+                    "confidence": 95,
+                    "warnings": [], 
                     "items": [
-                        { "name": "Khoai chiên", "quantity": 8, "unit": "Đĩa" },
-                        { "name": "Súp gà", "quantity": 33, "unit": "Bát" }
+                        { 
+                            "name": "Nem thập cẩm", 
+                            "quantity": 3, 
+                            "unit": "Đĩa", 
+                            "note": "2 đĩa cho bàn 7 người • 1 đĩa cho bàn 3 người" 
+                        }
                     ]
                 }
             ]
@@ -131,10 +143,13 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
                 guestCount: Number(g.guestCount) || 0,
                 tableCount: Number(g.tableCount) || 1,
                 tableSplit: g.tableSplit || '', 
+                confidence: Number(g.confidence) || 70,
+                warnings: Array.isArray(g.warnings) ? g.warnings : [],
                 items: Array.isArray(g.items) ? g.items.map((i: any) => ({
                     ...i,
                     quantity: Number(i.quantity) || 1,
-                    unit: i.unit || 'Phần'
+                    unit: i.unit || 'Phần',
+                    note: i.note || ''
                 })) : []
             }));
         } catch (e) {
