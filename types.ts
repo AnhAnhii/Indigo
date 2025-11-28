@@ -16,7 +16,10 @@ export enum AppView {
   NOTIFICATIONS = 'NOTIFICATIONS',
   QR_STATION = 'QR_STATION', 
   DEV_TOOLS = 'DEV_TOOLS',
-  GUEST_MENU = 'GUEST_MENU' // New View for Guest
+  GUEST_MENU = 'GUEST_MENU',
+  TASKS = 'TASKS',
+  FEEDBACK = 'FEEDBACK',
+  REVIEW_QR = 'REVIEW_QR' // New View for Staff
 }
 
 export enum EmployeeRole {
@@ -46,6 +49,8 @@ export interface Employee {
   phone: string;
   email: string;
   password?: string;
+  xp?: number; // Gamification XP
+  level?: number; // Gamification Level
 }
 
 export interface AttendanceRecord {
@@ -239,7 +244,7 @@ export interface ServingGroup {
 
 export interface SystemAlert {
     id: string;
-    type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION';
+    type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION' | 'BAD_FEEDBACK';
     message: string;
     details: string;
     groupId?: string; 
@@ -261,6 +266,63 @@ export interface OnlineUser {
     role: string;
     onlineAt: string;
     platform?: string;
+}
+
+// --- TASK & GAMIFICATION TYPES ---
+
+export enum TaskType {
+    OPENING = 'OPENING',
+    CLOSING = 'CLOSING',
+    ADHOC = 'ADHOC'
+}
+
+export enum TaskStatus {
+    OPEN = 'OPEN', // Available to pick
+    IN_PROGRESS = 'IN_PROGRESS', // Picked by someone
+    COMPLETED = 'COMPLETED', // Staff marked done, uploaded photo
+    VERIFIED = 'VERIFIED',    // Manager approved
+    REJECTED = 'REJECTED'     // Manager rejected
+}
+
+export interface Task {
+    id: string;
+    title: string;
+    description?: string;
+    assigneeId?: string; // Leader ID if party, or Solo ID
+    assigneeName?: string; 
+    participants?: string[]; // Array of Employee IDs (Including Leader)
+    maxParticipants?: number; // 1 = Solo, >1 = Party
+    creatorId: string;
+    type: TaskType;
+    status: TaskStatus;
+    difficulty: 1 | 2 | 3; // 1 Star to 3 Stars
+    xpReward: number;
+    penaltyXp?: number; // XP deducted if rejected
+    rejectionReason?: string;
+    proofImage?: string; // Base64
+    createdAt: string;
+    deadline?: string;
+    verifiedBy?: string;
+    shiftCode?: string; // e.g., CA_C, CA_D
+    requiredShifts?: string[]; // New: List of shift codes that can claim this task
+}
+
+// --- CUSTOMER FEEDBACK TYPES (UPDATED FOR REVIEW TRACKING) ---
+
+export interface Feedback {
+    id: string;
+    type: 'INTERNAL_FEEDBACK' | 'GOOGLE_REVIEW_CLICK'; // New field
+    customerName?: string;
+    phone?: string;
+    rating?: number; // 1-5 Stars
+    npsScore?: number; // 0-10 Net Promoter Score
+    comment?: string;
+    tags?: string[]; 
+    sentiment?: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE'; 
+    createdAt: string;
+    isResolved: boolean; 
+    staffId?: string; // Staff who requested the review
+    staffName?: string;
 }
 
 export const RESTAURANT_LOCATION = {

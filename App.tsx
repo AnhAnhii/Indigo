@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal, CheckSquare, Smile, Star } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -18,7 +18,11 @@ import { NotificationsView } from './components/NotificationsView';
 import { QrStation } from './components/QrStation'; 
 import { DevTools } from './components/DevTools';
 import { LoginScreen } from './components/LoginScreen';
-import { GuestMenu } from './components/GuestMenu'; // Import Guest Menu
+import { GuestMenu } from './components/GuestMenu'; 
+import { TaskView } from './components/TaskView'; 
+import { FeedbackManager } from './components/FeedbackManager'; 
+import { StaffReviewQr } from './components/StaffReviewQr'; // New Staff QR View
+import { ReviewRedirect } from './components/ReviewRedirect'; // New Guest Redirect View
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
@@ -29,9 +33,12 @@ const AppContent: React.FC = () => {
   const { currentUser, logout, activeAlerts, dismissedAlertIds, dismissAlert, connectionStatus, isRestoringSession } = useGlobalContext();
   const [currentView, setCurrentView] = useState<AppView>(AppView.DASHBOARD);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  
+  // GUEST MODES STATE
   const [guestTableId, setGuestTableId] = useState<string | null>(null);
+  const [reviewRedirectStaffId, setReviewRedirectStaffId] = useState<string | null>(null);
 
-  const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV;
+  const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV || currentUser?.role === EmployeeRole.DEPARTMENT_HEAD;
   const isDev = currentUser?.role === EmployeeRole.DEV;
 
   const bannerAlerts = activeAlerts.filter(a => !dismissedAlertIds.has(a.id));
@@ -41,13 +48,22 @@ const AppContent: React.FC = () => {
       // CHECK FOR GUEST MODE URL PARAMETERS
       const params = new URLSearchParams(window.location.search);
       const tableParam = params.get('table');
+      const modeParam = params.get('mode');
+      const staffIdParam = params.get('staffId');
+
       if (tableParam) {
           setGuestTableId(tableParam);
           return;
       }
+      
+      // Handle ?mode=review_redirect&staffId=...
+      if (modeParam === 'review_redirect' && staffIdParam) {
+          setReviewRedirectStaffId(staffIdParam);
+          return;
+      }
 
       if (!isAdmin && currentUser) {
-          const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT, AppView.QR_STATION, AppView.DEV_TOOLS];
+          const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT, AppView.QR_STATION, AppView.DEV_TOOLS, AppView.FEEDBACK];
           if (restrictedViews.includes(currentView)) {
               setCurrentView(AppView.DASHBOARD);
           }
@@ -55,7 +71,7 @@ const AppContent: React.FC = () => {
       setIsMobileMenuOpen(false);
   }, [currentView, isAdmin, currentUser]);
 
-  // RENDER GUEST MENU IF TABLE ID PRESENT
+  // RENDER GUEST MENU
   if (guestTableId) {
       return (
         <GlobalProvider>
@@ -64,7 +80,16 @@ const AppContent: React.FC = () => {
       );
   }
 
-  // HANDLE INITIAL LOADING (Show splash screen instead of Login if restoring session)
+  // RENDER REVIEW REDIRECT
+  if (reviewRedirectStaffId) {
+      return (
+          <GlobalProvider>
+              <ReviewRedirect staffId={reviewRedirectStaffId} />
+          </GlobalProvider>
+      );
+  }
+
+  // HANDLE INITIAL LOADING
   if (isRestoringSession) {
       return (
           <div className="min-h-screen bg-teal-800 flex flex-col items-center justify-center">
@@ -124,6 +149,9 @@ const AppContent: React.FC = () => {
       case AppView.NOTIFICATIONS: return <NotificationsView onViewChange={setCurrentView} />;
       case AppView.AI_ASSISTANT: return isAdmin ? <AiAssistant /> : null;
       case AppView.DEV_TOOLS: return isDev ? <DevTools /> : null;
+      case AppView.TASKS: return <TaskView />;
+      case AppView.REVIEW_QR: return <StaffReviewQr />;
+      case AppView.FEEDBACK: return isAdmin ? <FeedbackManager /> : null;
       default: return <Dashboard onViewChange={setCurrentView} />;
     }
   };
@@ -147,7 +175,7 @@ const AppContent: React.FC = () => {
                   </div>
                   <div className="flex items-center shrink-0 ml-2">
                       <button 
-                        onClick={() => setCurrentView(activeAlerts[0].type === 'LATE_SERVING' ? AppView.SERVING : AppView.TIMESHEET)}
+                        onClick={() => setCurrentView(activeAlerts[0].type === 'LATE_SERVING' ? AppView.SERVING : activeAlerts[0].type === 'BAD_FEEDBACK' ? AppView.FEEDBACK : AppView.TIMESHEET)}
                         className={`hidden sm:block ml-4 bg-white text-xs font-bold px-3 py-1.5 rounded-lg whitespace-nowrap hover:bg-opacity-90 ${bannerAlerts[0].severity === 'HIGH' ? 'text-red-600' : 'text-yellow-700'}`}
                       >
                           Xem chi tiết
@@ -196,6 +224,8 @@ const AppContent: React.FC = () => {
         <nav className="p-4 space-y-1.5 flex-1 overflow-y-auto no-scrollbar">
           <div className="pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Tổng quan</div>
           <NavItem view={AppView.DASHBOARD} icon={BarChart2} label="Trang chủ" />
+          <NavItem view={AppView.TASKS} icon={CheckSquare} label="Nhiệm vụ & KPI" />
+          <NavItem view={AppView.REVIEW_QR} icon={Star} label="QR Xin Review" />
           <NavItem view={AppView.NOTIFICATIONS} icon={Bell} label="Thông báo" badge={alertCount} />
           <NavItem view={AppView.HANDOVER} icon={BookOpen} label="Sổ Giao Ca" />
           <NavItem view={AppView.TIMESHEET} icon={Table} label="Bảng công" />
@@ -212,6 +242,7 @@ const AppContent: React.FC = () => {
           {isAdmin && (
             <>
             <div className="pt-4 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Hệ thống</div>
+            <NavItem view={AppView.FEEDBACK} icon={Smile} label="Quản lý Review" restricted={true} />
             <NavItem view={AppView.QR_STATION} icon={QrCode} label="Mở Trạm QR Code" restricted={true} />
             <NavItem view={AppView.SETTINGS} icon={Settings} label="Cấu hình" restricted={true} />
             <NavItem view={AppView.AI_ASSISTANT} icon={MessageSquare} label="Trợ lý AI Gemini" restricted={true} />

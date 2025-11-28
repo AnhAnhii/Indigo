@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { 
   Employee, TimesheetLog, EmployeeRequest, 
@@ -5,11 +6,12 @@ import {
   SystemSettings, MenuItem, PrepTask,
   ServingGroup, ServingItem, SauceItem,
   HandoverLog, WorkSchedule, SystemAlert, RequestType,
-  SystemLog, OnlineUser
+  SystemLog, OnlineUser, Task, TaskStatus, Feedback
 } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { supabaseService } from '../services/supabaseService';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { analyzeFeedback } from '../services/geminiService';
 
 interface GlobalContextType {
   employees: Employee[];
@@ -55,6 +57,18 @@ interface GlobalContextType {
 
   schedules: WorkSchedule[];
   assignShift: (employeeId: string, date: string, shiftCode: string) => void;
+  
+  tasks: Task[];
+  addTask: (task: Task) => void;
+  claimTask: (taskId: string, employeeId: string, participantIds?: string[]) => void;
+  submitTaskProof: (taskId: string, proofImage: string) => void;
+  verifyTask: (taskId: string, managerId: string) => void;
+  rejectTask: (taskId: string, reason: string, penalty: number) => void;
+  deleteTask: (taskId: string) => void;
+
+  feedbacks: Feedback[];
+  submitFeedback: (data: any) => Promise<void>;
+  trackReviewClick: (staffId: string) => Promise<void>; // New function
 
   activeAlerts: SystemAlert[];
   dismissedAlertIds: Set<string>; 
@@ -125,6 +139,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [servingGroups, setServingGroups] = useState<ServingGroup[]>([]);
   const [handoverLogs, setHandoverLogs] = useState<HandoverLog[]>([]);
   const [schedules, setSchedules] = useState<WorkSchedule[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   
   const [activeAlerts, setActiveAlerts] = useState<SystemAlert[]>([]);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
@@ -183,7 +199,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   useEffect(() => {
       const handleUserInteraction = () => {
           unlockAudio();
-          // Remove listener after first successful interaction to save resources
           if (audioUnlockedRef.current) {
               window.removeEventListener('click', handleUserInteraction);
               window.removeEventListener('touchstart', handleUserInteraction);
@@ -195,7 +210,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       window.addEventListener('touchstart', handleUserInteraction);
       window.addEventListener('keydown', handleUserInteraction);
 
-      // Check Notification Permission on load
       if (typeof Notification !== 'undefined') {
           setNotificationPermissionStatus(Notification.permission);
       }
@@ -207,7 +221,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       };
   }, [unlockAudio]);
 
-  const playSound = () => {
+  const playSound = (type: 'ALERT' | 'SUCCESS' | 'ERROR' = 'ALERT') => {
       try {
           if (!audioContextRef.current) unlockAudio();
           const ctx = audioContextRef.current;
@@ -218,18 +232,36 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               oscillator.connect(gainNode);
               gainNode.connect(ctx.destination);
 
-              // Sound Config: High pitch beep sequence
-              oscillator.type = 'sine';
-              oscillator.frequency.setValueAtTime(880, ctx.currentTime); 
-              oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
-              
-              gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
-              gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.5);
-
-              oscillator.start();
-              oscillator.stop(ctx.currentTime + 0.5);
+              if (type === 'SUCCESS') {
+                  // Success: Ascending Arpeggio
+                  oscillator.type = 'sine';
+                  oscillator.frequency.setValueAtTime(523.25, ctx.currentTime); // C5
+                  oscillator.frequency.linearRampToValueAtTime(659.25, ctx.currentTime + 0.1); // E5
+                  oscillator.frequency.linearRampToValueAtTime(783.99, ctx.currentTime + 0.2); // G5
+                  gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+                  gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.6);
+                  oscillator.start();
+                  oscillator.stop(ctx.currentTime + 0.6);
+              } else if (type === 'ERROR') {
+                  // Error: Low Descending
+                  oscillator.type = 'sawtooth';
+                  oscillator.frequency.setValueAtTime(150, ctx.currentTime);
+                  oscillator.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.3);
+                  gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+                  gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.4);
+                  oscillator.start();
+                  oscillator.stop(ctx.currentTime + 0.4);
+              } else {
+                  // Alert: High pitch beep sequence
+                  oscillator.type = 'sine';
+                  oscillator.frequency.setValueAtTime(880, ctx.currentTime); 
+                  oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
+                  gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+                  gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.5);
+                  oscillator.start();
+                  oscillator.stop(ctx.currentTime + 0.5);
+              }
           } else {
-              // Try unlock again if it failed before
               unlockAudio();
           }
       } catch (e) { 
@@ -253,13 +285,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   // --- OMNI-CHANNEL NOTIFICATION SYSTEM ---
-  const dispatchNotification = async (title: string, body: string) => {
+  const dispatchNotification = async (title: string, body: string, type: 'ALERT' | 'SUCCESS' | 'ERROR' = 'ALERT') => {
       console.log(`[Notification Dispatch] Title: ${title} | Body: ${body}`);
-      
-      // 1. Play Sound first
-      playSound(); 
+      playSound(type); 
 
-      // Check Permission
       if (Notification.permission !== 'granted') {
           console.warn("Notification permission not granted");
           return;
@@ -275,19 +304,15 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           requireInteraction: true 
       };
 
-      // CHIẾN THUẬT: THỬ TẤT CẢ CÁC CÁCH ĐỂ ĐẨY TEXT LÊN MÀN HÌNH
-
-      // CÁCH 1: Gửi qua PostMessage (Cách tốt nhất cho iOS PWA khi App đang mở)
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
           navigator.serviceWorker.controller.postMessage({
               type: 'SHOW_NOTIFICATION',
               title: title,
-              body: body, // Truyền trực tiếp chuỗi văn bản
+              body: body, 
               tag: tag
           });
       }
 
-      // CÁCH 2: Gọi trực tiếp từ Registration (Dự phòng cho Android/Desktop)
       if ('serviceWorker' in navigator) {
           navigator.serviceWorker.ready.then(registration => {
               if (registration) {
@@ -297,24 +322,18 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           });
       }
 
-      // CÁCH 3: Legacy API (Dự phòng cuối cùng)
       try {
           const n = new Notification(title, options);
           n.onclick = () => { window.focus(); n.close(); };
-      } catch (e) {
-          // Ignore error on mobile browsers that don't support new Notification()
-      }
+      } catch (e) {}
   };
 
   const requestNotificationPermission = async () => {
       if (typeof window !== 'undefined' && 'Notification' in window) {
           try {
-              // Unlock audio first thing on interaction
               unlockAudio();
-              
               const result = await Notification.requestPermission();
               setNotificationPermissionStatus(result);
-
               if (result === 'granted') {
                   playSound();
               } 
@@ -329,19 +348,17 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   const testNotification = async () => {
       try {
-          unlockAudio(); // Đảm bảo âm thanh được mở khóa
+          unlockAudio();
           const permission = await requestNotificationPermission();
           
           if (permission === 'granted') {
               const time = new Date().toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit'});
-              // NỘI DUNG TEST CỨNG (HARDCODED) ĐỂ KIỂM TRA HIỂN THỊ CHỮ
               dispatchNotification(
                   "🔔 TEST HỆ THỐNG", 
                   `Đoàn: Gia đình Anh Nam (VIP)\nBàn: A1, A2 • Khách: 12 pax\nGiờ vào: ${time}\nĐây là dòng kiểm tra hiển thị văn bản nhiều dòng.`
               );
               alert("Đã gửi lệnh thông báo test.\nHãy kiểm tra âm thanh và banner.");
           } else {
-              // Hướng dẫn người dùng nếu bị chặn
               alert(`⚠️ QUYỀN THÔNG BÁO BỊ CHẶN!\n\nDo bạn đã từng bấm 'Chặn' (Block), ứng dụng không thể tự bật lại.\n\nCách khắc phục:\n1. Bấm vào biểu tượng Ổ khóa (🔒) hoặc Setting trên thanh địa chỉ.\n2. Chọn 'Quyền riêng tư' hoặc 'Cài đặt trang web'.\n3. Tìm mục 'Thông báo' và chọn 'Cho phép'.\n4. Tải lại trang.`);
           }
       } catch (e: any) {
@@ -355,7 +372,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       try {
           const data = await supabaseService.fetchAllData();
           
-          // FORCE DEV ROLE FOR ADMIN ID
           const processedEmployees = data.employees.map(e => 
             e.id === 'admin' ? { ...e, role: EmployeeRole.DEV } : e
           );
@@ -367,6 +383,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setHandoverLogs(data.handoverLogs);
           setSchedules(data.schedules);
           setPrepTasks(data.prepTasks);
+          setTasks(data.tasks); // Load tasks directly from DB
+          setFeedbacks(data.feedbacks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+
           if (data.settings && Object.keys(data.settings).length > 0) {
               setSettings(prev => ({...INITIAL_SETTINGS, ...data.settings}));
           }
@@ -382,7 +401,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       }
   }, []);
 
-  // --- REALTIME SUBSCRIPTION & PRESENCE ---
   useEffect(() => {
       const initApp = async () => {
           const loadedEmployees = await loadData(false);
@@ -403,12 +421,10 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
       initApp();
 
-      // SETUP CHANNEL
       const channel = supabase.channel('app-db-changes');
       channelRef.current = channel;
 
       channel
-          // PRESENCE TRACKING
           .on('presence', { event: 'sync' }, () => {
             const newState = channel.presenceState();
             const users: OnlineUser[] = [];
@@ -424,7 +440,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                     });
                 });
             }
-            // Sort by recent online
             users.sort((a, b) => new Date(b.onlineAt).getTime() - new Date(a.onlineAt).getTime());
             setOnlineUsers(users);
           })
@@ -435,63 +450,85 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
              leftPresences.forEach((p: any) => addSystemLog('USER_OFFLINE', `${p.name} đã rời đi`, 'INFO'));
           })
 
-          // DB CHANGES TRACKING
-          .on('postgres_changes', { event: 'INSERT', schema: 'public' }, (payload) => {
-              const user = currentUserRef.current;
+          .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+              addSystemLog('DB_CHANGE', `Table: ${payload.table} | Event: ${payload.eventType}`, 'DB_CHANGE');
+              
               const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
               
-              // LOGGING FOR DEV
-              addSystemLog('DB_INSERT', `Table: ${payload.table} | New ID: ${(payload.new as any).id}`, 'DB_CHANGE');
+              if (payload.table === 'serving_groups') {
+                   // ... existing notification logic ...
+                  if (payload.eventType === 'INSERT' && config.enableGuestArrival) {
+                      const newGroup = payload.new as any;
+                      dispatchNotification("🔔 KHÁCH MỚI ĐẾN", `Đoàn: ${newGroup.name}\nBàn: ${newGroup.location}`);
+                  }
+                  if (payload.eventType === 'UPDATE' && config.enableGuestArrival) {
+                      const newGroupData = payload.new as any;
+                      const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(newGroupData.id));
+                      if ((!oldGroupLocal || !oldGroupLocal.startTime) && !!newGroupData.start_time) {
+                          dispatchNotification("🚀 KHÁCH ĐÃ VÀO", `Đoàn: ${newGroupData.name}\nBàn: ${newGroupData.location}`);
+                      }
+                  }
+              }
+              
+              // --- TASK / QUEST NOTIFICATIONS ---
+              if (payload.table === 'tasks') {
+                  const newTask = payload.new as any;
+                  const oldTask = payload.old as any;
+                  const myId = currentUserRef.current?.id;
 
-              if (payload.table === 'requests' && user?.role === EmployeeRole.MANAGER) {
-                  if (config.enableStaffRequest) {
-                      const newReq = payload.new as any;
-                      if (String(newReq.employee_id) !== String(user.id)) {
-                          dispatchNotification("Đơn từ mới", `${newReq.employee_name}: ${newReq.type}`);
+                  if (myId) {
+                      // 1. New Quest Available (Broadcast to all except creator)
+                      if (payload.eventType === 'INSERT' && newTask.status === 'OPEN') {
+                           if (newTask.creator_id !== myId) {
+                               dispatchNotification("📜 NHIỆM VỤ MỚI", `Guild Master vừa treo thưởng: ${newTask.title}`);
+                           }
+                      }
+
+                      // 2. Quest Status Update (Check if involved)
+                      if (payload.eventType === 'UPDATE') {
+                           const participants = newTask.participants || [];
+                           const isParticipant = participants.includes(myId);
+                           const isAssignee = newTask.assignee_id === myId;
+                           const isCreator = newTask.creator_id === myId;
+
+                           // If I am doing the quest
+                           if (isAssignee || isParticipant) {
+                               // Verified
+                               if (newTask.status === 'VERIFIED' && oldTask.status !== 'VERIFIED') {
+                                   dispatchNotification("🎉 QUEST HOÀN THÀNH", `Nhiệm vụ "${newTask.title}" đã được duyệt!\n+${newTask.xp_reward} XP`, 'SUCCESS');
+                               }
+                               // Rejected
+                               if (newTask.status === 'REJECTED' && oldTask.status !== 'REJECTED') {
+                                    dispatchNotification("💀 QUEST THẤT BẠI", `Nhiệm vụ "${newTask.title}" bị từ chối.\nLý do: ${newTask.rejection_reason}\nPhạt: -${newTask.penalty_xp} XP`, 'ERROR');
+                               }
+                           }
+                           
+                           // If I am the creator (Guild Master)
+                           if (isCreator) {
+                                if (newTask.status === 'COMPLETED' && oldTask.status !== 'COMPLETED') {
+                                    dispatchNotification("📸 BÁO CÁO MỚI", `${newTask.assignee_name} đã nộp bằng chứng cho "${newTask.title}". Hãy kiểm tra ngay!`);
+                                }
+                           }
                       }
                   }
               }
 
-              if (payload.table === 'serving_groups') {
-                  if (config.enableGuestArrival) {
-                      const newGroup = payload.new as any;
-                      dispatchNotification(
-                          "🔔 KHÁCH MỚI ĐẾN", 
-                          `Đoàn: ${newGroup.name}\nTại bàn: ${newGroup.location}\nSố khách: ${newGroup.guest_count || '?'} pax`
-                      );
+              // --- FEEDBACK NOTIFICATIONS ---
+              if (payload.table === 'feedback') {
+                  const fb = payload.new as any;
+                  if (payload.eventType === 'INSERT') {
+                      if (fb.type === 'GOOGLE_REVIEW_CLICK') {
+                          // Optional: Notify manager about review attempt
+                      } else {
+                          if (fb.rating <= 2 || fb.sentiment === 'NEGATIVE') {
+                              dispatchNotification("🚨 BÁO ĐỘNG ĐỎ", `Khách hàng vừa đánh giá ${fb.rating} sao!\n"${fb.comment || 'Không có lời bình'}"`, 'ERROR');
+                          } else {
+                              dispatchNotification("💬 FEEDBACK MỚI", `Khách đánh giá ${fb.rating} sao.\n"${fb.comment || ''}"`, 'SUCCESS');
+                          }
+                      }
                   }
               }
 
-              if (payload.table === 'handover_logs') {
-                  if (config.enableHandover) {
-                       const log = payload.new as any;
-                       dispatchNotification("Sổ Giao Ca", `${log.type === 'ISSUE' ? '⚠️' : '📝'} Tin nhắn mới từ ${log.author}`);
-                  }
-              }
-              loadData(true);
-          })
-          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'serving_groups' }, (payload) => {
-              const newGroupData = payload.new as any;
-              const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(newGroupData.id));
-              const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
-
-              addSystemLog('DB_UPDATE', `ServingGroup Updated: ${newGroupData.name}`, 'DB_CHANGE');
-
-              if (config.enableGuestArrival) {
-                  const wasNotStarted = !oldGroupLocal || !oldGroupLocal.startTime;
-                  const isNowStarted = !!newGroupData.start_time;
-
-                  if (wasNotStarted && isNowStarted) {
-                      dispatchNotification(
-                          "🚀 KHÁCH ĐÃ VÀO", 
-                          `Đoàn: ${newGroupData.name}\nBàn: ${newGroupData.location}\nGiờ vào: ${newGroupData.start_time}`
-                      );
-                  }
-              }
-              loadData(true);
-          })
-          .on('postgres_changes', { event: 'DELETE', schema: 'public' }, (payload) => {
-              addSystemLog('DB_DELETE', `Table: ${payload.table} | ID: ${(payload.old as any).id}`, 'WARNING');
               loadData(true);
           })
           .subscribe((status) => {
@@ -505,26 +542,21 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       return () => { supabase.removeChannel(channel); };
   }, []); 
 
-  // --- TRACK PRESENCE WHEN USER LOGS IN ---
   useEffect(() => {
       if (currentUser && channelRef.current) {
           const trackPresence = async () => {
-              const status = await channelRef.current?.track({
+              await channelRef.current?.track({
                   user_id: currentUser.id,
                   name: currentUser.name,
                   role: currentUser.role,
                   online_at: new Date().toISOString(),
                   platform: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
               });
-              if (status === 'ok') {
-                  console.log("Presence tracked for", currentUser.name);
-              }
           };
           trackPresence();
       }
   }, [currentUser, connectionStatus]);
 
-  // --- SYSTEM ALERTS ---
   const runSystemChecks = () => {
       const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
       
@@ -549,7 +581,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
                       if (config.enableSystemAlert) {
                           if (!dismissedAlertIds.has(alertId) && !activeAlerts.find(a => a.id === alertId)) {
-                              dispatchNotification("⚠️ RA ĐỒ CHẬM!", `${alertTitle}\n${alertDetails}`);
+                              dispatchNotification("⚠️ RA ĐỒ CHẬM!", `${alertTitle}\n${alertDetails}`, 'ERROR');
                           }
                       }
                       
@@ -638,7 +670,156 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const togglePrepTask = (id: string) => { const t = prepTasks.find(x => x.id === id); if (t) { const u = { ...t, isCompleted: !t.isCompleted }; setPrepTasks(prev => prev.map(x => x.id === id ? u : x)); supabaseService.upsertPrepTask(u); } };
   const deletePrepTask = (id: string) => { setPrepTasks(prev => prev.filter(x => x.id !== id)); supabaseService.deletePrepTask(id); };
 
-  // --- NEW: GUEST ORDER SUBMISSION ---
+  // --- TASK & GAMIFICATION METHODS ---
+  const addTask = (task: Task) => {
+      setTasks(prev => [task, ...prev]);
+      supabaseService.upsertTask(task);
+  };
+
+  const claimTask = (taskId: string, employeeId: string, participantIds: string[] = []) => {
+      const task = tasks.find(t => t.id === taskId);
+      const employee = employees.find(e => e.id === employeeId);
+      if (task && task.status === TaskStatus.OPEN && employee) {
+          const allParticipants = [employeeId, ...participantIds];
+          const updated = { 
+              ...task, 
+              status: TaskStatus.IN_PROGRESS, 
+              assigneeId: employeeId, 
+              assigneeName: employee.name,
+              participants: allParticipants
+          };
+          setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
+          supabaseService.upsertTask(updated);
+      }
+  };
+
+  const submitTaskProof = (taskId: string, proofImage: string) => {
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+          const updated = { ...task, status: TaskStatus.COMPLETED, proofImage };
+          setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
+          supabaseService.upsertTask(updated);
+      }
+  };
+
+  const verifyTask = (taskId: string, managerId: string) => {
+      const task = tasks.find(t => t.id === taskId);
+      if (task && task.status === TaskStatus.COMPLETED) {
+          const updated = { ...task, status: TaskStatus.VERIFIED, verifiedBy: managerId };
+          setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
+          supabaseService.upsertTask(updated);
+
+          // ADD XP TO ALL PARTICIPANTS
+          const recipients = task.participants && task.participants.length > 0 
+                             ? task.participants 
+                             : (task.assigneeId ? [task.assigneeId] : []);
+
+          recipients.forEach(empId => {
+              const emp = employees.find(e => e.id === empId);
+              if (emp) {
+                  const currentXp = emp.xp || 0;
+                  const newXp = currentXp + task.xpReward;
+                  const newLevel = Math.floor(newXp / 100) + 1; // Simple leveling
+                  const updatedEmp = { ...emp, xp: newXp, level: newLevel };
+                  updateEmployee(updatedEmp);
+              }
+          });
+      }
+  };
+
+  const rejectTask = (taskId: string, reason: string, penalty: number) => {
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+          const updated = { 
+              ...task, 
+              status: TaskStatus.REJECTED, 
+              rejectionReason: reason, 
+              penaltyXp: penalty 
+          }; 
+          setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
+          supabaseService.upsertTask(updated);
+
+          // DEDUCT XP FROM ALL
+          const recipients = task.participants && task.participants.length > 0 
+                             ? task.participants 
+                             : (task.assigneeId ? [task.assigneeId] : []);
+
+           recipients.forEach(empId => {
+               const emp = employees.find(e => e.id === empId);
+               if (emp && penalty > 0) {
+                   const currentXp = emp.xp || 0;
+                   const newXp = Math.max(0, currentXp - penalty);
+                   const newLevel = Math.floor(newXp / 100) + 1;
+                   const updatedEmp = { ...emp, xp: newXp, level: newLevel };
+                   updateEmployee(updatedEmp);
+               }
+           });
+      }
+  };
+
+  const deleteTask = (taskId: string) => {
+      setTasks(prev => prev.filter(t => t.id !== taskId));
+      supabaseService.deleteTask(taskId);
+  }
+
+  // --- FEEDBACK SUBMISSION ---
+  const submitFeedback = async (data: any) => {
+      // 1. Analyze Sentiment using AI
+      const aiAnalysis = await analyzeFeedback(data.comment || '', data.rating);
+      
+      const newFeedback: Feedback = {
+          id: Date.now().toString(),
+          type: 'INTERNAL_FEEDBACK',
+          customerName: data.name,
+          phone: data.phone,
+          rating: data.rating,
+          npsScore: data.npsScore,
+          comment: data.comment,
+          tags: aiAnalysis.tags,
+          sentiment: aiAnalysis.sentiment,
+          createdAt: new Date().toISOString(),
+          isResolved: data.rating > 2 // 1-2 stars need resolution
+      };
+
+      setFeedbacks(prev => [newFeedback, ...prev]);
+      supabaseService.upsertFeedback(newFeedback);
+
+      // 2. Alert Logic
+      if (newFeedback.rating <= 2 || newFeedback.sentiment === 'NEGATIVE') {
+          const alertId = `alert_feedback_${newFeedback.id}`;
+          const alertTitle = `Khách đánh giá thấp (${newFeedback.rating} sao)`;
+          const alertDetails = `"${newFeedback.comment}" - ${newFeedback.customerName || 'Ẩn danh'}`;
+          
+          dispatchNotification("🚨 BÁO ĐỘNG ĐỎ", alertTitle + "\n" + alertDetails, 'ERROR');
+          
+          setActiveAlerts(prev => [...prev, {
+              id: alertId,
+              type: 'BAD_FEEDBACK',
+              message: alertTitle,
+              details: alertDetails,
+              severity: 'HIGH',
+              timestamp: new Date().toLocaleTimeString('vi-VN')
+          }]);
+      }
+  };
+
+  // --- TRACK GOOGLE REVIEW CLICK ---
+  const trackReviewClick = async (staffId: string) => {
+      const staff = employees.find(e => e.id === staffId);
+      const newRecord: Feedback = {
+          id: Date.now().toString(),
+          type: 'GOOGLE_REVIEW_CLICK',
+          createdAt: new Date().toISOString(),
+          isResolved: true,
+          staffId: staffId,
+          staffName: staff?.name,
+          rating: 5 // Assume 5 stars if they agreed to review
+      };
+      setFeedbacks(prev => [newRecord, ...prev]);
+      await supabaseService.upsertFeedback(newRecord);
+  };
+
+  // --- GUEST ORDER ---
   const submitGuestOrder = async (tableId: string, cartItems: {item: MenuItem, quantity: number}[]) => {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' });
       const timeStr = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
@@ -652,7 +833,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           note: 'Khách tự gọi'
       }));
 
-      // Check if active group exists for this table
       const existingGroup = servingGroups.find(g => 
           g.status === 'ACTIVE' && 
           g.location === tableId && 
@@ -660,16 +840,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       );
 
       if (existingGroup) {
-          // Update existing group
           const updatedItems = [...existingGroup.items, ...newItems];
           modifyGroup(existingGroup.id, g => ({ ...g, items: updatedItems }));
       } else {
-          // Create new group
           const newGroup: ServingGroup = {
               id: Date.now().toString(),
               name: `Khách bàn ${tableId}`,
               location: tableId,
-              guestCount: 0, // Staff can update later
+              guestCount: 0, 
               startTime: timeStr,
               date: todayStr,
               status: 'ACTIVE',
@@ -690,7 +868,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           return cleanInput && empPhone && cleanInput === empPhone;
       });
       if (user) {
-          // Double check force logic if it wasn't caught in loadData
           const finalUser = user.id === 'admin' ? { ...user, role: EmployeeRole.DEV } : user;
           setCurrentUser(finalUser);
           localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify({ userId: user.id, timestamp: Date.now() }));
@@ -723,6 +900,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       addServingItem, updateServingItem, deleteServingItem, incrementServedItem, decrementServedItem, completeServingGroup, toggleSauceItem,
       handoverLogs, addHandoverLog,
       schedules, assignShift, 
+      tasks, addTask, claimTask, submitTaskProof, verifyTask, rejectTask, deleteTask,
+      feedbacks, submitFeedback, trackReviewClick,
       activeAlerts, dismissedAlertIds, dismissAlert,
       currentUser, login, logout,
       isLoading, isRestoringSession, lastUpdated, connectionStatus,

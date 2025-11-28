@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
     Employee, TimesheetLog, EmployeeRequest, 
     ServingGroup, HandoverLog, WorkSchedule, 
-    PrepTask, SystemSettings, WifiConfig
+    PrepTask, SystemSettings, WifiConfig, Task, Feedback
 } from '../types';
 
 // --- MAPPERS (Snake_case DB <-> CamelCase App) ---
@@ -17,7 +17,9 @@ const mapEmployeeFromDB = (row: any): Employee => ({
     phone: row.phone,
     email: row.email,
     password: row.password,
-    avatar: row.avatar
+    avatar: row.avatar,
+    xp: Number(row.xp) || 0,
+    level: Number(row.level) || 1
 });
 
 const mapLogFromDB = (row: any): TimesheetLog => {
@@ -70,6 +72,46 @@ const mapRequestFromDB = (row: any): EmployeeRequest => ({
     isMine: row.is_mine
 });
 
+const mapTaskFromDB = (row: any): Task => ({
+    id: row.id,
+    title: row.title,
+    description: row.description,
+    assigneeId: row.assignee_id,
+    assigneeName: row.assignee_name,
+    participants: row.participants || [],
+    maxParticipants: Number(row.max_participants) || 1,
+    creatorId: row.creator_id,
+    type: row.type,
+    status: row.status,
+    difficulty: row.difficulty,
+    xpReward: Number(row.xp_reward),
+    penaltyXp: Number(row.penalty_xp),
+    rejectionReason: row.rejection_reason,
+    proofImage: row.proof_image,
+    createdAt: row.created_at,
+    deadline: row.deadline,
+    verifiedBy: row.verified_by,
+    shiftCode: row.shift_code,
+    requiredShifts: row.required_shifts || []
+});
+
+const mapFeedbackFromDB = (row: any): Feedback => ({
+    id: row.id,
+    type: row.type || 'INTERNAL_FEEDBACK',
+    customerName: row.customer_name,
+    phone: row.phone,
+    rating: row.rating,
+    npsScore: row.nps_score,
+    comment: row.comment,
+    tags: row.tags || [],
+    sentiment: row.sentiment,
+    createdAt: row.created_at,
+    isResolved: row.is_resolved,
+    staffId: row.staff_id,
+    staffName: row.staff_name
+});
+
+
 // --- SERVICE METHODS ---
 
 export const supabaseService = {
@@ -85,7 +127,9 @@ export const supabaseService = {
             { data: handovers },
             { data: schedules },
             { data: tasks },
-            { data: dismissed }
+            { data: dismissed },
+            { data: staffTasks },
+            { data: feedbacks }
         ] = await Promise.all([
             supabase.from('employees').select('*'),
             supabase.from('attendance_logs').select('*'),
@@ -95,7 +139,9 @@ export const supabaseService = {
             supabase.from('handover_logs').select('*'),
             supabase.from('work_schedules').select('*'),
             supabase.from('prep_tasks').select('*'),
-            supabase.from('dismissed_alerts').select('*')
+            supabase.from('dismissed_alerts').select('*'),
+            supabase.from('tasks').select('*'),
+            supabase.from('feedback').select('*')
         ]);
 
         return {
@@ -111,7 +157,9 @@ export const supabaseService = {
             prepTasks: tasks?.map((t: any) => ({
                 id: t.id, task: t.task, isCompleted: t.is_completed, assignee: t.assignee
             })) || [],
-            dismissedAlerts: dismissed || []
+            dismissedAlerts: dismissed || [],
+            tasks: staffTasks?.map(mapTaskFromDB) || [],
+            feedbacks: feedbacks?.map(mapFeedbackFromDB) || []
         };
     },
 
@@ -126,7 +174,9 @@ export const supabaseService = {
             phone: emp.phone,
             email: emp.email,
             password: emp.password,
-            avatar: emp.avatar
+            avatar: emp.avatar,
+            xp: emp.xp,
+            level: emp.level
         });
         if(error) console.error("Supabase Error:", error);
     },
@@ -244,5 +294,56 @@ export const supabaseService = {
             id: id,
             timestamp: new Date().toISOString()
         });
+    },
+
+    // --- STAFF TASKS ---
+    upsertTask: async (task: Task) => {
+        const { error } = await supabase.from('tasks').upsert({
+            id: task.id,
+            title: task.title,
+            description: task.description,
+            assignee_id: task.assigneeId,
+            assignee_name: task.assigneeName,
+            participants: task.participants,
+            max_participants: task.maxParticipants,
+            creator_id: task.creatorId,
+            type: task.type,
+            status: task.status,
+            difficulty: task.difficulty,
+            xp_reward: task.xpReward,
+            penalty_xp: task.penaltyXp,
+            rejection_reason: task.rejectionReason,
+            proof_image: task.proofImage,
+            created_at: task.createdAt,
+            deadline: task.deadline,
+            verified_by: task.verifiedBy,
+            shift_code: task.shiftCode,
+            required_shifts: task.requiredShifts
+        });
+        if (error) console.error("Task Save Failed (Likely Table Missing):", error);
+    },
+
+    deleteTask: async (id: string) => {
+        await supabase.from('tasks').delete().eq('id', id);
+    },
+
+    // --- FEEDBACK ---
+    upsertFeedback: async (feedback: Feedback) => {
+        const { error } = await supabase.from('feedback').upsert({
+            id: feedback.id,
+            type: feedback.type,
+            customer_name: feedback.customerName,
+            phone: feedback.phone,
+            rating: feedback.rating,
+            nps_score: feedback.npsScore,
+            comment: feedback.comment,
+            tags: feedback.tags,
+            sentiment: feedback.sentiment,
+            created_at: feedback.createdAt,
+            is_resolved: feedback.isResolved,
+            staff_id: feedback.staffId,
+            staff_name: feedback.staffName
+        });
+        if (error) console.error("Feedback Save Failed:", error);
     }
 };

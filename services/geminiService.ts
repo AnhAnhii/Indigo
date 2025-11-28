@@ -244,3 +244,33 @@ export const analyzeVoiceCheckIn = async (audioBase64: string, challengePhrase: 
         return { success: false, message: "Lỗi phân tích giọng nói." };
     }
 };
+
+export const analyzeFeedback = async (comment: string, rating: number): Promise<{ sentiment: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE', tags: string[] }> => {
+    const ai = getAiInstance();
+    if (!ai || !comment) return { sentiment: rating >= 4 ? 'POSITIVE' : rating <= 2 ? 'NEGATIVE' : 'NEUTRAL', tags: [] };
+
+    try {
+        const prompt = `
+            Phân tích feedback khách hàng nhà hàng.
+            Comment: "${comment}"
+            Rating: ${rating} sao.
+            
+            Yêu cầu:
+            1. Xác định Sentiment (POSITIVE, NEUTRAL, NEGATIVE). Nếu rating thấp (1-2) thì auto NEGATIVE.
+            2. Trích xuất Tags (Món ăn, Phục vụ, Không gian, Giá cả, Vệ sinh).
+            
+            OUTPUT JSON ONLY: { "sentiment": string, "tags": string[] }
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{ role: 'user', parts: [{ text: prompt }] }]
+        });
+
+        const text = response.text || "{}";
+        const jsonMatch = text.match(/\{.*\}/s);
+        return JSON.parse(jsonMatch ? jsonMatch[0] : "{}");
+    } catch (e) {
+        return { sentiment: 'NEUTRAL', tags: [] };
+    }
+};
