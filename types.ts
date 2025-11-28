@@ -19,7 +19,8 @@ export enum AppView {
   GUEST_MENU = 'GUEST_MENU',
   TASKS = 'TASKS',
   FEEDBACK = 'FEEDBACK',
-  REVIEW_QR = 'REVIEW_QR' // New View for Staff
+  REVIEW_QR = 'REVIEW_QR',
+  MARKETING = 'MARKETING' // New View
 }
 
 export enum EmployeeRole {

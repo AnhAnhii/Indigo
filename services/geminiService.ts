@@ -274,3 +274,84 @@ export const analyzeFeedback = async (comment: string, rating: number): Promise<
         return { sentiment: 'NEUTRAL', tags: [] };
     }
 };
+
+export const generateMarketingContent = async (topic: string): Promise<{ story: string, trend: string, professional: string, review: string, fun: string, chef: string }> => {
+    const ai = getAiInstance();
+    if (!ai) return { story: 'Lỗi AI', trend: 'Lỗi AI', professional: 'Lỗi AI', review: 'Lỗi AI', fun: 'Lỗi AI', chef: 'Lỗi AI' };
+
+    try {
+        // STYLE: "HEM SAIGON" BUT FOR "INDIGO SAPA" + 3 NEW STYLES
+        const prompt = `
+            Bạn là Content Creator cho nhà hàng 'Indigo Restaurant' - Lá Chàm Sapa.
+            Hãy viết 6 nội dung Facebook khác nhau về chủ đề: "${topic}".
+
+            YÊU CẦU CHUNG: Giọng văn đặc trưng Sapa (mù sương, ấm cúng, đặc sản Tây Bắc). Hashtag: #IndigoSapa #SapaFood.
+
+            OUTPUT JSON BẮT BUỘC (6 Keys):
+            {
+                "story": "Style 'Tâm tình & Hoài niệm' (giống Hẻm Saigon): Kể chuyện nhỏ, cảm xúc, dùng từ 'nhà mình', 'thương', 'lai rai'.",
+                "trend": "Style 'Bắt Trend Gen Z': Ngắn gọn, dùng slang (vibe, chill, keo lì), rủ rê bạn bè.",
+                "professional": "Style 'Trang trọng': Lịch sự, tập trung vào dịch vụ cao cấp và sự tinh tế.",
+                "review": "Style 'Food Blogger': Mô tả chi tiết hương vị, màu sắc, cảm giác khi ăn (tan trong miệng, đậm đà).",
+                "fun": "Style 'Thả thính/Hài hước': Dùng chơi chữ (pun) hoặc câu thả thính liên quan đến món ăn.",
+                "chef": "Style 'Bếp Trưởng': Góc nhìn người nấu, nói về nguyên liệu tuyển chọn và tâm huyết trong từng công đoạn."
+            }
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{ role: 'user', parts: [{ text: prompt }] }]
+        });
+
+        const text = response.text || "{}";
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        return JSON.parse(jsonMatch ? jsonMatch[0] : "{}");
+    } catch (e) {
+        console.error(e);
+        return { 
+            story: 'Lỗi tạo nội dung.', 
+            trend: 'Vui lòng thử lại.', 
+            professional: 'Kiểm tra kết nối.', 
+            review: 'Error.', 
+            fun: 'Error.', 
+            chef: 'Error.' 
+        };
+    }
+};
+
+export const generateFunCaption = async (imageBase64: string): Promise<string> => {
+    const ai = getAiInstance();
+    if (!ai) return "AI đang ngủ...";
+
+    try {
+        const cleanBase64 = imageBase64.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+        const prompt = `
+            Bạn là một "Thầy Bói Vui Tính" tại nhà hàng Sapa.
+            Hãy nhìn bức ảnh selfie của khách hàng và đưa ra một lời bình hài hước, duyên dáng và mang đậm chất Tây Bắc.
+            
+            Ví dụ:
+            - "Thần thái này chắc chắn lát nữa sẽ gọi thêm Rượu Táo Mèo!"
+            - "Gương mặt phúc hậu, ăn Lẩu Cá Tầm là chuẩn bài!"
+            - "Trông bạn rạng rỡ như hoa Ban nở giữa rừng!"
+            
+            Yêu cầu: Ngắn gọn (dưới 20 từ), vui vẻ, khen ngợi khách.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+                {
+                    role: 'user',
+                    parts: [
+                        { text: prompt },
+                        { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }
+                    ]
+                }
+            ]
+        });
+
+        return response.text || "Bạn thật tuyệt vời!";
+    } catch (e) {
+        return "Nụ cười tỏa nắng Sapa!";
+    }
+};

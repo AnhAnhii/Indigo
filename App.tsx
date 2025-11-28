@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal, CheckSquare, Smile, Star } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal, CheckSquare, Smile, Star, Sparkles } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -21,8 +21,9 @@ import { LoginScreen } from './components/LoginScreen';
 import { GuestMenu } from './components/GuestMenu'; 
 import { TaskView } from './components/TaskView'; 
 import { FeedbackManager } from './components/FeedbackManager'; 
-import { StaffReviewQr } from './components/StaffReviewQr'; // New Staff QR View
-import { ReviewRedirect } from './components/ReviewRedirect'; // New Guest Redirect View
+import { StaffReviewQr } from './components/StaffReviewQr'; 
+import { ReviewRedirect } from './components/ReviewRedirect'; 
+import { MarketingView } from './components/MarketingView';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
@@ -63,7 +64,7 @@ const AppContent: React.FC = () => {
       }
 
       if (!isAdmin && currentUser) {
-          const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT, AppView.QR_STATION, AppView.DEV_TOOLS, AppView.FEEDBACK];
+          const restrictedViews = [AppView.SETTINGS, AppView.EMPLOYEES, AppView.AI_ASSISTANT, AppView.QR_STATION, AppView.DEV_TOOLS, AppView.FEEDBACK, AppView.MARKETING];
           if (restrictedViews.includes(currentView)) {
               setCurrentView(AppView.DASHBOARD);
           }
@@ -152,6 +153,7 @@ const AppContent: React.FC = () => {
       case AppView.TASKS: return <TaskView />;
       case AppView.REVIEW_QR: return <StaffReviewQr />;
       case AppView.FEEDBACK: return isAdmin ? <FeedbackManager /> : null;
+      case AppView.MARKETING: return isDev ? <MarketingView /> : null;
       default: return <Dashboard onViewChange={setCurrentView} />;
     }
   };
@@ -252,6 +254,7 @@ const AppContent: React.FC = () => {
           {isDev && (
              <>
              <div className="pt-4 pb-2 text-[11px] font-bold text-indigo-400 uppercase tracking-widest">Developer</div>
+             <NavItem view={AppView.MARKETING} icon={Sparkles} label="Marketing AI" devOnly={true} />
              <NavItem view={AppView.DEV_TOOLS} icon={Terminal} label="Logs & Online" devOnly={true} />
              </>
           )}

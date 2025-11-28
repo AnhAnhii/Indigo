@@ -1,8 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
-import { ShoppingCart, ChefHat, Search, Plus, Minus, X, CheckCircle, Info, Utensils, Coffee, IceCream, Beef, Globe } from 'lucide-react';
+import { ShoppingCart, ChefHat, Search, Plus, Minus, X, CheckCircle, Info, Utensils, Coffee, IceCream, Beef, Globe, Gift } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { MenuItem } from '../types';
+import { EntertainmentHub } from './EntertainmentHub';
 
 // MOCK DATA FOR MENU WITH 4 LANGUAGES
 const MOCK_MENU: MenuItem[] = [
@@ -129,7 +130,8 @@ const TRANSLATIONS = {
         waitMsg: 'Món ăn sẽ được phục vụ trong giây lát.',
         orderMore: 'Gọi thêm món',
         search: 'Tìm món ăn...',
-        empty: 'Chưa có món nào.'
+        empty: 'Chưa có món nào.',
+        entertainment: 'Giải trí & Quà'
     },
     EN: {
         table: 'Table',
@@ -148,7 +150,8 @@ const TRANSLATIONS = {
         waitMsg: 'Food will be served shortly.',
         orderMore: 'Order More',
         search: 'Search food...',
-        empty: 'No items yet.'
+        empty: 'No items yet.',
+        entertainment: 'Fun & Gifts'
     },
     KO: {
         table: '테이블',
@@ -167,7 +170,8 @@ const TRANSLATIONS = {
         waitMsg: '곧 음식이 서빙됩니다.',
         orderMore: '추가 주문하기',
         search: '메뉴 검색...',
-        empty: '항목 없음.'
+        empty: '항목 없음.',
+        entertainment: '게임 및 선물'
     },
     FR: {
         table: 'Table',
@@ -186,7 +190,8 @@ const TRANSLATIONS = {
         waitMsg: 'Les plats seront servis sous peu.',
         orderMore: 'Commander plus',
         search: 'Rechercher...',
-        empty: 'Aucun article.'
+        empty: 'Aucun article.',
+        entertainment: 'Jeux & Cadeaux'
     }
 };
 
@@ -208,6 +213,7 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
     const [cart, setCart] = useState<{item: MenuItem, quantity: number}[]>([]);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
+    const [isEntertainmentOpen, setIsEntertainmentOpen] = useState(false);
     const [orderStatus, setOrderStatus] = useState<'NONE' | 'SUBMITTING' | 'SUCCESS'>('NONE');
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -293,18 +299,35 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
                 </div>
                 <h1 className="text-3xl font-bold mb-2">{t.successTitle}</h1>
                 <p className="text-teal-100 mb-8">{t.successMsg} {tableId}.<br/>{t.waitMsg}</p>
-                <button 
-                    onClick={() => setOrderStatus('NONE')}
-                    className="bg-white text-teal-700 px-8 py-3 rounded-xl font-bold hover:bg-teal-50 shadow-lg"
-                >
-                    {t.orderMore}
-                </button>
+                <div className="flex flex-col gap-4 w-full max-w-xs">
+                    <button 
+                        onClick={() => setIsEntertainmentOpen(true)}
+                        className="bg-yellow-400 text-yellow-900 px-8 py-3 rounded-xl font-bold hover:bg-yellow-300 shadow-lg flex items-center justify-center gap-2 animate-pulse"
+                    >
+                        <Gift size={20}/> {t.entertainment}
+                    </button>
+                    <button 
+                        onClick={() => setOrderStatus('NONE')}
+                        className="bg-white/20 text-white px-8 py-3 rounded-xl font-bold hover:bg-white/30"
+                    >
+                        {t.orderMore}
+                    </button>
+                </div>
+                {isEntertainmentOpen && <EntertainmentHub onClose={() => setIsEntertainmentOpen(false)} />}
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 pb-24 font-sans">
+        <div className="min-h-screen bg-gray-50 pb-24 font-sans relative">
+            {/* ENTERTAINMENT FLOATING BUTTON */}
+            <button 
+                onClick={() => setIsEntertainmentOpen(true)}
+                className="fixed bottom-24 right-4 z-40 w-14 h-14 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full shadow-lg shadow-purple-500/40 flex items-center justify-center text-white hover:scale-110 transition-transform animate-[bounce_2s_infinite]"
+            >
+                <Gift size={28} />
+            </button>
+
             {/* Header */}
             <div className="bg-white sticky top-0 z-20 shadow-sm">
                 <div className="flex justify-between items-center p-4">
@@ -463,6 +486,9 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
                     </div>
                 </div>
             )}
+
+            {/* ENTERTAINMENT MODAL */}
+            {isEntertainmentOpen && <EntertainmentHub onClose={() => setIsEntertainmentOpen(false)} />}
         </div>
     );
 };
