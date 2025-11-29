@@ -2,15 +2,22 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { useGlobalContext } from '../contexts/GlobalContext';
-import { Star, MapPin, Globe } from 'lucide-react';
+import { Star, MapPin } from 'lucide-react';
 
-type Language = 'VI' | 'EN' | 'KO' | 'FR';
+type Language = 'VI' | 'EN' | 'KO' | 'FR' | 'ZH_TW' | 'ZH_CN' | 'ID' | 'MS' | 'PH' | 'TH' | 'HE';
 
-const LANG_OPTIONS: {code: Language, label: string, flag: string}[] = [
-    { code: 'VI', label: 'Tiếng Việt', flag: '🇻🇳' },
-    { code: 'EN', label: 'English', flag: '🇬🇧' },
-    { code: 'KO', label: 'Korea', flag: '🇰🇷' },
-    { code: 'FR', label: 'France', flag: '🇫🇷' },
+const LANG_OPTIONS: {code: Language, label: string, sub: string, flag: string}[] = [
+    { code: 'VI', label: 'Tiếng Việt', sub: 'Vietnam', flag: '🇻🇳' },
+    { code: 'EN', label: 'English', sub: 'Global', flag: '🇬🇧' },
+    { code: 'KO', label: 'Tiếng Hàn', sub: 'Korea', flag: '🇰🇷' },
+    { code: 'ZH_CN', label: 'Trung Quốc', sub: 'China', flag: '🇨🇳' },
+    { code: 'ZH_TW', label: 'Đài Loan', sub: 'Taiwan', flag: '🇹🇼' },
+    { code: 'FR', label: 'Pháp', sub: 'France', flag: '🇫🇷' },
+    { code: 'TH', label: 'Thái Lan', sub: 'Thailand', flag: '🇹🇭' },
+    { code: 'ID', label: 'Indo', sub: 'Indonesia', flag: '🇮🇩' },
+    { code: 'MS', label: 'Malay', sub: 'Malaysia', flag: '🇲🇾' },
+    { code: 'PH', label: 'Philipin', sub: 'Philippines', flag: '🇵🇭' },
+    { code: 'HE', label: 'Do Thái', sub: 'Israel', flag: '🇮🇱' },
 ];
 
 export const StaffReviewQr: React.FC = () => {
@@ -37,65 +44,62 @@ export const StaffReviewQr: React.FC = () => {
     if (!currentUser) return null;
 
     return (
-        <div className="flex flex-col items-center justify-center p-4 md:p-6 bg-white rounded-2xl shadow-sm border border-gray-200 text-center max-w-md mx-auto mt-4 animate-in fade-in">
-            <h2 className="text-2xl font-bold text-gray-900 mb-1">Xin Đánh Giá Google</h2>
-            <p className="text-gray-500 text-sm mb-4">Chọn ngôn ngữ của khách để tạo QR phù hợp.</p>
-
-            {/* Language Selector */}
-            <div className="flex gap-2 mb-6 bg-gray-100 p-1.5 rounded-xl w-full justify-center">
-                {LANG_OPTIONS.map((opt) => (
-                    <button
-                        key={opt.code}
-                        onClick={() => setSelectedLang(opt.code)}
-                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-all flex flex-col items-center justify-center gap-1 ${
-                            selectedLang === opt.code 
-                            ? 'bg-white text-teal-700 shadow-sm scale-105' 
-                            : 'text-gray-400 hover:text-gray-600 hover:bg-gray-200'
-                        }`}
-                        title={opt.label}
-                    >
-                        <span className="text-xl leading-none">{opt.flag}</span>
-                        <span className="text-[10px] uppercase">{opt.code}</span>
-                    </button>
-                ))}
+        <div className="flex flex-col h-full md:h-auto max-w-md mx-auto space-y-4 pt-2">
+            {/* Header */}
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 text-center">
+                <h2 className="text-xl font-extrabold text-gray-900">Xin Đánh Giá Google</h2>
+                <p className="text-gray-500 text-xs mt-1">Mời khách quét mã theo ngôn ngữ</p>
             </div>
 
-            <div className="relative mb-6 group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-teal-400 to-indigo-500 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000"></div>
-                <div className="relative bg-white p-4 rounded-2xl border-4 border-white shadow-xl">
-                    {qrDataUrl ? (
-                        <img src={qrDataUrl} alt="QR Code" className="w-64 h-64 object-contain" />
-                    ) : (
-                        <div className="w-64 h-64 bg-gray-100 animate-pulse rounded-lg flex items-center justify-center text-gray-400 text-xs">Đang tạo mã...</div>
-                    )}
-                    
-                    {/* Staff Avatar Overlay */}
-                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-white rounded-full p-1 shadow-lg flex items-center justify-center">
-                        <div className="w-full h-full bg-gray-200 rounded-full overflow-hidden flex items-center justify-center font-bold text-gray-500 border border-gray-100 relative">
-                            {currentUser.avatar ? (
-                                <img src={currentUser.avatar} alt="Staff" className="w-full h-full object-cover" />
-                            ) : (
-                                currentUser.name.charAt(0)
-                            )}
-                            {/* Language Flag Badge on Avatar */}
-                            <div className="absolute bottom-0 right-0 w-6 h-6 bg-white rounded-full flex items-center justify-center text-xs shadow-sm">
-                                {LANG_OPTIONS.find(l => l.code === selectedLang)?.flag}
-                            </div>
+            {/* QR Card - Always Visible */}
+            <div className="bg-white p-6 rounded-3xl shadow-lg border border-gray-100 relative overflow-hidden group text-center shrink-0">
+                <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-teal-400 to-indigo-500"></div>
+                
+                <div className="flex justify-center mb-4">
+                    <div className="relative p-2 bg-white rounded-2xl shadow-inner border border-gray-100">
+                        {qrDataUrl ? (
+                            <img src={qrDataUrl} alt="QR Code" className="w-48 h-48 object-contain mix-blend-multiply" />
+                        ) : (
+                            <div className="w-48 h-48 bg-gray-50 animate-pulse rounded-lg flex items-center justify-center text-gray-400 text-xs">Đang tạo...</div>
+                        )}
+                        
+                        {/* Center Icon */}
+                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-12 h-12 bg-white rounded-full shadow-md flex items-center justify-center z-10 border border-gray-100">
+                             <span className="text-2xl">{LANG_OPTIONS.find(l => l.code === selectedLang)?.flag}</span>
                         </div>
+                    </div>
+                </div>
+
+                <div className="bg-teal-50 px-4 py-2 rounded-lg border border-teal-100 inline-flex items-center gap-2 max-w-full">
+                    <div className="w-6 h-6 rounded-full bg-teal-200 flex items-center justify-center text-teal-800 font-bold text-xs shrink-0 overflow-hidden">
+                        {currentUser.avatar ? <img src={currentUser.avatar} className="w-full h-full object-cover"/> : currentUser.name.charAt(0)}
+                    </div>
+                    <div className="text-left overflow-hidden">
+                        <p className="font-bold text-teal-800 text-xs truncate">{currentUser.name}</p>
+                        <p className="text-[10px] text-teal-600 truncate opacity-80">Indigo Sapa</p>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-teal-50 px-6 py-3 rounded-xl border border-teal-100 w-full">
-                <p className="font-bold text-teal-800 text-lg">{currentUser.name}</p>
-                <div className="flex items-center justify-center gap-1 text-teal-600 text-xs mt-1">
-                    <MapPin size={12}/> Indigo Restaurant Sapa
+            {/* Language Grid - Scrollable Area */}
+            <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 flex-1 overflow-y-auto min-h-[200px]">
+                <p className="text-xs font-bold text-gray-400 uppercase mb-3 text-center tracking-wider">Chọn ngôn ngữ khách hàng</p>
+                <div className="grid grid-cols-3 gap-2 pb-2">
+                    {LANG_OPTIONS.map((opt) => (
+                        <button
+                            key={opt.code}
+                            onClick={() => setSelectedLang(opt.code)}
+                            className={`py-3 px-1 rounded-xl text-sm font-bold transition-all flex flex-col items-center justify-center gap-1 active:scale-95 touch-manipulation ${
+                                selectedLang === opt.code 
+                                ? 'bg-white text-teal-700 shadow-md ring-2 ring-teal-500 border-transparent' 
+                                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-100 hover:border-gray-300'
+                            }`}
+                        >
+                            <span className="text-2xl leading-none filter drop-shadow-sm">{opt.flag}</span>
+                            <span className="text-[10px] leading-tight text-center">{opt.label}</span>
+                        </button>
+                    ))}
                 </div>
-            </div>
-
-            <div className="mt-4 flex items-center gap-2 text-xs text-gray-400">
-                <Star className="fill-yellow-400 text-yellow-400" size={14}/>
-                <span>Mỗi lượt khách quét sẽ được tính vào KPI.</span>
             </div>
         </div>
     );
