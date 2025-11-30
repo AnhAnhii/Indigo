@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useMemo } from 'react';
-import { CheckSquare, Plus, Camera, X, Award, User, Clock, CheckCircle2, AlertTriangle, Filter, Trophy, Zap, Image as ImageIcon, Trash2, ArrowRight, Rocket, Scroll, Shield, Star, Ban, Users, UserPlus, BookOpen, Edit2, Settings, Briefcase, Target, ClipboardList } from 'lucide-react';
+import { CheckSquare, Plus, Camera, X, Award, User, Clock, CheckCircle2, AlertTriangle, Filter, Trophy, Zap, Image as ImageIcon, Trash2, ArrowRight, Rocket, Scroll, Shield, Star, Ban, Users, UserPlus, BookOpen, Edit2, Settings, Briefcase, Target, ClipboardList, Lock, Eye, Crown } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { Task, TaskType, TaskStatus, EmployeeRole } from '../types';
 
@@ -72,9 +72,28 @@ export const TaskView: React.FC = () => {
         (t.status === TaskStatus.IN_PROGRESS || t.status === TaskStatus.COMPLETED)
     );
 
-    const availableQuests = tasks.filter(t => t.status === TaskStatus.OPEN).sort((a, b) => {
-        // Sort by difficulty (High to Low) then time
+    // UPDATED: Filter logic to show ALL relevant tasks (Open, In Progress, Completed) on board
+    const boardQuests = tasks.filter(t => 
+        t.status === TaskStatus.OPEN || 
+        t.status === TaskStatus.IN_PROGRESS || 
+        t.status === TaskStatus.COMPLETED
+    ).sort((a, b) => {
+        // Sort Priority: OPEN -> IN_PROGRESS -> COMPLETED
+        const statusScore = (s: string) => {
+            if (s === TaskStatus.OPEN) return 3;
+            if (s === TaskStatus.IN_PROGRESS) return 2;
+            if (s === TaskStatus.COMPLETED) return 1;
+            return 0;
+        };
+        const scoreA = statusScore(a.status);
+        const scoreB = statusScore(b.status);
+        
+        if (scoreA !== scoreB) return scoreB - scoreA;
+
+        // Then by difficulty (High to Low)
         if (b.difficulty !== a.difficulty) return b.difficulty - a.difficulty;
+        
+        // Then by time
         return b.createdAt.localeCompare(a.createdAt);
     });
 
@@ -351,7 +370,7 @@ export const TaskView: React.FC = () => {
                 {/* --- QUEST BOARD TAB --- */}
                 {activeTab === 'QUEST_BOARD' && (
                     <div className="space-y-4">
-                        {availableQuests.length === 0 && (
+                        {boardQuests.length === 0 && (
                             <div className="text-center py-16 bg-white rounded-2xl border-2 border-dashed border-gray-300">
                                 <ClipboardList size={48} className="text-gray-300 mx-auto mb-3" />
                                 <p className="text-gray-500 font-medium">Hiện tại chưa có nhiệm vụ nào.</p>
@@ -359,14 +378,38 @@ export const TaskView: React.FC = () => {
                             </div>
                         )}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {availableQuests.map(task => {
+                            {boardQuests.map(task => {
                                 const isParty = task.maxParticipants && task.maxParticipants > 1;
+                                const isOpen = task.status === TaskStatus.OPEN;
+                                const isInProgress = task.status === TaskStatus.IN_PROGRESS;
+                                
+                                // Get Participants
+                                let memberIds = [];
+                                if (task.participants && task.participants.length > 0) {
+                                    memberIds = task.participants;
+                                } else if (task.assigneeId) {
+                                    memberIds = [task.assigneeId];
+                                }
+                                
+                                const teamMembers = memberIds.map(id => employees.find(e => e.id === id)).filter(Boolean);
+
                                 return (
-                                    <div key={task.id} className={`border-2 rounded-xl p-5 shadow-sm relative overflow-hidden group hover:scale-[1.02] transition-transform ${isParty ? 'bg-indigo-50 border-indigo-200' : 'bg-[#f0fdfa] border-teal-200'}`}>
-                                        <div className={`absolute top-0 right-0 w-16 h-16 rounded-bl-full opacity-50 ${isParty ? 'bg-indigo-200' : 'bg-teal-200'}`}></div>
+                                    <div key={task.id} className={`border-2 rounded-xl p-5 shadow-sm relative overflow-hidden group transition-all flex flex-col
+                                        ${isOpen ? (isParty ? 'bg-indigo-50 border-indigo-200 hover:scale-[1.02]' : 'bg-[#f0fdfa] border-teal-200 hover:scale-[1.02]') 
+                                        : isInProgress ? 'bg-gray-50 border-blue-200 opacity-90' 
+                                        : 'bg-yellow-50 border-yellow-200 opacity-80'}`}>
+                                        
+                                        {/* Status Badge Overlays */}
+                                        <div className="absolute top-0 right-0 w-16 h-16 rounded-bl-full opacity-50 z-0
+                                            ${isOpen ? (isParty ? 'bg-indigo-200' : 'bg-teal-200') : isInProgress ? 'bg-blue-200' : 'bg-yellow-200'}">
+                                        </div>
+
                                         <div className="flex justify-between items-start mb-2 relative z-10">
-                                            <div className="flex gap-2 flex-wrap">
-                                                <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border ${task.difficulty === 3 ? 'bg-red-100 text-red-700 border-red-200' : task.difficulty === 2 ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-green-100 text-green-700 border-green-200'}`}>Mức độ {task.difficulty}</span>
+                                            <div className="flex gap-2 flex-wrap items-center">
+                                                <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border 
+                                                    ${task.difficulty === 3 ? 'bg-red-100 text-red-700 border-red-200' : task.difficulty === 2 ? 'bg-blue-100 text-blue-700 border-blue-200' : 'bg-green-100 text-green-700 border-green-200'}`}>
+                                                    Mức {task.difficulty}
+                                                </span>
                                                 {isParty && <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded border bg-purple-100 text-purple-700 border-purple-200 flex items-center"><Users size={10} className="mr-1"/> NHÓM ({task.maxParticipants})</span>}
                                                 {task.requiredShifts && task.requiredShifts.length > 0 && (
                                                     <span className="text-[10px] font-bold px-2 py-1 rounded border bg-gray-700 text-white border-gray-600 flex items-center">
@@ -376,7 +419,8 @@ export const TaskView: React.FC = () => {
                                             </div>
                                             {renderStars(task.difficulty)}
                                         </div>
-                                        <h3 className="font-bold text-gray-900 text-lg mb-2 line-clamp-2">{task.title}</h3>
+
+                                        <h3 className={`font-bold text-lg mb-2 line-clamp-2 ${isOpen ? 'text-gray-900' : 'text-gray-600'}`}>{task.title}</h3>
                                         <p className="text-sm text-gray-600 mb-4 line-clamp-3 italic">"{task.description || 'Không có mô tả.'}"</p>
                                         
                                         <div className={`mt-auto pt-4 border-t flex items-center justify-between ${isParty ? 'border-indigo-200' : 'border-teal-200'}`}>
@@ -384,14 +428,40 @@ export const TaskView: React.FC = () => {
                                             <div className="font-black text-xl text-orange-600 drop-shadow-sm">+{task.xpReward} XP</div>
                                         </div>
                                         
-                                        <button 
-                                            onClick={() => initiateClaim(task)}
-                                            disabled={!!myActiveQuest}
-                                            className={`w-full mt-3 text-white py-2 rounded-lg font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors ${isParty ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-teal-700 hover:bg-teal-600'}`}
-                                        >
-                                            {isParty ? <Users size={16} className="fill-white"/> : <Target size={16} className="text-white"/>} 
-                                            {isParty ? 'Lập nhóm làm' : 'Nhận việc'}
-                                        </button>
+                                        {/* ACTION AREA - DYNAMIC */}
+                                        {isOpen ? (
+                                            <button 
+                                                onClick={() => initiateClaim(task)}
+                                                disabled={!!myActiveQuest}
+                                                className={`w-full mt-3 text-white py-2 rounded-lg font-bold shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors ${isParty ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-teal-700 hover:bg-teal-600'}`}
+                                            >
+                                                {isParty ? <Users size={16} className="fill-white"/> : <Target size={16} className="text-white"/>} 
+                                                {isParty ? 'Lập nhóm làm' : 'Nhận việc'}
+                                            </button>
+                                        ) : (
+                                            <div className="mt-3">
+                                                <div className="flex justify-between items-center mb-1">
+                                                    <span className="text-[10px] text-gray-500 font-bold uppercase">Nhóm thực hiện</span>
+                                                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${isInProgress ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                                                        {isInProgress ? 'Đang làm' : 'Chờ duyệt'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {teamMembers.map(member => {
+                                                        const isLeader = member.id === task.assigneeId;
+                                                        return (
+                                                            <div key={member.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border ${isLeader ? 'bg-white border-indigo-300 shadow-sm' : 'bg-white/50 border-gray-200'}`}>
+                                                                <div className="w-5 h-5 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-600 overflow-hidden">
+                                                                    {member.avatar ? <img src={member.avatar} className="w-full h-full object-cover"/> : member.name.charAt(0)}
+                                                                </div>
+                                                                <span className={`text-xs font-bold ${isLeader ? 'text-indigo-700' : 'text-gray-700'}`}>{member.name}</span>
+                                                                {isLeader && <Crown size={10} className="text-yellow-500 fill-yellow-500"/>}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })}
