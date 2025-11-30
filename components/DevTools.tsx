@@ -250,5 +250,6 @@ create policy "Public Access Menu" on public.menu_items for all using (true) wit
                 </div>
             )}
         </div>
-    );
+    </div>
+  );
 };
