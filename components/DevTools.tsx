@@ -76,17 +76,50 @@ create table if not exists public.feedback (
     type text default 'INTERNAL_FEEDBACK'
 );
 
--- 3. Update Employees Table (For Gamification)
--- CHẠY DÒNG NÀY NẾU BẠN CHƯA THẤY XP ĐƯỢC CỘNG
+-- 3. Create Menu Items Table (Full)
+create table if not exists public.menu_items (
+    id text primary key,
+    name text not null,
+    name_en text,
+    name_ko text,
+    name_fr text,
+    price int default 0,
+    unit text default 'Phần',
+    category text default 'Món chính',
+    description text,
+    description_en text,
+    description_ko text,
+    description_fr text,
+    image text,
+    is_available boolean default true,
+    created_at text
+);
+
+-- UPDATE: Add missing columns if table exists
+ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_en text;
+ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_ko text;
+ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_fr text;
+ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS unit text DEFAULT 'Phần';
+ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS description_en text;
+ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS description_ko text;
+ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS description_fr text;
+
+-- 4. Update Employees Table (For Gamification)
 alter table public.employees add column if not exists xp int default 0;
 alter table public.employees add column if not exists level int default 1;
 
--- Enable RLS
+-- Enable RLS (Idempotent)
 alter table public.tasks enable row level security;
+drop policy if exists "Public Access Tasks" on public.tasks;
 create policy "Public Access Tasks" on public.tasks for all using (true) with check (true);
 
 alter table public.feedback enable row level security;
+drop policy if exists "Public Access Feedback" on public.feedback;
 create policy "Public Access Feedback" on public.feedback for all using (true) with check (true);
+
+alter table public.menu_items enable row level security;
+drop policy if exists "Public Access Menu" on public.menu_items;
+create policy "Public Access Menu" on public.menu_items for all using (true) with check (true);
 `;
 
   const handleCopySQL = () => {
@@ -217,6 +250,5 @@ create policy "Public Access Feedback" on public.feedback for all using (true) w
                 </div>
             )}
         </div>
-    </div>
-  );
+    );
 };

@@ -198,8 +198,9 @@ export interface MenuItem {
     nameEn?: string;
     nameKo?: string; // Korean
     nameFr?: string; // French
-    category: 'MAIN' | 'APPETIZER' | 'DRINK' | 'DESSERT' | 'OTHER';
+    category: string; // Changed to string to allow dynamic categories
     price: number;
+    unit?: string; // Added unit (Đĩa, Bát, Nồi...)
     description?: string;
     descriptionEn?: string;
     descriptionKo?: string;

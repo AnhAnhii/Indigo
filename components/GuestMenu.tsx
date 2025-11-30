@@ -1,113 +1,9 @@
 
 import React, { useState, useMemo } from 'react';
-import { ShoppingCart, ChefHat, Search, Plus, Minus, X, CheckCircle, Info, Utensils, Coffee, IceCream, Beef, Globe, Gift } from 'lucide-react';
+import { ShoppingCart, ChefHat, Search, Plus, Minus, X, CheckCircle, Info, Utensils, Coffee, IceCream, Beef, Globe, Gift, Users, FileText, Soup, Flame } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { MenuItem } from '../types';
 import { EntertainmentHub } from './EntertainmentHub';
-
-// MOCK DATA FOR MENU WITH 4 LANGUAGES
-const MOCK_MENU: MenuItem[] = [
-    { 
-        id: 'm1', 
-        name: 'Gà đồi nướng mắc khén', 
-        nameEn: 'Grilled Hill Chicken w/ Mac Khen', 
-        nameKo: '막켄 향신료 구운 산악 닭고기',
-        nameFr: 'Poulet des Collines Grillé au Mac Khen',
-        price: 350000, 
-        category: 'MAIN', 
-        isAvailable: true, 
-        image: 'https://images.unsplash.com/photo-1598515214211-89d3c73ae83b?auto=format&fit=crop&w=800&q=80', 
-        description: 'Gà bản 100%, tẩm ướp gia vị Tây Bắc đặc trưng.',
-        descriptionEn: '100% free-range chicken, marinated with Northwest spices.',
-        descriptionKo: '100% 토종닭, 북서부 특유의 향신료로 양념.',
-        descriptionFr: 'Poulet 100% fermier, mariné aux épices du Nord-Ouest.'
-    },
-    { 
-        id: 'm2', 
-        name: 'Lẩu cá tầm Sapa', 
-        nameEn: 'Sapa Sturgeon Hotpot', 
-        nameKo: '사파 철갑상어 전골',
-        nameFr: 'Fondue d\'Esturgeon de Sapa',
-        price: 650000, 
-        category: 'MAIN', 
-        isAvailable: true, 
-        image: 'https://images.unsplash.com/photo-1547592180-85f173990554?auto=format&fit=crop&w=800&q=80', 
-        description: 'Cá tầm tươi sống, nước lẩu chua thanh.',
-        descriptionEn: 'Fresh sturgeon, sour and light hotpot broth.',
-        descriptionKo: '신선한 철갑상어, 시원하고 새콤한 육수.',
-        descriptionFr: 'Esturgeon frais, bouillon de fondue aigre-doux.'
-    },
-    { 
-        id: 'm3', 
-        name: 'Thắng cố đặc biệt', 
-        nameEn: 'Special Thang Co', 
-        nameKo: '특별 탕꼬 (말고기 전골)',
-        nameFr: 'Thang Co Spécial',
-        price: 150000, 
-        category: 'MAIN', 
-        isAvailable: true, 
-        image: 'https://images.unsplash.com/photo-1555126634-323283e090fa?auto=format&fit=crop&w=800&q=80', 
-        description: 'Món ăn truyền thống của người H\'mong.',
-        descriptionEn: 'Traditional dish of the H\'mong people.',
-        descriptionKo: '흐몽족의 전통 요리.',
-        descriptionFr: 'Plat traditionnel du peuple H\'mong.'
-    },
-    { 
-        id: 'a1', 
-        name: 'Nộm hoa chuối', 
-        nameEn: 'Banana Flower Salad', 
-        nameKo: '바나나 꽃 샐러드',
-        nameFr: 'Salade de Fleurs de Bananier',
-        price: 85000, 
-        category: 'APPETIZER', 
-        isAvailable: true, 
-        image: 'https://images.unsplash.com/photo-1505253716362-afaea1d3d1af?auto=format&fit=crop&w=800&q=80' 
-    },
-    { 
-        id: 'a2', 
-        name: 'Khoai tây chiên', 
-        nameEn: 'French Fries', 
-        nameKo: '감자 튀김',
-        nameFr: 'Frites',
-        price: 60000, 
-        category: 'APPETIZER', 
-        isAvailable: true, 
-        image: 'https://images.unsplash.com/photo-1573080496987-a199f8cd75c5?auto=format&fit=crop&w=800&q=80' 
-    },
-    { 
-        id: 'd1', 
-        name: 'Rượu Táo Mèo', 
-        nameEn: 'Tao Meo Wine', 
-        nameKo: '타오 메오 와인 (사과주)',
-        nameFr: 'Vin de Tao Meo',
-        price: 120000, 
-        category: 'DRINK', 
-        isAvailable: true, 
-        image: 'https://images.unsplash.com/photo-1569937756447-e17036d39695?auto=format&fit=crop&w=800&q=80' 
-    },
-    { 
-        id: 'd2', 
-        name: 'Coca Cola', 
-        nameEn: 'Coke', 
-        nameKo: '코카콜라',
-        nameFr: 'Coca Cola',
-        price: 20000, 
-        category: 'DRINK', 
-        isAvailable: true, 
-        image: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?auto=format&fit=crop&w=800&q=80' 
-    },
-    { 
-        id: 's1', 
-        name: 'Sữa chua nếp cẩm', 
-        nameEn: 'Yogurt w/ Fermented Rice', 
-        nameKo: '흑찹쌀 요거트',
-        nameFr: 'Yaourt au Riz Gluant Noir',
-        price: 35000, 
-        category: 'DESSERT', 
-        isAvailable: true, 
-        image: 'https://images.unsplash.com/photo-1488477181946-6428a0291777?auto=format&fit=crop&w=800&q=80' 
-    },
-];
 
 // --- TRANSLATION DICTIONARY ---
 type Language = 'VI' | 'EN' | 'KO' | 'FR';
@@ -116,10 +12,6 @@ const TRANSLATIONS = {
     VI: {
         table: 'Bàn',
         all: 'Tất cả',
-        main: 'Món chính',
-        appetizer: 'Khai vị',
-        drink: 'Đồ uống',
-        dessert: 'Tráng miệng',
         viewCart: 'Xem giỏ hàng',
         cartTitle: 'Giỏ hàng của bạn',
         total: 'Tổng cộng',
@@ -131,15 +23,14 @@ const TRANSLATIONS = {
         orderMore: 'Gọi thêm món',
         search: 'Tìm món ăn...',
         empty: 'Chưa có món nào.',
-        entertainment: 'Giải trí & Quà'
+        entertainment: 'Giải trí & Quà',
+        guestCountLabel: 'Số người ăn',
+        noteLabel: 'Ghi chú cho bếp',
+        notePlaceholder: 'VD: Ít cay, không hành, dị ứng...',
     },
     EN: {
         table: 'Table',
         all: 'All',
-        main: 'Main Course',
-        appetizer: 'Appetizer',
-        drink: 'Drinks',
-        dessert: 'Dessert',
         viewCart: 'View Cart',
         cartTitle: 'Your Cart',
         total: 'Total',
@@ -151,15 +42,14 @@ const TRANSLATIONS = {
         orderMore: 'Order More',
         search: 'Search food...',
         empty: 'No items yet.',
-        entertainment: 'Fun & Gifts'
+        entertainment: 'Fun & Gifts',
+        guestCountLabel: 'Number of Guests',
+        noteLabel: 'Note to Kitchen',
+        notePlaceholder: 'Ex: Less spicy, no onion, allergy...',
     },
     KO: {
         table: '테이블',
         all: '전체',
-        main: '메인 요리',
-        appetizer: '에피타이저',
-        drink: '음료',
-        dessert: '디저트',
         viewCart: '장바구니 보기',
         cartTitle: '장바구니',
         total: '합계',
@@ -171,15 +61,14 @@ const TRANSLATIONS = {
         orderMore: '추가 주문하기',
         search: '메뉴 검색...',
         empty: '항목 없음.',
-        entertainment: '게임 및 선물'
+        entertainment: '게임 및 선물',
+        guestCountLabel: '인원 수',
+        noteLabel: '주방 요청 사항',
+        notePlaceholder: '예: 덜 맵게, 양파 빼고, 알레르기...',
     },
     FR: {
         table: 'Table',
         all: 'Tout',
-        main: 'Plat Principal',
-        appetizer: 'Entrée',
-        drink: 'Boissons',
-        dessert: 'Dessert',
         viewCart: 'Voir le Panier',
         cartTitle: 'Votre Panier',
         total: 'Total',
@@ -191,7 +80,10 @@ const TRANSLATIONS = {
         orderMore: 'Commander plus',
         search: 'Rechercher...',
         empty: 'Aucun article.',
-        entertainment: 'Jeux & Cadeaux'
+        entertainment: 'Jeux & Cadeaux',
+        guestCountLabel: 'Nombre de personnes',
+        noteLabel: 'Note à la cuisine',
+        notePlaceholder: 'Ex: Moins épicé, pas d\'oignon, allergie...',
     }
 };
 
@@ -202,12 +94,23 @@ const LANG_OPTIONS: {code: Language, label: string, flag: string}[] = [
     { code: 'FR', label: 'Français', flag: '🇫🇷' },
 ];
 
+// Helper to map category names to icons (case insensitive)
+const getCategoryIcon = (category: string) => {
+    const lower = category.toLowerCase();
+    if (lower.includes('drink') || lower.includes('uống') || lower.includes('nước')) return Coffee;
+    if (lower.includes('dessert') || lower.includes('tráng miệng') || lower.includes('kem')) return IceCream;
+    if (lower.includes('appetizer') || lower.includes('khai vị')) return Utensils;
+    if (lower.includes('soup') || lower.includes('súp') || lower.includes('cháo')) return Soup;
+    if (lower.includes('hotpot') || lower.includes('lẩu') || lower.includes('nướng') || lower.includes('bbq')) return Flame;
+    return Beef; // Default for Main courses or unknown
+};
+
 interface GuestMenuProps {
     tableId: string;
 }
 
 export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
-    const { submitGuestOrder } = useGlobalContext();
+    const { submitGuestOrder, menuItems } = useGlobalContext();
     const [language, setLanguage] = useState<Language>('VI');
     const [activeCategory, setActiveCategory] = useState<string>('ALL');
     const [cart, setCart] = useState<{item: MenuItem, quantity: number}[]>([]);
@@ -216,6 +119,10 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
     const [isEntertainmentOpen, setIsEntertainmentOpen] = useState(false);
     const [orderStatus, setOrderStatus] = useState<'NONE' | 'SUBMITTING' | 'SUCCESS'>('NONE');
     const [searchTerm, setSearchTerm] = useState('');
+    
+    // New Order Fields
+    const [guestCount, setGuestCount] = useState<number>(2);
+    const [orderNote, setOrderNote] = useState('');
 
     const t = TRANSLATIONS[language];
 
@@ -238,16 +145,23 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
         }
     };
 
-    const categories = [
-        { id: 'ALL', name: t.all, icon: Utensils },
-        { id: 'MAIN', name: t.main, icon: Beef },
-        { id: 'APPETIZER', name: t.appetizer, icon: Utensils },
-        { id: 'DRINK', name: t.drink, icon: Coffee },
-        { id: 'DESSERT', name: t.dessert, icon: IceCream },
-    ];
+    // --- DYNAMIC CATEGORIES ---
+    const categories = useMemo(() => {
+        const uniqueCats = Array.from(new Set(menuItems.map(i => i.category))).filter(Boolean);
+        const dynamicCats = uniqueCats.map(cat => ({
+            id: cat as string,
+            name: cat as string, // Could implement translation logic here if categories follow a standard
+            icon: getCategoryIcon(cat as string)
+        }));
+        
+        return [
+            { id: 'ALL', name: t.all, icon: Utensils },
+            ...dynamicCats
+        ];
+    }, [menuItems, t.all]);
 
     const filteredMenu = useMemo(() => {
-        let items = MOCK_MENU;
+        let items = menuItems.filter(i => i.isAvailable); // Filter available items
         if (activeCategory !== 'ALL') {
             items = items.filter(item => item.category === activeCategory);
         }
@@ -259,7 +173,7 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
             );
         }
         return items;
-    }, [activeCategory, searchTerm, language]);
+    }, [activeCategory, searchTerm, language, menuItems]);
 
     const addToCart = (item: MenuItem) => {
         setCart(prev => {
@@ -285,8 +199,9 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
 
     const handlePlaceOrder = async () => {
         setOrderStatus('SUBMITTING');
-        await submitGuestOrder(tableId, cart);
+        await submitGuestOrder(tableId, cart, guestCount, orderNote);
         setCart([]);
+        setOrderNote('');
         setOrderStatus('SUCCESS');
         setIsCartOpen(false);
     };
@@ -404,12 +319,20 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
             {/* Menu Grid */}
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {filteredMenu.length === 0 && (
-                    <div className="col-span-full text-center py-10 text-gray-400 italic">{t.empty}</div>
+                    <div className="col-span-full text-center py-10 text-gray-400 italic">
+                        {menuItems.length === 0 ? "Nhà hàng đang cập nhật thực đơn." : t.empty}
+                    </div>
                 )}
                 {filteredMenu.map(item => (
                     <div key={item.id} className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100 flex gap-4 animate-in fade-in slide-in-from-bottom-4">
                         <div className="w-24 h-24 bg-gray-200 rounded-xl shrink-0 overflow-hidden relative">
-                            <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            {item.image ? (
+                                <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center text-gray-400">
+                                    <Utensils size={24}/>
+                                </div>
+                            )}
                         </div>
                         <div className="flex-1 flex flex-col justify-between">
                             <div>
@@ -417,7 +340,10 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
                                 <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{getItemDesc(item)}</p>
                             </div>
                             <div className="flex justify-between items-end mt-2">
-                                <span className="font-bold text-teal-700">{item.price.toLocaleString('vi-VN')}đ</span>
+                                <div>
+                                    <span className="font-bold text-teal-700">{item.price.toLocaleString('vi-VN')}đ</span>
+                                    {item.unit && <span className="text-[10px] text-gray-500 ml-1">/{item.unit}</span>}
+                                </div>
                                 <button 
                                     onClick={() => addToCart(item)}
                                     className="w-8 h-8 bg-teal-100 text-teal-700 rounded-full flex items-center justify-center hover:bg-teal-600 hover:text-white transition-colors"
@@ -449,7 +375,7 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
             {/* Cart Modal */}
             {isCartOpen && (
                 <div className="fixed inset-0 z-50 bg-black/50 flex flex-col justify-end md:justify-center md:items-center">
-                    <div className="bg-white w-full md:max-w-md md:rounded-2xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[85vh] flex flex-col animate-in slide-in-from-bottom duration-300">
+                    <div className="bg-white w-full md:max-w-md md:rounded-2xl rounded-t-3xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col animate-in slide-in-from-bottom duration-300">
                         <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
                             <h3 className="font-bold text-lg">{t.cartTitle}</h3>
                             <button onClick={() => setIsCartOpen(false)} className="p-2 hover:bg-gray-200 rounded-full"><X size={20}/></button>
@@ -460,7 +386,10 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
                                 <div key={idx} className="flex justify-between items-center border-b border-gray-100 pb-3 last:border-0">
                                     <div className="flex-1 pr-2">
                                         <h4 className="font-bold text-gray-800 line-clamp-1">{getItemName(i.item)}</h4>
-                                        <p className="text-xs text-teal-600 font-bold">{i.item.price.toLocaleString('vi-VN')}đ</p>
+                                        <p className="text-xs text-teal-600 font-bold">
+                                            {i.item.price.toLocaleString('vi-VN')}đ
+                                            <span className="text-gray-400 font-normal ml-1">/{i.item.unit || 'Phần'}</span>
+                                        </p>
                                     </div>
                                     <div className="flex items-center gap-3 bg-gray-100 rounded-lg p-1">
                                         <button onClick={() => updateQuantity(i.item.id, -1)} className="w-7 h-7 bg-white rounded flex items-center justify-center text-gray-600 shadow-sm"><Minus size={14}/></button>
@@ -471,8 +400,32 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
                             ))}
                         </div>
 
-                        <div className="p-4 border-t bg-gray-50 space-y-4">
-                            <div className="flex justify-between items-center text-lg font-bold">
+                        <div className="p-4 bg-gray-50 border-t space-y-4">
+                            {/* Guest Count & Note Inputs */}
+                            <div className="grid grid-cols-3 gap-3">
+                                <div className="col-span-1">
+                                    <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center"><Users size={10} className="mr-1"/> {t.guestCountLabel}</label>
+                                    <input 
+                                        type="number" 
+                                        min="1" max="99" 
+                                        value={guestCount} 
+                                        onChange={(e) => setGuestCount(Number(e.target.value))}
+                                        className="w-full border rounded-lg p-2 text-center font-bold text-gray-800 focus:ring-2 focus:ring-teal-500 outline-none"
+                                    />
+                                </div>
+                                <div className="col-span-2">
+                                    <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center"><FileText size={10} className="mr-1"/> {t.noteLabel}</label>
+                                    <input 
+                                        type="text" 
+                                        value={orderNote} 
+                                        onChange={(e) => setOrderNote(e.target.value)}
+                                        placeholder={t.notePlaceholder}
+                                        className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-teal-500 outline-none"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-between items-center text-lg font-bold pt-2 border-t border-gray-200">
                                 <span>{t.total}</span>
                                 <span className="text-teal-700">{cartTotal.toLocaleString('vi-VN')}đ</span>
                             </div>

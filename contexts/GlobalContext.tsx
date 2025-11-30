@@ -33,6 +33,10 @@ interface GlobalContextType {
   updateSettings: (newSettings: SystemSettings) => void;
 
   menuItems: MenuItem[];
+  addMenuItem: (item: MenuItem) => void;
+  updateMenuItem: (item: MenuItem) => void;
+  deleteMenuItem: (id: string) => void;
+
   prepTasks: PrepTask[];
   addPrepTask: (task: PrepTask) => void;
   togglePrepTask: (id: string) => void;
@@ -88,7 +92,7 @@ interface GlobalContextType {
   unlockAudio: () => void;
   notificationPermissionStatus: NotificationPermission;
   
-  submitGuestOrder: (tableId: string, cartItems: {item: MenuItem, quantity: number}[]) => Promise<void>;
+  submitGuestOrder: (tableId: string, cartItems: {item: MenuItem, quantity: number}[], guestCount: number, note: string) => Promise<void>;
 
   // DEV FEATURES
   onlineUsers: OnlineUser[];
@@ -127,10 +131,6 @@ const STORAGE_SESSION_KEY = 'RS_SESSION_V2';
 const SESSION_DURATION_DAYS = 7;
 
 // --- RPG LEVEL CALCULATION ---
-// Formula: Level = Floor(Sqrt(XP / 50)) + 1
-// XP 0-49: Level 1
-// XP 50-199: Level 2
-// XP 200-449: Level 3
 const calculateRpgLevel = (xp: number) => {
     return Math.floor(Math.sqrt(Math.max(0, xp) / 50)) + 1;
 };
@@ -150,6 +150,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [schedules, setSchedules] = useState<WorkSchedule[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   
   const [activeAlerts, setActiveAlerts] = useState<SystemAlert[]>([]);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
@@ -396,8 +397,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setHandoverLogs(data.handoverLogs);
           setSchedules(data.schedules);
           setPrepTasks(data.prepTasks);
-          setTasks(data.tasks); // Load tasks directly from DB
+          setTasks(data.tasks); 
           setFeedbacks(data.feedbacks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+          setMenuItems(data.menuItems);
 
           if (data.settings && Object.keys(data.settings).length > 0) {
               setSettings(prev => ({...INITIAL_SETTINGS, ...data.settings}));
@@ -469,7 +471,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
               
               if (payload.table === 'serving_groups') {
-                   // ... existing notification logic ...
                   if (payload.eventType === 'INSERT' && config.enableGuestArrival) {
                       const newGroup = payload.new as any;
                       dispatchNotification("🔔 KHÁCH MỚI ĐẾN", `Đoàn: ${newGroup.name}\nBàn: ${newGroup.location}`);
@@ -499,20 +500,16 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
                       // 2. Task Updates
                       if (payload.eventType === 'UPDATE') {
-                           // Check if I am involved (Assignee or Participant)
                            const participants = newTask.participants || [];
                            const isParticipant = participants.includes(myId);
                            const isAssignee = newTask.assignee_id === myId;
                            const isCreator = newTask.creator_id === myId;
 
-                           // --- INVITATION NOTIFICATION (New Logic) ---
-                           // Check if I was just added to the participants list by someone else
+                           // --- INVITATION NOTIFICATION ---
                            if (isParticipant && newTask.assignee_id !== myId) {
-                               // Find local version to check if I was already in it
                                const localTask = tasksRef.current.find(t => t.id === newTask.id);
                                const wasInList = localTask?.participants?.includes(myId);
                                
-                               // If I wasn't in list before, or status changed to IN_PROGRESS and I'm in list
                                if (!wasInList && newTask.status === 'IN_PROGRESS') {
                                    dispatchNotification("🤝 LỜI MỜI HỢP TÁC", `Bạn được ${newTask.assignee_name} thêm vào nhóm nhiệm vụ "${newTask.title}". Hãy cùng hoàn thành nhé!`, 'SUCCESS');
                                }
@@ -545,7 +542,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   const fb = payload.new as any;
                   if (payload.eventType === 'INSERT') {
                       if (fb.type === 'GOOGLE_REVIEW_CLICK') {
-                          // Optional: Notify manager about review attempt
+                          // Optional
                       } else {
                           if (fb.rating <= 2 || fb.sentiment === 'NEGATIVE') {
                               dispatchNotification("🚨 BÁO ĐỘNG ĐỎ", `Khách hàng vừa đánh giá ${fb.rating} sao!\n"${fb.comment || 'Không có lời bình'}"`, 'ERROR');
@@ -697,6 +694,11 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const togglePrepTask = (id: string) => { const t = prepTasks.find(x => x.id === id); if (t) { const u = { ...t, isCompleted: !t.isCompleted }; setPrepTasks(prev => prev.map(x => x.id === id ? u : x)); supabaseService.upsertPrepTask(u); } };
   const deletePrepTask = (id: string) => { setPrepTasks(prev => prev.filter(x => x.id !== id)); supabaseService.deletePrepTask(id); };
 
+  // --- MENU CRUD ---
+  const addMenuItem = (item: MenuItem) => { setMenuItems(prev => [...prev, item]); supabaseService.upsertMenuItem(item); };
+  const updateMenuItem = (item: MenuItem) => { setMenuItems(prev => prev.map(i => i.id === item.id ? item : i)); supabaseService.upsertMenuItem(item); };
+  const deleteMenuItem = (id: string) => { setMenuItems(prev => prev.filter(i => i.id !== id)); supabaseService.deleteMenuItem(id); };
+
   // --- TASK & GAMIFICATION METHODS ---
   const addTask = (task: Task) => {
       setTasks(prev => [task, ...prev]);
@@ -735,7 +737,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const verifyTask = (taskId: string, managerId: string) => {
-      // USE REFS TO GET LATEST DATA TO AVOID STALE STATE
       const task = tasksRef.current.find(t => t.id === taskId);
       
       if (task && task.status === TaskStatus.COMPLETED) {
@@ -743,7 +744,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
           supabaseService.upsertTask(updated);
 
-          // ADD XP TO ALL PARTICIPANTS
           const recipients = task.participants && task.participants.length > 0 
                              ? task.participants 
                              : (task.assigneeId ? [task.assigneeId] : []);
@@ -753,22 +753,15 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               if (emp) {
                   const currentXp = (emp.xp || 0);
                   const newXp = currentXp + task.xpReward;
-                  // Use Exponential Formula: Level = Floor(Sqrt(XP/50)) + 1
                   const newLevel = calculateRpgLevel(newXp);
                   
                   const updatedEmp = { ...emp, xp: newXp, level: newLevel };
-                  
-                  console.log(`[Gamification] Giving XP to ${emp.name}: ${currentXp} -> ${newXp} (Level ${newLevel})`);
-                  
                   updateEmployee(updatedEmp);
                   
-                  // Specific Notification for Recipient
                   if (empId === currentUserRef.current?.id) {
                       const levelUpMsg = newLevel > (emp.level || 1) ? `\n🔥 LÊN CẤP ${newLevel}!` : '';
                       dispatchNotification("🎉 CHÚC MỪNG!", `Bạn nhận được +${task.xpReward} XP.${levelUpMsg}`, 'SUCCESS');
                   }
-              } else {
-                  console.warn(`[Gamification] Employee ID ${empId} not found in local state.`);
               }
           });
       }
@@ -786,7 +779,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setTasks(prev => prev.map(t => t.id === taskId ? updated : t));
           supabaseService.upsertTask(updated);
 
-          // DEDUCT XP FROM ALL
           const recipients = task.participants && task.participants.length > 0 
                              ? task.participants 
                              : (task.assigneeId ? [task.assigneeId] : []);
@@ -796,7 +788,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                if (emp && penalty > 0) {
                    const currentXp = emp.xp || 0;
                    const newXp = Math.max(0, currentXp - penalty);
-                   // Recalculate level (can drop level)
                    const newLevel = calculateRpgLevel(newXp);
                    
                    const updatedEmp = { ...emp, xp: newXp, level: newLevel };
@@ -813,7 +804,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // --- FEEDBACK SUBMISSION ---
   const submitFeedback = async (data: any) => {
-      // 1. Analyze Sentiment using AI
       const aiAnalysis = await analyzeFeedback(data.comment || '', data.rating);
       
       const newFeedback: Feedback = {
@@ -833,7 +823,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       setFeedbacks(prev => [newFeedback, ...prev]);
       supabaseService.upsertFeedback(newFeedback);
 
-      // 2. Alert Logic
       if (newFeedback.rating <= 2 || newFeedback.sentiment === 'NEGATIVE') {
           const alertId = `alert_feedback_${newFeedback.id}`;
           const alertTitle = `Khách đánh giá thấp (${newFeedback.rating} sao)`;
@@ -869,7 +858,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   // --- GUEST ORDER ---
-  const submitGuestOrder = async (tableId: string, cartItems: {item: MenuItem, quantity: number}[]) => {
+  const submitGuestOrder = async (tableId: string, cartItems: {item: MenuItem, quantity: number}[], guestCount: number, note: string) => {
       const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' });
       const timeStr = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
       
@@ -878,25 +867,37 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           name: cartItem.item.name,
           totalQuantity: cartItem.quantity,
           servedQuantity: 0,
-          unit: 'Phần',
+          unit: cartItem.item.unit || 'Phần',
           note: 'Khách tự gọi'
       }));
 
+      // Find existing active group for this table today
       const existingGroup = servingGroups.find(g => 
           g.status === 'ACTIVE' && 
           g.location === tableId && 
           g.date === todayStr
       );
 
+      // Append note to the group name if provided
+      const nameSuffix = note ? ` (${note})` : '';
+
       if (existingGroup) {
           const updatedItems = [...existingGroup.items, ...newItems];
-          modifyGroup(existingGroup.id, g => ({ ...g, items: updatedItems }));
+          // Update guest count if new one is provided and > 0, otherwise keep existing
+          const newGuestCount = guestCount > 0 ? guestCount : existingGroup.guestCount;
+          modifyGroup(existingGroup.id, g => ({ 
+              ...g, 
+              items: updatedItems,
+              guestCount: newGuestCount,
+              // Optionally update name to include note if not already there
+              name: g.name.includes('(') ? g.name : `${g.name}${nameSuffix}`
+          }));
       } else {
           const newGroup: ServingGroup = {
               id: Date.now().toString(),
-              name: `Khách bàn ${tableId}`,
+              name: `Khách bàn ${tableId}${nameSuffix}`,
               location: tableId,
-              guestCount: 0, 
+              guestCount: guestCount || 0, 
               startTime: timeStr,
               date: todayStr,
               status: 'ACTIVE',
@@ -943,7 +944,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       logs, addAttendanceLog, updateAttendanceLog,
       requests, addRequest, updateRequestStatus,
       settings, updateSettings,
-      menuItems: [], 
+      menuItems, addMenuItem, updateMenuItem, deleteMenuItem,
       prepTasks, addPrepTask, togglePrepTask, deletePrepTask,
       servingGroups, addServingGroup, updateServingGroup, deleteServingGroup, startServingGroup, 
       addServingItem, updateServingItem, deleteServingItem, incrementServedItem, decrementServedItem, completeServingGroup, toggleSauceItem,

@@ -355,3 +355,46 @@ export const generateFunCaption = async (imageBase64: string): Promise<string> =
         return "Nụ cười tỏa nắng Sapa!";
     }
 };
+
+export const generateMenuItemDetails = async (vietnameseName: string): Promise<any> => {
+    const ai = getAiInstance();
+    if (!ai) return null;
+
+    try {
+        const prompt = `
+            Bạn là Bếp trưởng nhà hàng Quốc tế tại Sapa.
+            Nhiệm vụ: Dịch và tạo mô tả hấp dẫn cho món ăn: "${vietnameseName}".
+
+            Yêu cầu:
+            1. Dịch tên món sang Anh, Hàn, Pháp chuẩn thực đơn nhà hàng.
+            2. Viết mô tả ngắn (1-2 câu) hấp dẫn, kích thích vị giác cho từng ngôn ngữ.
+            3. Gợi ý Danh mục (Món chính, Khai vị, Đồ uống, Tráng miệng, Lẩu, Nướng...).
+            4. Gợi ý Đơn vị tính (Đĩa, Nồi, Bát, Ly, Kg...).
+
+            OUTPUT JSON ONLY:
+            {
+                "nameEn": "...",
+                "nameKo": "...",
+                "nameFr": "...",
+                "description": "...",
+                "descriptionEn": "...",
+                "descriptionKo": "...",
+                "descriptionFr": "...",
+                "category": "...",
+                "unit": "..."
+            }
+        `;
+
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [{ role: 'user', parts: [{ text: prompt }] }]
+        });
+
+        const text = response.text || "{}";
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        return JSON.parse(jsonMatch ? jsonMatch[0] : "{}");
+    } catch (e) {
+        console.error("AI Menu Gen Error:", e);
+        return null;
+    }
+};

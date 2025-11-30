@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
     Employee, TimesheetLog, EmployeeRequest, 
     ServingGroup, HandoverLog, WorkSchedule, 
-    PrepTask, SystemSettings, WifiConfig, Task, Feedback
+    PrepTask, SystemSettings, WifiConfig, Task, Feedback, MenuItem
 } from '../types';
 
 // --- MAPPERS (Snake_case DB <-> CamelCase App) ---
@@ -111,6 +111,23 @@ const mapFeedbackFromDB = (row: any): Feedback => ({
     staffName: row.staff_name
 });
 
+const mapMenuItemFromDB = (row: any): MenuItem => ({
+    id: row.id,
+    name: row.name,
+    nameEn: row.name_en,
+    nameKo: row.name_ko,
+    nameFr: row.name_fr,
+    price: Number(row.price),
+    unit: row.unit || 'Phần',
+    category: row.category,
+    description: row.description,
+    descriptionEn: row.description_en,
+    descriptionKo: row.description_ko,
+    descriptionFr: row.description_fr,
+    image: row.image,
+    isAvailable: row.is_available
+});
+
 
 // --- SERVICE METHODS ---
 
@@ -129,7 +146,8 @@ export const supabaseService = {
             { data: tasks },
             { data: dismissed },
             { data: staffTasks },
-            { data: feedbacks }
+            { data: feedbacks },
+            { data: menuItems }
         ] = await Promise.all([
             supabase.from('employees').select('*'),
             supabase.from('attendance_logs').select('*'),
@@ -141,7 +159,8 @@ export const supabaseService = {
             supabase.from('prep_tasks').select('*'),
             supabase.from('dismissed_alerts').select('*'),
             supabase.from('tasks').select('*'),
-            supabase.from('feedback').select('*')
+            supabase.from('feedback').select('*'),
+            supabase.from('menu_items').select('*')
         ]);
 
         return {
@@ -159,7 +178,8 @@ export const supabaseService = {
             })) || [],
             dismissedAlerts: dismissed || [],
             tasks: staffTasks?.map(mapTaskFromDB) || [],
-            feedbacks: feedbacks?.map(mapFeedbackFromDB) || []
+            feedbacks: feedbacks?.map(mapFeedbackFromDB) || [],
+            menuItems: menuItems?.map(mapMenuItemFromDB) || []
         };
     },
 
@@ -345,5 +365,35 @@ export const supabaseService = {
             staff_name: feedback.staffName
         });
         if (error) console.error("Feedback Save Failed:", error);
+    },
+
+    // --- MENU ITEMS ---
+    upsertMenuItem: async (item: MenuItem) => {
+        const { error } = await supabase.from('menu_items').upsert({
+            id: item.id,
+            name: item.name,
+            name_en: item.nameEn,
+            name_ko: item.nameKo,
+            name_fr: item.nameFr,
+            price: item.price,
+            unit: item.unit,
+            category: item.category,
+            description: item.description,
+            description_en: item.descriptionEn,
+            description_ko: item.descriptionKo,
+            description_fr: item.descriptionFr,
+            image: item.image,
+            is_available: item.isAvailable,
+            created_at: new Date().toISOString()
+        });
+        
+        if (error) {
+            console.error("Menu Item Save Failed:", error);
+            alert("Lỗi lưu món ăn: " + (error.message || "Vui lòng chạy script cập nhật Database trong DevTools"));
+        }
+    },
+
+    deleteMenuItem: async (id: string) => {
+        await supabase.from('menu_items').delete().eq('id', id);
     }
 };
