@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Check, X, Clock, FileText, User, Filter, Plus, CalendarCheck, ChevronRight, History, ArrowRightLeft, ShieldCheck } from 'lucide-react';
+import { Check, X, Clock, FileText, User, Filter, Plus, CalendarCheck, ChevronRight, History, ArrowRightLeft, ShieldCheck, ArrowRight } from 'lucide-react';
 import { RequestType, RequestStatus, EmployeeRequest, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
@@ -104,7 +104,7 @@ export const RequestManager: React.FC = () => {
                     <div>
                         <h4 className="font-bold text-gray-900 text-lg flex items-center gap-2">
                             {req.type}
-                            {req.targetShift && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">-> {req.targetShift}</span>}
+                            {req.targetShift && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200 flex items-center gap-1"><ArrowRight size={10} /> {req.targetShift}</span>}
                         </h4>
                         <p className="text-sm text-gray-500 font-medium mb-2">Tạo bởi: <span className="text-gray-800">{req.employeeName}</span> • {req.createdAt}</p>
                         <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mb-3 min-w-[250px]">
