@@ -68,7 +68,7 @@ interface GlobalContextType {
 
   handoverLogs: HandoverLog[];
   addHandoverLog: (log: HandoverLog) => void;
-  togglePinHandover: (id: string) => void; // New
+  togglePinHandover: (id: string) => void;
 
   schedules: WorkSchedule[];
   assignShift: (employeeId: string, date: string, shiftCode: string) => void;
@@ -85,9 +85,9 @@ interface GlobalContextType {
   submitFeedback: (data: any) => Promise<void>;
   trackReviewClick: (staffId: string) => Promise<void>; 
 
-  payrollAdjustments: PayrollAdjustment[]; // New
-  addPayrollAdjustment: (adj: PayrollAdjustment) => void; // New
-  deletePayrollAdjustment: (id: string) => void; // New
+  payrollAdjustments: PayrollAdjustment[];
+  addPayrollAdjustment: (adj: PayrollAdjustment) => void;
+  deletePayrollAdjustment: (id: string) => void;
 
   activeAlerts: SystemAlert[];
   dismissedAlertIds: Set<string>; 
@@ -260,12 +260,17 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.4);
                   oscillator.start(); oscillator.stop(ctx.currentTime + 0.4);
               } else {
-                  oscillator.type = 'sine';
+                  // ALERT: Repeated Beep
+                  oscillator.type = 'square'; 
                   oscillator.frequency.setValueAtTime(880, ctx.currentTime); 
-                  oscillator.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.1);
+                  oscillator.frequency.setValueAtTime(0, ctx.currentTime + 0.1);
+                  oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.2);
+                  oscillator.frequency.setValueAtTime(0, ctx.currentTime + 0.3);
+                  oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.4);
+                  
                   gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
-                  gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.5);
-                  oscillator.start(); oscillator.stop(ctx.currentTime + 0.5);
+                  gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.6);
+                  oscillator.start(); oscillator.stop(ctx.currentTime + 0.6);
               }
           } else { unlockAudio(); }
       } catch (e) {}
@@ -288,18 +293,32 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const dispatchNotification = async (title: string, body: string, type: 'ALERT' | 'SUCCESS' | 'ERROR' = 'ALERT') => {
       console.log(`[Notification] ${title}: ${body}`);
       playSound(type); 
+      
       if (Notification.permission !== 'granted') return;
+      
       const tag = 'indigo-' + Date.now();
-      const options = {
+      const options: NotificationOptions = {
           body: body,
-          icon: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-          badge: 'https://cdn-icons-png.flaticon.com/512/1909/1909669.png',
-          tag: tag, renotify: true, requireInteraction: true 
+          icon: 'https://github.com/AnhAnhii/png/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
+          badge: 'https://github.com/AnhAnhii/png/blob/main/487238068_1200682658427927_3815163928792374270_n-removebg-preview.png?raw=true',
+          tag: tag, 
+          requireInteraction: true,
+          silent: false
       };
+
+      // Try Service Worker first (Better for Mobile)
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body, tag });
+          try {
+              navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body, tag });
+              return;
+          } catch(e) { console.error("SW notification failed, falling back", e); }
       }
-      try { const n = new Notification(title, options); n.onclick = () => { window.focus(); n.close(); }; } catch (e) {}
+      
+      // Fallback to native
+      try { 
+          const n = new Notification(title, options); 
+          n.onclick = () => { window.focus(); n.close(); }; 
+      } catch (e) { console.error("Native notification failed", e); }
   };
 
   const requestNotificationPermission = async () => {
@@ -409,15 +428,54 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                       
                       if (eventType === 'UPDATE') {
                           const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(mappedGroup.id));
-                          // If start time was newly added/changed
+                          
+                          // Case A: Guest Arrived (Time set)
                           if (config.enableGuestArrival && (!oldGroupLocal || !oldGroupLocal.startTime) && !!mappedGroup.startTime) {
                               dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
+                          }
+
+                          // Case B: New Items Ordered (Quantity Increased)
+                          if (oldGroupLocal) {
+                              const oldQty = oldGroupLocal.items.reduce((sum, i) => sum + i.totalQuantity, 0);
+                              const newQty = mappedGroup.items.reduce((sum, i) => sum + i.totalQuantity, 0);
+                              if (newQty > oldQty) {
+                                  dispatchNotification("🍳 KHÁCH GỌI MÓN", `Bàn ${mappedGroup.location}: Khách vừa đặt thêm món.`, 'ALERT');
+                              }
                           }
                       }
 
                       setServingGroups(prev => eventType === 'INSERT' ? [mappedGroup, ...prev] : prev.map(g => g.id === mappedGroup.id ? mappedGroup : g));
                   }
               }
+              else if (table === 'feedback') {
+                  const mappedFeedback = mapFeedbackFromDB(newRecord);
+                  if (eventType === 'INSERT') {
+                      setFeedbacks(prev => [mappedFeedback, ...prev]);
+                      
+                      // CRITICAL: CALL WAITER MUST ALERT
+                      if (mappedFeedback.type === 'CALL_WAITER') {
+                          const alertMsg = `Bàn: ${mappedFeedback.customerName} - ${mappedFeedback.comment}`;
+                          dispatchNotification("🔔 KHÁCH GỌI", alertMsg, 'ERROR'); // Use ERROR sound for urgency
+                          
+                          // ADD TO ACTIVE ALERTS TO SHOW IN RED BANNER
+                          setActiveAlerts(prev => [{
+                              id: `call_${mappedFeedback.id}`,
+                              type: 'GUEST_CALL',
+                              message: "KHÁCH GỌI HỖ TRỢ",
+                              details: alertMsg,
+                              severity: 'HIGH',
+                              timestamp: new Date().toLocaleTimeString('vi-VN')
+                          }, ...prev]);
+                      }
+                      // Normal Feedback
+                      else if (mappedFeedback.type === 'INTERNAL_FEEDBACK') {
+                          if (mappedFeedback.rating <= 2 || mappedFeedback.sentiment === 'NEGATIVE') {
+                              dispatchNotification("🚨 BÁO ĐỘNG ĐỎ", `Khách đánh giá thấp: ${mappedFeedback.rating} sao`, 'ERROR');
+                          }
+                      }
+                  }
+              }
+              // ... other listeners ...
               else if (table === 'tasks') {
                   if (eventType === 'DELETE') setTasks(prev => prev.filter(t => t.id !== oldRecord.id));
                   else {
@@ -445,30 +503,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   else {
                       const mappedAdj = mapAdjustmentFromDB(newRecord);
                       setPayrollAdjustments(prev => eventType === 'INSERT' ? [...prev, mappedAdj] : prev.map(a => a.id === mappedAdj.id ? mappedAdj : a));
-                  }
-              }
-              else if (table === 'handover_logs') {
-                  // Only reload handover if pinning changes to resort correctly
-                  loadData(true); 
-              }
-              else if (table === 'feedback') {
-                  const mappedFeedback = mapFeedbackFromDB(newRecord);
-                  if (eventType === 'INSERT') {
-                      setFeedbacks(prev => [mappedFeedback, ...prev]);
-                      if (mappedFeedback.type === 'CALL_WAITER') {
-                          const alertMsg = `Bàn: ${mappedFeedback.customerName} - ${mappedFeedback.comment}`;
-                          dispatchNotification("🔔 KHÁCH GỌI", alertMsg, 'ALERT');
-                          
-                          // ADD TO ACTIVE ALERTS TO SHOW IN RED BANNER
-                          setActiveAlerts(prev => [{
-                              id: `call_${mappedFeedback.id}`,
-                              type: 'GUEST_CALL',
-                              message: "KHÁCH GỌI HỖ TRỢ",
-                              details: alertMsg,
-                              severity: 'HIGH',
-                              timestamp: new Date().toLocaleTimeString('vi-VN')
-                          }, ...prev]);
-                      }
                   }
               }
               else if (table === 'requests') {
