@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { ShoppingCart, ChefHat, Search, Plus, Minus, X, CheckCircle, Info, Utensils, Coffee, IceCream, Beef, Globe, Gift, Users, FileText, Soup, Flame } from 'lucide-react';
+import { ShoppingCart, ChefHat, Search, Plus, Minus, X, CheckCircle, Info, Utensils, Coffee, IceCream, Beef, Globe, Gift, Users, FileText, Soup, Flame, Bell } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { MenuItem } from '../types';
 import { EntertainmentHub } from './EntertainmentHub';
@@ -27,6 +27,12 @@ const TRANSLATIONS = {
         guestCountLabel: 'Số người ăn',
         noteLabel: 'Ghi chú cho bếp',
         notePlaceholder: 'VD: Ít cay, không hành, dị ứng...',
+        callStaff: 'Gọi nhân viên',
+        callSent: 'Đã gọi!',
+        callReasonWater: 'Thêm nước lọc',
+        callReasonBill: 'Thanh toán',
+        callReasonHelp: 'Cần hỗ trợ',
+        callConfirm: 'Bạn cần hỗ trợ gì?'
     },
     EN: {
         table: 'Table',
@@ -46,6 +52,12 @@ const TRANSLATIONS = {
         guestCountLabel: 'Number of Guests',
         noteLabel: 'Note to Kitchen',
         notePlaceholder: 'Ex: Less spicy, no onion, allergy...',
+        callStaff: 'Call Staff',
+        callSent: 'Sent!',
+        callReasonWater: 'Water Refill',
+        callReasonBill: 'Bill / Check',
+        callReasonHelp: 'Need Help',
+        callConfirm: 'How can we help?'
     },
     KO: {
         table: '테이블',
@@ -65,6 +77,12 @@ const TRANSLATIONS = {
         guestCountLabel: '인원 수',
         noteLabel: '주방 요청 사항',
         notePlaceholder: '예: 덜 맵게, 양파 빼고, 알레르기...',
+        callStaff: '직원 호출',
+        callSent: '호출 완료!',
+        callReasonWater: '물 리필',
+        callReasonBill: '계산서 요청',
+        callReasonHelp: '도움 필요',
+        callConfirm: '무엇을 도와드릴까요?'
     },
     FR: {
         table: 'Table',
@@ -84,6 +102,12 @@ const TRANSLATIONS = {
         guestCountLabel: 'Nombre de personnes',
         noteLabel: 'Note à la cuisine',
         notePlaceholder: 'Ex: Moins épicé, pas d\'oignon, allergie...',
+        callStaff: 'Appeler',
+        callSent: 'Envoyé !',
+        callReasonWater: 'Eau',
+        callReasonBill: 'L\'addition',
+        callReasonHelp: 'Aide',
+        callConfirm: 'Comment pouvons-nous aider ?'
     }
 };
 
@@ -94,7 +118,6 @@ const LANG_OPTIONS: {code: Language, label: string, flag: string}[] = [
     { code: 'FR', label: 'Français', flag: '🇫🇷' },
 ];
 
-// Helper to map category names to icons (case insensitive)
 const getCategoryIcon = (category: string) => {
     const lower = category.toLowerCase();
     if (lower.includes('drink') || lower.includes('uống') || lower.includes('nước')) return Coffee;
@@ -102,7 +125,7 @@ const getCategoryIcon = (category: string) => {
     if (lower.includes('appetizer') || lower.includes('khai vị')) return Utensils;
     if (lower.includes('soup') || lower.includes('súp') || lower.includes('cháo')) return Soup;
     if (lower.includes('hotpot') || lower.includes('lẩu') || lower.includes('nướng') || lower.includes('bbq')) return Flame;
-    return Beef; // Default for Main courses or unknown
+    return Beef;
 };
 
 interface GuestMenuProps {
@@ -110,23 +133,22 @@ interface GuestMenuProps {
 }
 
 export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
-    const { submitGuestOrder, menuItems } = useGlobalContext();
+    const { submitGuestOrder, menuItems, requestAssistance } = useGlobalContext();
     const [language, setLanguage] = useState<Language>('VI');
     const [activeCategory, setActiveCategory] = useState<string>('ALL');
     const [cart, setCart] = useState<{item: MenuItem, quantity: number}[]>([]);
     const [isCartOpen, setIsCartOpen] = useState(false);
     const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
     const [isEntertainmentOpen, setIsEntertainmentOpen] = useState(false);
+    const [isCallModalOpen, setIsCallModalOpen] = useState(false);
     const [orderStatus, setOrderStatus] = useState<'NONE' | 'SUBMITTING' | 'SUCCESS'>('NONE');
     const [searchTerm, setSearchTerm] = useState('');
     
-    // New Order Fields
     const [guestCount, setGuestCount] = useState<number>(2);
     const [orderNote, setOrderNote] = useState('');
 
     const t = TRANSLATIONS[language];
 
-    // Helper to get translated item name
     const getItemName = (item: MenuItem) => {
         switch(language) {
             case 'EN': return item.nameEn || item.name;
@@ -145,12 +167,11 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
         }
     };
 
-    // --- DYNAMIC CATEGORIES ---
     const categories = useMemo(() => {
         const uniqueCats = Array.from(new Set(menuItems.map(i => i.category))).filter(Boolean);
         const dynamicCats = uniqueCats.map(cat => ({
             id: cat as string,
-            name: cat as string, // Could implement translation logic here if categories follow a standard
+            name: cat as string,
             icon: getCategoryIcon(cat as string)
         }));
         
@@ -161,7 +182,7 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
     }, [menuItems, t.all]);
 
     const filteredMenu = useMemo(() => {
-        let items = menuItems.filter(i => i.isAvailable); // Filter available items
+        let items = menuItems.filter(i => i.isAvailable);
         if (activeCategory !== 'ALL') {
             items = items.filter(item => item.category === activeCategory);
         }
@@ -206,6 +227,12 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
         setIsCartOpen(false);
     };
 
+    const handleCallWaiter = (reason: string) => {
+        requestAssistance(tableId, reason);
+        setIsCallModalOpen(false);
+        alert(t.callSent);
+    };
+
     if (orderStatus === 'SUCCESS') {
         return (
             <div className="min-h-screen bg-teal-600 flex flex-col items-center justify-center text-white p-6 text-center">
@@ -235,13 +262,21 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
 
     return (
         <div className="min-h-screen bg-gray-50 pb-24 font-sans relative">
-            {/* ENTERTAINMENT FLOATING BUTTON */}
-            <button 
-                onClick={() => setIsEntertainmentOpen(true)}
-                className="fixed bottom-24 right-4 z-40 w-14 h-14 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full shadow-lg shadow-purple-500/40 flex items-center justify-center text-white hover:scale-110 transition-transform animate-[bounce_2s_infinite]"
-            >
-                <Gift size={28} />
-            </button>
+            {/* FLOATING BUTTONS */}
+            <div className="fixed bottom-24 right-4 z-40 flex flex-col gap-3">
+                <button 
+                    onClick={() => setIsCallModalOpen(true)}
+                    className="w-14 h-14 bg-red-500 rounded-full shadow-lg shadow-red-300 flex items-center justify-center text-white hover:scale-110 transition-transform"
+                >
+                    <Bell size={24} className="animate-pulse" />
+                </button>
+                <button 
+                    onClick={() => setIsEntertainmentOpen(true)}
+                    className="w-14 h-14 bg-gradient-to-r from-pink-500 to-purple-600 rounded-full shadow-lg shadow-purple-500/40 flex items-center justify-center text-white hover:scale-110 transition-transform animate-[bounce_3s_infinite]"
+                >
+                    <Gift size={28} />
+                </button>
+            </div>
 
             {/* Header */}
             <div className="bg-white sticky top-0 z-20 shadow-sm">
@@ -254,7 +289,6 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
                         </p>
                     </div>
                     
-                    {/* LANGUAGE SWITCHER */}
                     <div className="relative">
                         <button 
                             onClick={() => setIsLangMenuOpen(!isLangMenuOpen)}
@@ -401,7 +435,6 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
                         </div>
 
                         <div className="p-4 bg-gray-50 border-t space-y-4">
-                            {/* Guest Count & Note Inputs */}
                             <div className="grid grid-cols-3 gap-3">
                                 <div className="col-span-1">
                                     <label className="block text-xs font-bold text-gray-500 mb-1 flex items-center"><Users size={10} className="mr-1"/> {t.guestCountLabel}</label>
@@ -434,6 +467,29 @@ export const GuestMenu: React.FC<GuestMenuProps> = ({ tableId }) => {
                                 className="w-full bg-teal-600 text-white py-3.5 rounded-xl font-bold shadow-lg hover:bg-teal-700 flex justify-center items-center gap-2"
                             >
                                 {orderStatus === 'SUBMITTING' ? t.submitting : t.placeOrder}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* CALL WAITER MODAL */}
+            {isCallModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
+                    <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+                        <div className="p-4 bg-gray-50 border-b flex justify-between items-center">
+                            <h3 className="font-bold text-gray-800">{t.callConfirm}</h3>
+                            <button onClick={() => setIsCallModalOpen(false)}><X size={20}/></button>
+                        </div>
+                        <div className="p-4 grid gap-3">
+                            <button onClick={() => handleCallWaiter(t.callReasonWater)} className="p-4 bg-blue-50 border border-blue-100 rounded-xl text-blue-700 font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2">
+                                <Coffee size={20}/> {t.callReasonWater}
+                            </button>
+                            <button onClick={() => handleCallWaiter(t.callReasonBill)} className="p-4 bg-green-50 border border-green-100 rounded-xl text-green-700 font-bold hover:bg-green-100 transition-colors flex items-center justify-center gap-2">
+                                <FileText size={20}/> {t.callReasonBill}
+                            </button>
+                            <button onClick={() => handleCallWaiter(t.callReasonHelp)} className="p-4 bg-orange-50 border border-orange-100 rounded-xl text-orange-700 font-bold hover:bg-orange-100 transition-colors flex items-center justify-center gap-2">
+                                <Info size={20}/> {t.callReasonHelp}
                             </button>
                         </div>
                     </div>

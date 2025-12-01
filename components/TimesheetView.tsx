@@ -35,6 +35,36 @@ export const TimesheetView: React.FC = () => {
     }
   };
 
+  const handleExport = () => {
+      const headers = ["Ngày", "ID", "Tên nhân viên", "Phiên", "Giờ vào", "Giờ ra", "Tổng giờ", "Trạng thái", "Đi muộn (phút)", "Thiết bị"];
+      const csvRows = [headers.join(",")];
+
+      filteredLogs.forEach(log => {
+          const values = [
+              log.date,
+              log.employeeId,
+              `"${log.employeeName}"`,
+              log.session || '-',
+              log.checkIn || '-',
+              log.checkOut || '-',
+              log.totalHours,
+              log.status,
+              log.lateMinutes,
+              `"${log.device}"`
+          ];
+          csvRows.push(values.join(","));
+      });
+
+      const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvRows.join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `Bang_Cong_${selectedDate || 'Tat_Ca'}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -52,7 +82,10 @@ export const TimesheetView: React.FC = () => {
              />
              <Calendar className="absolute left-3 top-2.5 text-gray-400" size={16}/>
            </div>
-           <button className="bg-teal-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-teal-700 shadow-sm">
+           <button 
+             onClick={handleExport}
+             className="bg-teal-600 text-white px-4 py-2 rounded-lg font-medium flex items-center hover:bg-teal-700 shadow-sm transition-colors"
+           >
              <Download size={18} className="mr-2"/> Xuất Excel
            </button>
         </div>

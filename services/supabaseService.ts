@@ -3,12 +3,12 @@ import { supabase } from './supabaseClient';
 import { 
     Employee, TimesheetLog, EmployeeRequest, 
     ServingGroup, HandoverLog, WorkSchedule, 
-    PrepTask, SystemSettings, WifiConfig, Task, Feedback, MenuItem
+    PrepTask, SystemSettings, WifiConfig, Task, Feedback, MenuItem, PayrollAdjustment
 } from '../types';
 
 // --- MAPPERS (Snake_case DB <-> CamelCase App) ---
 
-const mapEmployeeFromDB = (row: any): Employee => ({
+export const mapEmployeeFromDB = (row: any): Employee => ({
     id: row.id,
     name: row.name,
     role: row.role,
@@ -22,7 +22,7 @@ const mapEmployeeFromDB = (row: any): Employee => ({
     level: Number(row.level) || 1
 });
 
-const mapLogFromDB = (row: any): TimesheetLog => {
+export const mapLogFromDB = (row: any): TimesheetLog => {
     // DECODE COMPOSITE SHIFT CODE (FORMAT: "CODE|SESSION")
     const rawShiftCode = row.shift_code || '';
     const [code, session] = rawShiftCode.includes('|') ? rawShiftCode.split('|') : [rawShiftCode, undefined];
@@ -43,7 +43,7 @@ const mapLogFromDB = (row: any): TimesheetLog => {
     };
 };
 
-const mapGroupFromDB = (row: any): ServingGroup => ({
+export const mapGroupFromDB = (row: any): ServingGroup => ({
     id: row.id,
     name: row.name,
     location: row.location,
@@ -58,7 +58,7 @@ const mapGroupFromDB = (row: any): ServingGroup => ({
     completionTime: row.completion_time
 });
 
-const mapRequestFromDB = (row: any): EmployeeRequest => ({
+export const mapRequestFromDB = (row: any): EmployeeRequest => ({
     id: row.id,
     employeeId: row.employee_id,
     employeeName: row.employee_name,
@@ -69,10 +69,12 @@ const mapRequestFromDB = (row: any): EmployeeRequest => ({
     status: row.status,
     targetShift: row.target_shift,
     createdAt: row.created_at,
-    isMine: row.is_mine
+    isMine: row.is_mine,
+    approvedBy: row.approved_by,
+    approvedAt: row.approved_at
 });
 
-const mapTaskFromDB = (row: any): Task => ({
+export const mapTaskFromDB = (row: any): Task => ({
     id: row.id,
     title: row.title,
     description: row.description,
@@ -95,7 +97,7 @@ const mapTaskFromDB = (row: any): Task => ({
     requiredShifts: row.required_shifts || []
 });
 
-const mapFeedbackFromDB = (row: any): Feedback => ({
+export const mapFeedbackFromDB = (row: any): Feedback => ({
     id: row.id,
     type: row.type || 'INTERNAL_FEEDBACK',
     customerName: row.customer_name,
@@ -111,7 +113,7 @@ const mapFeedbackFromDB = (row: any): Feedback => ({
     staffName: row.staff_name
 });
 
-const mapMenuItemFromDB = (row: any): MenuItem => ({
+export const mapMenuItemFromDB = (row: any): MenuItem => ({
     id: row.id,
     name: row.name,
     nameEn: row.name_en,
@@ -126,6 +128,16 @@ const mapMenuItemFromDB = (row: any): MenuItem => ({
     descriptionFr: row.description_fr,
     image: row.image,
     isAvailable: row.is_available
+});
+
+export const mapAdjustmentFromDB = (row: any): PayrollAdjustment => ({
+    id: row.id,
+    employeeId: row.employee_id,
+    month: row.month,
+    type: row.type,
+    amount: Number(row.amount),
+    reason: row.reason,
+    date: row.date
 });
 
 
@@ -147,7 +159,8 @@ export const supabaseService = {
             { data: dismissed },
             { data: staffTasks },
             { data: feedbacks },
-            { data: menuItems }
+            { data: menuItems },
+            { data: adjustments }
         ] = await Promise.all([
             supabase.from('employees').select('*'),
             supabase.from('attendance_logs').select('*'),
@@ -160,7 +173,8 @@ export const supabaseService = {
             supabase.from('dismissed_alerts').select('*'),
             supabase.from('tasks').select('*'),
             supabase.from('feedback').select('*'),
-            supabase.from('menu_items').select('*')
+            supabase.from('menu_items').select('*'),
+            supabase.from('payroll_adjustments').select('*')
         ]);
 
         return {
@@ -169,7 +183,11 @@ export const supabaseService = {
             requests: requests?.map(mapRequestFromDB) || [],
             servingGroups: groups?.map(mapGroupFromDB) || [],
             settings: settings?.settings || {},
-            handoverLogs: handovers?.map((h: any) => ({...h, id: String(h.id)})) || [],
+            handoverLogs: handovers?.map((h: any) => ({
+                ...h, 
+                id: String(h.id),
+                isPinned: h.is_pinned // New field
+            })) || [],
             schedules: schedules?.map((s: any) => ({
                 id: s.id, employeeId: s.employee_id, date: s.date, shiftCode: s.shift_code
             })) || [],
@@ -179,7 +197,8 @@ export const supabaseService = {
             dismissedAlerts: dismissed || [],
             tasks: staffTasks?.map(mapTaskFromDB) || [],
             feedbacks: feedbacks?.map(mapFeedbackFromDB) || [],
-            menuItems: menuItems?.map(mapMenuItemFromDB) || []
+            menuItems: menuItems?.map(mapMenuItemFromDB) || [],
+            adjustments: adjustments?.map(mapAdjustmentFromDB) || []
         };
     },
 
@@ -207,9 +226,7 @@ export const supabaseService = {
 
     // --- LOGS ---
     upsertLog: async (log: TimesheetLog) => {
-        // ENCODE SESSION INTO SHIFT CODE
         const encodedShiftCode = log.session ? `${log.shiftCode}|${log.session}` : log.shiftCode;
-
         await supabase.from('attendance_logs').upsert({
             id: log.id,
             employee_id: log.employeeId,
@@ -237,7 +254,7 @@ export const supabaseService = {
             start_time: group.startTime,
             date: group.date,
             status: group.status,
-            items: group.items, // Auto JSONB conversion
+            items: group.items,
             prep_list: group.prepList,
             completion_time: group.completionTime
         });
@@ -260,7 +277,9 @@ export const supabaseService = {
             status: req.status,
             target_shift: req.targetShift,
             created_at: req.createdAt,
-            is_mine: req.isMine
+            is_mine: req.isMine,
+            approved_by: req.approvedBy,
+            approved_at: req.approvedAt
         });
     },
 
@@ -274,13 +293,15 @@ export const supabaseService = {
 
     // --- HANDOVER ---
     addHandover: async (log: HandoverLog) => {
-        await supabase.from('handover_logs').insert({
+        await supabase.from('handover_logs').upsert({
             id: log.id,
             date: log.date,
             shift: log.shift,
             author: log.author,
             content: log.content,
             type: log.type,
+            image: log.image,
+            is_pinned: log.isPinned,
             created_at: log.createdAt
         });
     },
@@ -340,7 +361,7 @@ export const supabaseService = {
             shift_code: task.shiftCode,
             required_shifts: task.requiredShifts
         });
-        if (error) console.error("Task Save Failed (Likely Table Missing):", error);
+        if (error) console.error("Task Save Failed:", error);
     },
 
     deleteTask: async (id: string) => {
@@ -386,14 +407,27 @@ export const supabaseService = {
             is_available: item.isAvailable,
             created_at: new Date().toISOString()
         });
-        
-        if (error) {
-            console.error("Menu Item Save Failed:", error);
-            alert("Lỗi lưu món ăn: " + (error.message || "Vui lòng chạy script cập nhật Database trong DevTools"));
-        }
+        if (error) console.error("Menu Item Save Failed:", error);
     },
 
     deleteMenuItem: async (id: string) => {
         await supabase.from('menu_items').delete().eq('id', id);
+    },
+
+    // --- PAYROLL ADJUSTMENTS ---
+    upsertAdjustment: async (adj: PayrollAdjustment) => {
+        await supabase.from('payroll_adjustments').upsert({
+            id: adj.id,
+            employee_id: adj.employeeId,
+            month: adj.month,
+            type: adj.type,
+            amount: adj.amount,
+            reason: adj.reason,
+            date: adj.date
+        });
+    },
+
+    deleteAdjustment: async (id: string) => {
+        await supabase.from('payroll_adjustments').delete().eq('id', id);
     }
 };

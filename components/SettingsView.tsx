@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router, Cloud, ToggleRight, Smartphone, MessageSquare, Utensils, Image as ImageIcon, Sparkles } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router, Cloud, ToggleRight, Smartphone, MessageSquare, Utensils, Image as ImageIcon, Sparkles, Download, Upload } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
-import { WifiConfig, ShiftConfig, MenuItem } from '../types';
+import { WifiConfig, ShiftConfig, MenuItem, SystemSettings } from '../types';
 import { generateMenuItemDetails } from '../services/geminiService';
 
 type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE' | 'NOTIFICATION' | 'TIME' | 'MENU';
@@ -25,6 +25,7 @@ export const SettingsView: React.FC = () => {
   const [editingMenuItem, setEditingMenuItem] = useState<Partial<MenuItem> | null>(null);
   const [isGeneratingMenu, setIsGeneratingMenu] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null); // For Restore
 
   // Unique categories for datalist
   const existingCategories = Array.from(new Set(menuItems.map(i => i.category)));
@@ -37,6 +38,44 @@ export const SettingsView: React.FC = () => {
       updateSettings(localSettings);
       alert("Đã lưu cấu hình hệ thống lên Cloud!");
   }
+
+  // --- BACKUP & RESTORE ---
+  const handleBackup = () => {
+      const dataStr = JSON.stringify(localSettings, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+      
+      const exportFileDefaultName = `indigo_settings_backup_${new Date().toISOString().slice(0,10)}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+  };
+
+  const handleRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          try {
+              const json = JSON.parse(event.target?.result as string);
+              // Basic validation check
+              if (json.location && json.shiftConfigs) {
+                  setLocalSettings(json);
+                  updateSettings(json);
+                  alert("Khôi phục cấu hình thành công!");
+              } else {
+                  alert("File không hợp lệ (Sai định dạng).");
+              }
+          } catch (err) {
+              alert("Lỗi đọc file backup.");
+          }
+      };
+      reader.readAsText(file);
+      // Reset input
+      e.target.value = '';
+  };
 
   // --- WIFI CRUD ---
   const handleSaveWifi = () => {
@@ -365,7 +404,7 @@ export const SettingsView: React.FC = () => {
                     onClick={() => setActiveTab('DATABASE')}
                     className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'DATABASE' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                    <Database size={18} className="mr-3"/> Kết nối Database
+                    <Database size={18} className="mr-3"/> Database & Backup
                 </button>
             </div>
 
@@ -421,7 +460,6 @@ export const SettingsView: React.FC = () => {
                                 )}
                                 {localSettings.shiftConfigs.map((shift, idx) => (
                                     <div key={idx} className="bg-gray-50 p-4 rounded-xl border border-gray-200 relative group shadow-sm">
-                                        {/* Shift Config UI Code Omitted for Brevity - Same as before */}
                                         {/* Row 1: Name, Code & Delete */}
                                         <div className="flex justify-between items-start mb-4 gap-4">
                                             <div className="grid grid-cols-2 gap-4 flex-1">
@@ -497,6 +535,68 @@ export const SettingsView: React.FC = () => {
                     </div>
                 )}
 
+                {/* TAB: DATABASE / SYSTEM */}
+                {activeTab === 'DATABASE' && (
+                    <div className="space-y-6 animate-in fade-in">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <h3 className="font-bold text-gray-900 mb-4 flex items-center"><Database className="mr-2 text-teal-600" size={20}/> Quản lý Dữ liệu</h3>
+                            
+                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                                <div className="flex items-start gap-3">
+                                    <Info className="text-blue-600 mt-0.5 shrink-0" size={20}/>
+                                    <div>
+                                        <h4 className="font-bold text-blue-900 text-sm">Sao lưu & Khôi phục</h4>
+                                        <p className="text-blue-800 text-xs mt-1">
+                                            Bạn có thể tải xuống file cấu hình hiện tại để lưu trữ, hoặc tải lên file cũ để khôi phục cài đặt nếu gặp sự cố.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="border rounded-xl p-4 flex flex-col items-center justify-center text-center space-y-3 bg-gray-50">
+                                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-200 text-gray-600">
+                                        <Download size={24}/>
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-gray-800">Sao lưu Cấu hình</h4>
+                                        <p className="text-xs text-gray-500">Tải file .json về máy</p>
+                                    </div>
+                                    <button 
+                                        onClick={handleBackup}
+                                        className="w-full bg-teal-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-teal-700 shadow-sm transition-colors"
+                                    >
+                                        Tải xuống Backup
+                                    </button>
+                                </div>
+
+                                <div className="border rounded-xl p-4 flex flex-col items-center justify-center text-center space-y-3 bg-gray-50">
+                                    <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center shadow-sm border border-gray-200 text-gray-600">
+                                        <Upload size={24}/>
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-gray-800">Khôi phục Cấu hình</h4>
+                                        <p className="text-xs text-gray-500">Tải lên file .json</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => backupInputRef.current?.click()}
+                                        className="w-full bg-indigo-600 text-white py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-sm transition-colors"
+                                    >
+                                        Chọn file Backup
+                                    </button>
+                                    <input 
+                                        type="file" 
+                                        ref={backupInputRef} 
+                                        onChange={handleRestore} 
+                                        accept=".json" 
+                                        className="hidden" 
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* TAB: MENU MANAGER */}
                 {activeTab === 'MENU' && (
                     <div className="space-y-6 animate-in fade-in">
@@ -539,12 +639,7 @@ export const SettingsView: React.FC = () => {
                 )}
 
                 {/* OTHER TABS OMITTED FOR BREVITY - SAME AS ORIGINAL */}
-                {/* TAB: NOTIFICATION */}
-                {/* TAB: LOCATION */}
-                {/* TAB: WIFI */}
-                {/* TAB: TIME */}
-                {/* TAB: DATABASE */}
-                {(activeTab === 'NOTIFICATION' || activeTab === 'LOCATION' || activeTab === 'WIFI' || activeTab === 'TIME' || activeTab === 'DATABASE') && (
+                {(activeTab === 'NOTIFICATION' || activeTab === 'LOCATION' || activeTab === 'WIFI' || activeTab === 'TIME') && (
                     <div className="text-gray-500 text-center py-10">Cấu hình chi tiết (Như phiên bản trước)</div>
                 )}
             </div>

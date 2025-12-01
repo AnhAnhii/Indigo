@@ -76,7 +76,7 @@ create table if not exists public.feedback (
     type text default 'INTERNAL_FEEDBACK'
 );
 
--- 3. Create Menu Items Table (Full)
+-- 3. Create Menu Items Table
 create table if not exists public.menu_items (
     id text primary key,
     name text not null,
@@ -95,7 +95,6 @@ create table if not exists public.menu_items (
     created_at text
 );
 
--- UPDATE: Add missing columns if table exists
 ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_en text;
 ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_ko text;
 ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_fr text;
@@ -107,6 +106,25 @@ ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS description_fr text;
 -- 4. Update Employees Table (For Gamification)
 alter table public.employees add column if not exists xp int default 0;
 alter table public.employees add column if not exists level int default 1;
+
+-- 5. Update Handover Logs (Image & Pin)
+alter table public.handover_logs add column if not exists image text;
+alter table public.handover_logs add column if not exists is_pinned boolean default false;
+
+-- 6. Update Requests (Approval Info)
+alter table public.requests add column if not exists approved_by text;
+alter table public.requests add column if not exists approved_at text;
+
+-- 7. Create Payroll Adjustments Table
+create table if not exists public.payroll_adjustments (
+    id text primary key,
+    employee_id text not null,
+    month text not null,
+    type text not null, -- BONUS, FINE, ADVANCE
+    amount int not null,
+    reason text,
+    date text
+);
 
 -- Enable RLS (Idempotent)
 alter table public.tasks enable row level security;
@@ -120,6 +138,10 @@ create policy "Public Access Feedback" on public.feedback for all using (true) w
 alter table public.menu_items enable row level security;
 drop policy if exists "Public Access Menu" on public.menu_items;
 create policy "Public Access Menu" on public.menu_items for all using (true) with check (true);
+
+alter table public.payroll_adjustments enable row level security;
+drop policy if exists "Public Access Payroll" on public.payroll_adjustments;
+create policy "Public Access Payroll" on public.payroll_adjustments for all using (true) with check (true);
 `;
 
   const handleCopySQL = () => {

@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { ClipboardList, Users, MapPin, PlusCircle, MinusCircle, CheckCircle2, Camera, Image as ImageIcon, Loader2, ChevronLeft, X, Edit3, Trash2, Plus, Save, RotateCcw, CheckCheck, History, Calendar, AlertTriangle, BellRing, Table2, Spline, Search, LayoutGrid, Filter, StickyNote, ZoomIn, Split, Calculator, Volume2, ShieldAlert, Sparkles, RefreshCw } from 'lucide-react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { ClipboardList, Users, MapPin, PlusCircle, MinusCircle, CheckCircle2, Camera, Image as ImageIcon, Loader2, ChevronLeft, X, Edit3, Trash2, Plus, Save, RotateCcw, CheckCheck, History, Calendar, AlertTriangle, BellRing, Table2, Spline, Search, LayoutGrid, Filter, StickyNote, ZoomIn, Split, Calculator, Volume2, ShieldAlert, Sparkles, RefreshCw, BarChart2, Clock, Award } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { ServingGroup, ServingItem } from '../types';
 import { parseMenuImage } from '../services/geminiService';
@@ -17,19 +17,14 @@ export const ServingChecklist: React.FC = () => {
   } = useGlobalContext();
   
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
-  
-  // Derived state for selected group
   const selectedGroup = servingGroups.find(g => g.id === selectedGroupId) || null;
   
-  // --- VIEW MODE ---
   const [viewMode, setViewMode] = useState<'ACTIVE' | 'HISTORY'>('ACTIVE');
   const [historyDate, setHistoryDate] = useState(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' }));
 
-  // --- FILTERS ---
   const [selectedZone, setSelectedZone] = useState<string>('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // --- ADD MODAL ---
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [step, setStep] = useState<'UPLOAD' | 'REVIEW'>('UPLOAD');
   const [detectedGroups, setDetectedGroups] = useState<any[]>([]);
@@ -37,7 +32,6 @@ export const ServingChecklist: React.FC = () => {
   const [isScanning, setIsScanning] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- EDIT MODALS ---
   const [editingItem, setEditingItem] = useState<ServingItem | null>(null);
   const [isEditItemModalOpen, setIsEditItemModalOpen] = useState(false);
   const [editName, setEditName] = useState('');
@@ -55,10 +49,11 @@ export const ServingChecklist: React.FC = () => {
 
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleteItemConfirm, setDeleteItemConfirm] = useState<ServingItem | null>(null);
+  
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false); // NEW: Stats Modal
 
   const normalizeDateComp = (d: string) => d?.includes('T') ? d.split('T')[0] : d || '';
 
-  // FILTERS
   const getFilteredGroups = (status: 'ACTIVE' | 'COMPLETED') => {
       return servingGroups.filter(g => {
           if (status === 'ACTIVE' && g.status === 'COMPLETED') return false;
@@ -78,21 +73,17 @@ export const ServingChecklist: React.FC = () => {
   const displayGroups = viewMode === 'ACTIVE' ? getFilteredGroups('ACTIVE') : getFilteredGroups('COMPLETED');
   const getZoneCount = (zone: string) => servingGroups.filter(g => g.status === 'ACTIVE' && g.location.toUpperCase().includes(zone)).length;
 
-  // --- LOGIC TỰ ĐỘNG CHIA MÓN (AUTO DISTRIBUTION) ---
   const parseTableSplit = (tableSplitStr: string) => {
       const tables: { size: number }[] = [];
       if (!tableSplitStr) return tables;
-      // Tách chuỗi theo dấu phẩy, cộng, chấm phẩy
       const parts = tableSplitStr.split(/[,+;]/);
       parts.forEach(part => {
-          // Tìm mẫu: "3x6" hoặc "3 bàn 6"
           const match = part.trim().match(/(\d+)\s*(?:x|X|\*|\.|bàn|mâm)\s*(\d+)/);
           if (match) {
               const count = parseInt(match[1]); 
               const size = parseInt(match[2]);  
               for (let i = 0; i < count; i++) tables.push({ size });
           } else {
-              // Tìm mẫu đơn lẻ: "6" (hiểu là 1 bàn 6 người)
               const num = parseInt(part.trim());
               if (!isNaN(num) && num < 50) tables.push({ size: num });
           }
@@ -104,46 +95,23 @@ export const ServingChecklist: React.FC = () => {
       const group = detectedGroups[index];
       const tables = parseTableSplit(splitStr);
       if (tables.length === 0) return;
-
-      // 1. Tính lại tổng số bàn
       const newTableCount = tables.length;
-
-      // 2. Tạo ghi chú chia đĩa (VD: 1 đĩa cho bàn 5 người...)
       const distMap: Record<number, number> = {};
       tables.forEach(t => distMap[t.size] = (distMap[t.size] || 0) + 1);
-
       const noteParts = Object.entries(distMap)
-          .sort((a, b) => Number(b[0]) - Number(a[0])) // Bàn lớn trước
+          .sort((a, b) => Number(b[0]) - Number(a[0])) 
           .map(([size, count]) => `${count} đĩa cho bàn ${size} người`);
       const distNote = noteParts.join(' • ');
-
-      // 3. Cập nhật các món ăn (Trừ Súp/Cháo)
       const updatedItems = group.items.map((item: any) => {
           const nameLower = item.name.toLowerCase();
-          // Giữ nguyên món tính theo đầu người
           if (nameLower.includes('súp') || nameLower.includes('cháo') || nameLower.includes('soup')) return item;
-          
-          // Các món khác (Nem, Lẩu, Rau...) -> Chia theo số bàn
-          return { 
-              ...item, 
-              totalQuantity: newTableCount, 
-              unit: 'Đĩa', 
-              note: distNote 
-          };
+          return { ...item, totalQuantity: newTableCount, unit: 'Đĩa', note: distNote };
       });
-
-      // 4. Cập nhật State
       const updatedGroups = [...detectedGroups];
-      updatedGroups[index] = { 
-          ...group, 
-          tableCount: newTableCount, 
-          tableSplit: splitStr, 
-          items: updatedItems 
-      };
+      updatedGroups[index] = { ...group, tableCount: newTableCount, tableSplit: splitStr, items: updatedItems };
       setDetectedGroups(updatedGroups);
   };
 
-  // --- IMAGE UPLOAD & AI ---
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (file) {
@@ -207,7 +175,6 @@ export const ServingChecklist: React.FC = () => {
   const resetAddModal = () => { setIsAddModalOpen(false); setStep('UPLOAD'); setDetectedGroups([]); setCapturedImage(null); };
   const updateDetectedGroupField = (index: number, field: string, value: any) => { const updated = [...detectedGroups]; updated[index] = { ...updated[index], [field]: value }; setDetectedGroups(updated); };
   
-  // --- ACTIONS ---
   const openEditItemModal = (item: ServingItem) => { setEditingItem(item); setEditName(item.name); setEditQuantity(item.totalQuantity); setEditUnit(item.unit); setEditNote(item.note || ''); setIsEditItemModalOpen(true); };
   const openAddItemModal = () => { setEditingItem(null); setEditName(''); setEditQuantity(1); setEditUnit('Đĩa'); setEditNote(''); setIsEditItemModalOpen(true); };
   const handleSaveItem = () => { if (!selectedGroup || !editName) return; if (editingItem) updateServingItem(selectedGroup.id, editingItem.id, { name: editName, totalQuantity: editQuantity, unit: editUnit, note: editNote }); else addServingItem(selectedGroup.id, { id: Date.now().toString(), name: editName, totalQuantity: editQuantity, servedQuantity: 0, unit: editUnit, note: editNote }); setIsEditItemModalOpen(false); };
@@ -220,6 +187,39 @@ export const ServingChecklist: React.FC = () => {
   const confirmDeleteGroup = () => { if (deleteConfirmId) deleteServingGroup(deleteConfirmId); if (selectedGroupId === deleteConfirmId) setSelectedGroupId(null); setDeleteConfirmId(null); }
   const handleServeAll = (item: ServingItem) => { if (!selectedGroup) return; if (item.servedQuantity >= item.totalQuantity) return; updateServingItem(selectedGroup.id, item.id, { servedQuantity: item.totalQuantity }); }
   const handleGuestArrived = (e: React.MouseEvent, groupId: string) => { e.stopPropagation(); startServingGroup(groupId); }
+
+  // --- STATS CALCULATION ---
+  const stats = useMemo(() => {
+      const completedGroups = servingGroups.filter(g => g.status === 'COMPLETED' && g.startTime && g.completionTime);
+      
+      const timeToMins = (t: string) => {
+          const [h, m] = t.split(':').map(Number);
+          return h * 60 + m;
+      };
+
+      let totalMins = 0;
+      completedGroups.forEach(g => {
+          let start = timeToMins(g.startTime!);
+          let end = timeToMins(g.completionTime!);
+          if (end < start) end += 24 * 60; 
+          totalMins += (end - start);
+      });
+      const avgTime = completedGroups.length ? Math.round(totalMins / completedGroups.length) : 0;
+
+      const itemCounts: Record<string, number> = {};
+      completedGroups.forEach(g => {
+          g.items.forEach(i => {
+              itemCounts[i.name] = (itemCounts[i.name] || 0) + i.servedQuantity;
+          });
+      });
+      const topItems = Object.entries(itemCounts)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5);
+
+      const totalGuests = completedGroups.reduce((sum, g) => sum + g.guestCount, 0);
+
+      return { avgTime, topItems, totalGroups: completedGroups.length, totalGuests };
+  }, [servingGroups]);
 
   return (
     <div className="space-y-6 pb-20">
@@ -238,7 +238,6 @@ export const ServingChecklist: React.FC = () => {
                         <span className="flex items-center bg-white px-2 py-0.5 rounded border"><MapPin size={12} className="mr-1"/> {selectedGroup.location}</span>
                         <span className="flex items-center bg-white px-2 py-0.5 rounded border"><Users size={12} className="mr-1"/> {selectedGroup.guestCount} pax</span>
                         <span className="flex items-center bg-white px-2 py-0.5 rounded border"><Table2 size={12} className="mr-1"/> {selectedGroup.tableCount} bàn</span>
-                        {selectedGroup.tableSplit && <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-100 font-mono">{selectedGroup.tableSplit}</span>}
                     </div>
                 </div>
                 <div className="ml-auto flex gap-2">
@@ -281,7 +280,6 @@ export const ServingChecklist: React.FC = () => {
                         </div>
                     );
                 })}
-                
                 {selectedGroup.status !== 'COMPLETED' && (
                     <button onClick={openAddItemModal} className="border-2 border-dashed border-gray-300 rounded-xl p-6 flex flex-col items-center justify-center text-gray-400 hover:border-teal-500 hover:text-teal-600 hover:bg-teal-50 transition-all cursor-pointer h-full min-h-[100px]">
                         <PlusCircle size={32} className="mb-2"/>
@@ -311,8 +309,8 @@ export const ServingChecklist: React.FC = () => {
             </div>
             
             <div className="flex gap-2 w-full md:w-auto flex-wrap">
-                <button onClick={testNotification} className="bg-yellow-100 text-yellow-700 px-3 py-2 rounded-lg font-bold shadow-sm flex items-center hover:bg-yellow-200 transition-colors text-xs md:text-sm">
-                    <Volume2 size={18} className="mr-1"/> Test Thông Báo
+                <button onClick={() => setIsStatsModalOpen(true)} className="bg-indigo-100 text-indigo-700 px-3 py-2 rounded-lg font-bold shadow-sm flex items-center hover:bg-indigo-200 transition-colors text-xs md:text-sm">
+                    <BarChart2 size={18} className="mr-1"/> Báo cáo Hiệu suất
                 </button>
                 <div className="bg-gray-100 p-1 rounded-lg flex space-x-1">
                     <button onClick={() => setViewMode('ACTIVE')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all ${viewMode === 'ACTIVE' ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Đang phục vụ</button>
@@ -376,7 +374,6 @@ export const ServingChecklist: React.FC = () => {
                               <div className="flex justify-between text-xs font-medium text-gray-600"><span>Tiến độ</span><span>{completed}/{total} món</span></div>
                               <div className="w-full bg-gray-100 rounded-full h-2"><div className={`h-2 rounded-full ${percent === 100 ? 'bg-green-500' : 'bg-teal-500'}`} style={{ width: `${percent}%` }}></div></div>
                           </div>
-                          <div className="mt-4 pt-4 border-t border-gray-100 text-center text-teal-600 font-bold text-sm group-hover:underline">{viewMode === 'ACTIVE' ? 'Mở Checklist phục vụ →' : 'Xem chi tiết lịch sử →'}</div>
                       </div>
                   )
               })}
@@ -385,7 +382,7 @@ export const ServingChecklist: React.FC = () => {
       )}
 
       {/* --- MODALS --- */}
-      {/* ADD GROUP MODAL */}
+      {/* ... (Add Group, Edit Group, Delete Confirm - SAME AS BEFORE) ... */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div className={`bg-white rounded-2xl w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col ${step === 'REVIEW' ? 'max-w-6xl' : 'max-w-2xl'}`}>
@@ -469,7 +466,6 @@ export const ServingChecklist: React.FC = () => {
         </div>
       )}
 
-      {/* EDIT GROUP MODAL */}
       {isEditGroupModalOpen && selectedGroup && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -489,7 +485,6 @@ export const ServingChecklist: React.FC = () => {
           </div>
       )}
 
-      {/* DELETE CONFIRM */}
       {deleteConfirmId && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
               <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center animate-in zoom-in duration-200">
@@ -500,7 +495,6 @@ export const ServingChecklist: React.FC = () => {
           </div>
       )}
 
-      {/* EDIT ITEM MODAL */}
       {isEditItemModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
             <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
@@ -515,13 +509,60 @@ export const ServingChecklist: React.FC = () => {
           </div>
       )}
       
-      {/* DELETE ITEM CONFIRM */}
       {deleteItemConfirm && (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
               <div className="bg-white rounded-2xl w-full max-w-sm shadow-2xl p-6 text-center animate-in zoom-in duration-200">
                   <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4 text-red-500"><Trash2 size={32} /></div>
                   <h3 className="text-xl font-bold text-gray-900 mb-2">Xóa món này?</h3>
                   <div className="flex gap-3"><button onClick={() => setDeleteItemConfirm(null)} className="flex-1 py-2.5 bg-gray-100 text-gray-700 font-bold rounded-xl hover:bg-gray-200 transition-colors">Hủy bỏ</button><button onClick={confirmDeleteItem} className="flex-1 py-2.5 bg-red-600 text-white font-bold rounded-xl hover:bg-red-700 transition-colors shadow-md">Xóa ngay</button></div>
+              </div>
+          </div>
+      )}
+
+      {/* NEW: STATS MODAL */}
+      {isStatsModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+              <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+                  <div className="p-5 border-b bg-gradient-to-r from-indigo-600 to-blue-600 text-white flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                          <div className="bg-white/20 p-2 rounded-lg backdrop-blur-md"><BarChart2 size={20}/></div>
+                          <h3 className="font-bold text-lg">Báo cáo Hiệu suất</h3>
+                      </div>
+                      <button onClick={() => setIsStatsModalOpen(false)} className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors"><X size={20}/></button>
+                  </div>
+                  
+                  <div className="p-6 space-y-6">
+                      <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
+                              <p className="text-xs text-blue-600 font-bold uppercase mb-1">Tổng khách</p>
+                              <p className="text-3xl font-black text-blue-800">{stats.totalGuests}</p>
+                              <p className="text-[10px] text-blue-500 mt-1">{stats.totalGroups} đoàn đã phục vụ</p>
+                          </div>
+                          <div className="bg-green-50 p-4 rounded-2xl border border-green-100">
+                              <p className="text-xs text-green-600 font-bold uppercase mb-1">Thời gian TB</p>
+                              <p className="text-3xl font-black text-green-800">{stats.avgTime}<span className="text-base font-medium text-green-600 ml-1">phút</span></p>
+                              <p className="text-[10px] text-green-500 mt-1">Từ lúc gọi đến khi xong</p>
+                          </div>
+                      </div>
+
+                      <div>
+                          <h4 className="font-bold text-gray-800 mb-3 flex items-center"><Award className="text-yellow-500 mr-2" size={18}/> Top 5 Món Bán Chạy</h4>
+                          <div className="space-y-2">
+                              {stats.topItems.length === 0 && <p className="text-sm text-gray-400 italic">Chưa có dữ liệu.</p>}
+                              {stats.topItems.map(([name, count], idx) => (
+                                  <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-xl border border-gray-100">
+                                      <div className="flex items-center gap-3">
+                                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${idx === 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-200 text-gray-600'}`}>
+                                              {idx + 1}
+                                          </div>
+                                          <span className="text-sm font-medium text-gray-700 truncate max-w-[180px]">{name}</span>
+                                      </div>
+                                      <span className="font-bold text-teal-600 bg-white px-2 py-0.5 rounded border border-gray-200 text-xs">{count} phần</span>
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                  </div>
               </div>
           </div>
       )}

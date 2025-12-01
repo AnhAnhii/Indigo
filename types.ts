@@ -130,6 +130,8 @@ export interface EmployeeRequest {
   targetShift?: string; 
   createdAt: string;
   isMine: boolean;
+  approvedBy?: string; // New: Who approved
+  approvedAt?: string; // New: When
 }
 
 export interface HandoverLog {
@@ -139,6 +141,8 @@ export interface HandoverLog {
     author: string;
     content: string;
     type: 'ISSUE' | 'NOTE' | 'VIP';
+    image?: string; 
+    isPinned?: boolean; // New: Pin important note
     createdAt: string;
 }
 
@@ -313,11 +317,11 @@ export interface Task {
     requiredShifts?: string[]; // New: List of shift codes that can claim this task
 }
 
-// --- CUSTOMER FEEDBACK TYPES (UPDATED FOR REVIEW TRACKING) ---
+// --- CUSTOMER FEEDBACK TYPES ---
 
 export interface Feedback {
     id: string;
-    type: 'INTERNAL_FEEDBACK' | 'GOOGLE_REVIEW_CLICK'; // New field
+    type: 'INTERNAL_FEEDBACK' | 'GOOGLE_REVIEW_CLICK' | 'CALL_WAITER'; 
     customerName?: string;
     phone?: string;
     rating?: number; // 1-5 Stars
@@ -329,6 +333,17 @@ export interface Feedback {
     isResolved: boolean; 
     staffId?: string; // Staff who requested the review
     staffName?: string;
+}
+
+// --- PAYROLL ADJUSTMENT (NEW) ---
+export interface PayrollAdjustment {
+    id: string;
+    employeeId: string;
+    month: string; // Format: "YYYY-MM"
+    type: 'BONUS' | 'FINE' | 'ADVANCE'; // Thưởng | Phạt | Ứng lương
+    amount: number;
+    reason: string;
+    date: string;
 }
 
 export const RESTAURANT_LOCATION = {

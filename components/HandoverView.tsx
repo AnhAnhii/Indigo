@@ -1,14 +1,16 @@
 
-import React, { useState } from 'react';
-import { BookOpen, Plus, Send, AlertTriangle, Info, Star, User, Clock } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { BookOpen, Plus, Send, AlertTriangle, Info, Star, User, Clock, Image as ImageIcon, X, Pin } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { HandoverLog } from '../types';
 
 export const HandoverView: React.FC = () => {
-  const { handoverLogs, addHandoverLog, currentUser } = useGlobalContext();
+  const { handoverLogs, addHandoverLog, togglePinHandover, currentUser } = useGlobalContext();
   const [content, setContent] = useState('');
   const [type, setType] = useState<'NOTE' | 'ISSUE' | 'VIP'>('NOTE');
   const [shift, setShift] = useState('Ca Sáng');
+  const [image, setImage] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = () => {
     if (!content.trim() || !currentUser) return;
@@ -19,10 +21,24 @@ export const HandoverView: React.FC = () => {
         author: currentUser.name,
         content: content,
         type: type,
+        image: image || undefined,
+        isPinned: false,
         createdAt: new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})
     };
     addHandoverLog(newLog);
     setContent('');
+    setImage(null);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+              if (ev.target?.result) setImage(ev.target.result as string);
+          };
+          reader.readAsDataURL(file);
+      }
   };
 
   const getTypeStyles = (t: string) => {
@@ -83,13 +99,33 @@ export const HandoverView: React.FC = () => {
                     placeholder="Nhập nội dung bàn giao..."
                     className="w-full border rounded-xl p-4 min-h-[100px] outline-none focus:ring-2 focus:ring-teal-500 pr-12"
                 ></textarea>
-                <button 
-                    onClick={handleSubmit}
-                    disabled={!content.trim()}
-                    className="absolute bottom-3 right-3 bg-teal-600 text-white p-2 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors shadow-md"
-                >
-                    <Send size={20} />
-                </button>
+                
+                {/* Image Preview */}
+                {image && (
+                    <div className="absolute bottom-16 left-4 inline-block relative group">
+                        <img src={image} alt="Attach" className="h-16 w-16 object-cover rounded-lg border border-gray-300 shadow-sm" />
+                        <button onClick={() => setImage(null)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 shadow-md"><X size={12}/></button>
+                    </div>
+                )}
+
+                <div className="absolute bottom-3 right-3 flex gap-2">
+                    <button 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="bg-gray-100 text-gray-600 p-2 rounded-lg hover:bg-gray-200 transition-colors"
+                        title="Đính kèm ảnh"
+                    >
+                        <ImageIcon size={20} />
+                    </button>
+                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
+                    
+                    <button 
+                        onClick={handleSubmit}
+                        disabled={!content.trim()}
+                        className="bg-teal-600 text-white p-2 rounded-lg hover:bg-teal-700 disabled:opacity-50 transition-colors shadow-md"
+                    >
+                        <Send size={20} />
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -99,16 +135,30 @@ export const HandoverView: React.FC = () => {
                 <div className="text-center py-10 text-gray-400">Chưa có ghi chú nào.</div>
             )}
             {handoverLogs.map(log => (
-                <div key={log.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex gap-4 hover:shadow-md transition-shadow">
+                <div key={log.id} className={`bg-white p-5 rounded-2xl shadow-sm border flex gap-4 hover:shadow-md transition-shadow relative ${log.isPinned ? 'border-indigo-300 bg-indigo-50/50' : 'border-gray-100'}`}>
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 border ${getTypeStyles(log.type)}`}>
                         {getTypeIcon(log.type)}
                     </div>
                     <div className="flex-1">
                         <div className="flex justify-between items-start mb-1">
                             <h4 className="font-bold text-gray-900 text-sm">{log.author} <span className="text-gray-400 font-normal">• {log.shift}</span></h4>
-                            <span className="text-xs text-gray-400 flex items-center"><Clock size={12} className="mr-1"/> {log.createdAt} • {log.date}</span>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-400 flex items-center"><Clock size={12} className="mr-1"/> {log.createdAt} • {log.date}</span>
+                                <button 
+                                    onClick={() => togglePinHandover(log.id)} 
+                                    className={`p-1 rounded-full transition-colors ${log.isPinned ? 'bg-indigo-600 text-white shadow-sm' : 'text-gray-300 hover:text-indigo-500 hover:bg-indigo-50'}`}
+                                    title="Ghim lên đầu"
+                                >
+                                    <Pin size={14} className={log.isPinned ? 'fill-white' : ''} />
+                                </button>
+                            </div>
                         </div>
-                        <p className="text-gray-700 leading-relaxed">{log.content}</p>
+                        <p className="text-gray-700 leading-relaxed whitespace-pre-wrap">{log.content}</p>
+                        {log.image && (
+                            <div className="mt-3">
+                                <img src={log.image} alt="Attachment" className="max-h-40 rounded-lg border border-gray-200 cursor-pointer hover:opacity-90" onClick={() => window.open(log.image)} />
+                            </div>
+                        )}
                     </div>
                 </div>
             ))}

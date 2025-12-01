@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { MoreHorizontal, Phone, Mail, MapPin, X, Edit2, Trash2, History, Calendar, ScanFace, Camera, Lock, DollarSign, Eye, EyeOff, Upload } from 'lucide-react';
+import { MoreHorizontal, Phone, Mail, MapPin, X, Edit2, Trash2, History, Calendar, ScanFace, Camera, Lock, DollarSign, Eye, EyeOff, Upload, Download } from 'lucide-react';
 import { EmployeeRole, Employee, TimesheetLog } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
 
@@ -146,6 +146,35 @@ export const EmployeeList: React.FC = () => {
       setIsFaceModalOpen(false);
   }
 
+  const handleExport = () => {
+      const headers = ["ID", "Họ Tên", "Vai Trò", "SĐT", "Email", "Lương/giờ", "Phụ cấp", "Level", "XP"];
+      const csvRows = [headers.join(",")];
+
+      employees.forEach(emp => {
+          const values = [
+              emp.id,
+              `"${emp.name}"`,
+              emp.role,
+              `'${emp.phone}`, // Force string for phone
+              emp.email,
+              emp.hourlyRate,
+              emp.allowance || 0,
+              emp.level || 1,
+              emp.xp || 0
+          ];
+          csvRows.push(values.join(","));
+      });
+
+      const csvContent = "data:text/csv;charset=utf-8,\uFEFF" + csvRows.join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", "Danh_Sach_Nhan_Vien_Indigo.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6 relative">
       <div className="flex justify-between items-center">
@@ -153,9 +182,17 @@ export const EmployeeList: React.FC = () => {
           <h2 className="text-2xl font-bold text-gray-900">Danh Sách Nhân Viên</h2>
           <p className="text-gray-500">Quản lý hồ sơ, lương thưởng và tài khoản.</p>
         </div>
-        <button onClick={openAdd} className="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 font-medium shadow-sm flex items-center">
-          + Thêm nhân viên
-        </button>
+        <div className="flex space-x-2">
+            <button 
+                onClick={handleExport}
+                className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 font-medium shadow-sm flex items-center"
+            >
+                <Download size={18} className="mr-2"/> Xuất Excel
+            </button>
+            <button onClick={openAdd} className="bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 font-medium shadow-sm flex items-center">
+                + Thêm nhân viên
+            </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
