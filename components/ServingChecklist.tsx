@@ -1,5 +1,5 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { ClipboardList, Users, MapPin, PlusCircle, MinusCircle, CheckCircle2, Camera, Image as ImageIcon, Loader2, ChevronLeft, X, Edit3, Trash2, Plus, Save, RotateCcw, CheckCheck, History, Calendar, AlertTriangle, BellRing, Table2, Spline, Search, LayoutGrid, Filter, StickyNote, ZoomIn, Split, Calculator, Volume2, ShieldAlert, Sparkles, RefreshCw, BarChart2, Clock, Award } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { ServingGroup, ServingItem } from '../types';
@@ -7,15 +7,42 @@ import { parseMenuImage } from '../services/geminiService';
 
 const RESTAURANT_ZONES = ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
 
+// --- CUSTOM DEBOUNCE HOOK FOR ACCUMULATING DELTAS ---
+const useDebouncedAdjustment = (callback: (groupId: string, itemId: string, delta: number) => void, delay: number = 300) => {
+    const deltas = useRef<Record<string, number>>({});
+    const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+    const trigger = useCallback((groupId: string, itemId: string, delta: number) => {
+        const key = `${groupId}_${itemId}`;
+        deltas.current[key] = (deltas.current[key] || 0) + delta;
+        
+        if (timers.current[key]) clearTimeout(timers.current[key]);
+        
+        timers.current[key] = setTimeout(() => {
+            const amount = deltas.current[key];
+            if (amount !== 0) {
+                callback(groupId, itemId, amount);
+            }
+            delete deltas.current[key];
+            delete timers.current[key];
+        }, delay);
+    }, [callback, delay]);
+
+    return trigger;
+}
+
 export const ServingChecklist: React.FC = () => {
   const { 
-      servingGroups, incrementServedItem, decrementServedItem, 
+      servingGroups, 
+      adjustServingItemQuantity,
       addServingGroup, updateServingGroup, completeServingGroup, deleteServingGroup,
       startServingGroup,
-      addServingItem, updateServingItem, deleteServingItem,
-      testNotification 
+      addServingItem, updateServingItem, deleteServingItem
   } = useGlobalContext();
   
+  // Use custom debounced callback to prevent spam
+  const debouncedAdjust = useDebouncedAdjustment(adjustServingItemQuantity, 300);
+
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const selectedGroup = servingGroups.find(g => g.id === selectedGroupId) || null;
   
@@ -186,7 +213,6 @@ export const ServingChecklist: React.FC = () => {
   const handleDeleteGroupClick = (e: React.MouseEvent, groupId: string) => { e.stopPropagation(); setDeleteConfirmId(groupId); }
   const confirmDeleteGroup = () => { if (deleteConfirmId) deleteServingGroup(deleteConfirmId); if (selectedGroupId === deleteConfirmId) setSelectedGroupId(null); setDeleteConfirmId(null); }
   const handleServeAll = (item: ServingItem) => { if (!selectedGroup) return; if (item.servedQuantity >= item.totalQuantity) return; updateServingItem(selectedGroup.id, item.id, { servedQuantity: item.totalQuantity }); }
-  const handleGuestArrived = (e: React.MouseEvent, groupId: string) => { e.stopPropagation(); startServingGroup(groupId); }
 
   // --- STATS CALCULATION ---
   const stats = useMemo(() => {
@@ -265,9 +291,9 @@ export const ServingChecklist: React.FC = () => {
                             
                             <div className="flex items-center justify-between mt-auto relative z-10">
                                 <div className="flex items-center space-x-3 bg-gray-50 rounded-lg p-1 border border-gray-200">
-                                    <button onClick={() => decrementServedItem(selectedGroup.id, item.id)} className="w-8 h-8 flex items-center justify-center bg-white rounded shadow-sm text-gray-600 hover:text-red-600 active:scale-95"><MinusCircle size={18} /></button>
+                                    <button onClick={() => debouncedAdjust(selectedGroup.id, item.id, -1)} className="w-8 h-8 flex items-center justify-center bg-white rounded shadow-sm text-gray-600 hover:text-red-600 active:scale-95"><MinusCircle size={18} /></button>
                                     <span className="font-mono font-bold text-lg w-8 text-center">{item.servedQuantity}</span>
-                                    <button onClick={() => incrementServedItem(selectedGroup.id, item.id)} className="w-8 h-8 flex items-center justify-center bg-white rounded shadow-sm text-gray-600 hover:text-green-600 active:scale-95"><PlusCircle size={18} /></button>
+                                    <button onClick={() => debouncedAdjust(selectedGroup.id, item.id, 1)} className="w-8 h-8 flex items-center justify-center bg-white rounded shadow-sm text-gray-600 hover:text-green-600 active:scale-95"><PlusCircle size={18} /></button>
                                 </div>
                                 <div className="text-right">
                                     <span className="text-xs text-gray-400 font-bold uppercase">Tổng</span>
@@ -362,7 +388,13 @@ export const ServingChecklist: React.FC = () => {
                           <button onClick={(e) => handleDeleteGroupClick(e, group.id)} className="absolute top-3 right-3 p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors z-10"><Trash2 size={18} /></button>
                           <div className="flex justify-between items-start mb-4">
                               <div className="w-12 h-12 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold">{group.name.charAt(0)}</div>
-                              {group.status === 'COMPLETED' ? <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded flex items-center"><CheckCircle2 size={12} className="mr-1"/> Completed</span> : !group.startTime ? <button onClick={(e) => handleGuestArrived(e, group.id)} className="px-3 py-1 bg-blue-500 text-white text-xs font-bold rounded-full shadow-md animate-pulse hover:bg-blue-600 transition-colors z-20 flex items-center"><BellRing size={12} className="mr-1"/> Báo khách đến</button> : <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded">Active</span>}
+                              {group.status === 'COMPLETED' ? 
+                                <span className="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded flex items-center"><CheckCircle2 size={12} className="mr-1"/> Completed</span> 
+                                : 
+                                <span className={`px-2 py-1 text-xs font-bold rounded ${!group.startTime ? 'bg-gray-100 text-gray-500' : 'bg-green-100 text-green-700'}`}>
+                                    {!group.startTime ? 'Chờ đón' : 'Active'}
+                                </span>
+                              }
                           </div>
                           <h3 className="font-bold text-lg text-gray-900 mb-1 truncate pr-6">{group.name}</h3>
                           <div className="flex flex-wrap gap-2 items-center text-gray-500 text-xs mb-4">

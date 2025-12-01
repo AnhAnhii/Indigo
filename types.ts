@@ -11,6 +11,7 @@ export enum AppView {
   AI_ASSISTANT = 'AI_ASSISTANT',
   KITCHEN = 'KITCHEN',
   SERVING = 'SERVING',
+  RECEPTION = 'RECEPTION', // New View
   HANDOVER = 'HANDOVER',
   PROFILE = 'PROFILE',
   NOTIFICATIONS = 'NOTIFICATIONS',
@@ -20,7 +21,7 @@ export enum AppView {
   TASKS = 'TASKS',
   FEEDBACK = 'FEEDBACK',
   REVIEW_QR = 'REVIEW_QR',
-  MARKETING = 'MARKETING' // New View
+  MARKETING = 'MARKETING'
 }
 
 export enum EmployeeRole {
@@ -250,6 +251,7 @@ export interface ServingGroup {
     tableSplit?: string; 
     prepList?: SauceItem[]; 
     completionTime?: string; 
+    version?: number; // Optimistic locking
 }
 
 export interface SystemAlert {

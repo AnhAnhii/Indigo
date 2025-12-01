@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal, CheckSquare, Smile, Star, Sparkles } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, ShieldCheck, Menu, X, FileText, DollarSign, Settings, Table, Utensils, ClipboardList, LogOut, RefreshCw, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal, CheckSquare, Smile, Star, Sparkles, ConciergeBell } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -24,6 +24,7 @@ import { FeedbackManager } from './components/FeedbackManager';
 import { StaffReviewQr } from './components/StaffReviewQr'; 
 import { ReviewRedirect } from './components/ReviewRedirect'; 
 import { MarketingView } from './components/MarketingView';
+import { ReceptionView } from './components/ReceptionView';
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
@@ -109,6 +110,11 @@ const AppContent: React.FC = () => {
       return <QrStation onBack={() => setCurrentView(AppView.DASHBOARD)} />;
   }
 
+  // FULLSCREEN RECEPTION VIEW
+  if (currentView === AppView.RECEPTION) {
+      return <ReceptionView onBack={() => setCurrentView(AppView.DASHBOARD)} />;
+  }
+
   const NavItem = ({ view, icon: Icon, label, restricted = false, devOnly = false, badge = 0 }: { view: AppView; icon: any; label: string, restricted?: boolean, devOnly?: boolean, badge?: number }) => {
     if (restricted && !isAdmin) return null;
     if (devOnly && !isDev) return null;
@@ -145,6 +151,7 @@ const AppContent: React.FC = () => {
       case AppView.SETTINGS: return isAdmin ? <SettingsView /> : null;
       case AppView.KITCHEN: return <KitchenView />;
       case AppView.SERVING: return <ServingChecklist />;
+      // case AppView.RECEPTION: Handled by Fullscreen check above
       case AppView.HANDOVER: return <HandoverView />;
       case AppView.PROFILE: return <ProfileView />;
       case AppView.NOTIFICATIONS: return <NotificationsView onViewChange={setCurrentView} />;
@@ -230,6 +237,7 @@ const AppContent: React.FC = () => {
         <nav className="p-4 space-y-1.5 flex-1 overflow-y-auto no-scrollbar">
           <div className="pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Tổng quan</div>
           <NavItem view={AppView.DASHBOARD} icon={BarChart2} label="Trang chủ" />
+          <NavItem view={AppView.RECEPTION} icon={ConciergeBell} label="Lễ tân & Đón khách" />
           <NavItem view={AppView.TASKS} icon={CheckSquare} label="Nhiệm vụ & KPI" />
           <NavItem view={AppView.REVIEW_QR} icon={Star} label="QR Xin Review" />
           <NavItem view={AppView.NOTIFICATIONS} icon={Bell} label="Thông báo" badge={alertCount} />
@@ -265,7 +273,6 @@ const AppContent: React.FC = () => {
         </nav>
         
         <div className="w-full p-4 border-t bg-gray-50 shrink-0 space-y-3">
-            {/* Connection Status Indicator */}
             <div className={`flex items-center justify-center gap-2 text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${
                 connectionStatus === 'CONNECTED' 
                 ? 'bg-green-100 text-green-700 border border-green-200' 

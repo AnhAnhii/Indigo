@@ -62,6 +62,7 @@ interface GlobalContextType {
   deleteServingItem: (groupId: string, itemId: string) => void;
   incrementServedItem: (groupId: string, itemId: string) => void;
   decrementServedItem: (groupId: string, itemId: string) => void;
+  adjustServingItemQuantity: (groupId: string, itemId: string, delta: number) => void;
   completeServingGroup: (groupId: string) => void;
 
   toggleSauceItem: (groupId: string, sauceName: string) => void;
@@ -176,6 +177,12 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [onlineUsers, setOnlineUsers] = useState<OnlineUser[]>([]);
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  
+  // FIX RACE CONDITION: Track pending updates to ignore echoed realtime events
+  const pendingGroupUpdates = useRef<Set<string>>(new Set());
+  
+  // FIX SPAM: Track pending DB writes to debounce them
+  const pendingDBWrites = useRef<{[key: string]: { timer: ReturnType<typeof setTimeout>, data: ServingGroup }}>({});
 
   const currentUserRef = useRef(currentUser);
   const servingGroupsRef = useRef(servingGroups);
@@ -421,66 +428,74 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   else {
                       const mappedGroup = mapGroupFromDB(newRecord);
                       
-                      // 1. Notification Logic
-                      if (eventType === 'INSERT' && config.enableGuestArrival) {
-                          dispatchNotification("🔔 ĐÃ THÊM ĐOÀN MỚI", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
+                      // FIX: Skip if this is our own update (Locking mechanism)
+                      if (pendingGroupUpdates.current.has(mappedGroup.id)) {
+                          console.log(`[Realtime] Skipping update for ${mappedGroup.id} (Pending Local Update)`);
+                          return;
                       }
-                      
-                      if (eventType === 'UPDATE') {
+
+                      if (eventType === 'INSERT') {
+                          setServingGroups(prev => {
+                              if (prev.some(g => g.id === mappedGroup.id)) return prev;
+                              if (config.enableGuestArrival) dispatchNotification("🔔 ĐÃ THÊM ĐOÀN MỚI", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
+                              return [mappedGroup, ...prev];
+                          });
+                      }
+                      else if (eventType === 'UPDATE') {
                           const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(mappedGroup.id));
                           
-                          // Case A: Guest Arrived (Time set)
-                          if (config.enableGuestArrival && (!oldGroupLocal || !oldGroupLocal.startTime) && !!mappedGroup.startTime) {
+                          // Notification Logic
+                          if (config.enableGuestArrival && !!mappedGroup.startTime && (!oldGroupLocal || oldGroupLocal.startTime !== mappedGroup.startTime)) {
                               dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
                           }
-
-                          // Case B: New Items Ordered (Quantity Increased)
                           if (oldGroupLocal) {
                               const oldQty = oldGroupLocal.items.reduce((sum, i) => sum + i.totalQuantity, 0);
                               const newQty = mappedGroup.items.reduce((sum, i) => sum + i.totalQuantity, 0);
-                              if (newQty > oldQty) {
-                                  dispatchNotification("🍳 KHÁCH GỌI MÓN", `Bàn ${mappedGroup.location}: Khách vừa đặt thêm món.`, 'ALERT');
-                              }
+                              if (newQty > oldQty) dispatchNotification("🍳 KHÁCH GỌI MÓN", `Bàn ${mappedGroup.location}: Khách vừa đặt thêm món.`, 'ALERT');
                           }
-                      }
 
-                      setServingGroups(prev => eventType === 'INSERT' ? [mappedGroup, ...prev] : prev.map(g => g.id === mappedGroup.id ? mappedGroup : g));
+                          // SMART MERGE: Keep local servedQuantity if it's higher (prevent rollback)
+                          setServingGroups(prev => prev.map(g => {
+                              if (g.id !== mappedGroup.id) return g;
+                              
+                              const mergedItems = mappedGroup.items.map(newItem => {
+                                  const localItem = g.items.find(i => i.id === newItem.id);
+                                  if (!localItem) return newItem;
+                                  
+                                  return {
+                                      ...newItem,
+                                      // Preserve local progress if higher
+                                      servedQuantity: Math.max(localItem.servedQuantity, newItem.servedQuantity)
+                                  };
+                              });
+                              
+                              return { ...mappedGroup, items: mergedItems };
+                          }));
+                      }
                   }
               }
               else if (table === 'feedback') {
                   const mappedFeedback = mapFeedbackFromDB(newRecord);
                   if (eventType === 'INSERT') {
-                      setFeedbacks(prev => [mappedFeedback, ...prev]);
-                      
-                      // CRITICAL: CALL WAITER MUST ALERT
+                      setFeedbacks(prev => prev.some(f => f.id === mappedFeedback.id) ? prev : [mappedFeedback, ...prev]);
                       if (mappedFeedback.type === 'CALL_WAITER') {
                           const alertMsg = `Bàn: ${mappedFeedback.customerName} - ${mappedFeedback.comment}`;
-                          dispatchNotification("🔔 KHÁCH GỌI", alertMsg, 'ERROR'); // Use ERROR sound for urgency
-                          
-                          // ADD TO ACTIVE ALERTS TO SHOW IN RED BANNER
-                          setActiveAlerts(prev => [{
-                              id: `call_${mappedFeedback.id}`,
-                              type: 'GUEST_CALL',
-                              message: "KHÁCH GỌI HỖ TRỢ",
-                              details: alertMsg,
-                              severity: 'HIGH',
-                              timestamp: new Date().toLocaleTimeString('vi-VN')
-                          }, ...prev]);
-                      }
-                      // Normal Feedback
-                      else if (mappedFeedback.type === 'INTERNAL_FEEDBACK') {
-                          if (mappedFeedback.rating <= 2 || mappedFeedback.sentiment === 'NEGATIVE') {
+                          dispatchNotification("🔔 KHÁCH GỌI", alertMsg, 'ERROR'); 
+                          setActiveAlerts(prev => [{ id: `call_${mappedFeedback.id}`, type: 'GUEST_CALL', message: "KHÁCH GỌI HỖ TRỢ", details: alertMsg, severity: 'HIGH', timestamp: new Date().toLocaleTimeString('vi-VN') }, ...prev]);
+                      } else if (mappedFeedback.type === 'INTERNAL_FEEDBACK') {
+                          if ((mappedFeedback.rating || 0) <= 2 || mappedFeedback.sentiment === 'NEGATIVE') {
                               dispatchNotification("🚨 BÁO ĐỘNG ĐỎ", `Khách đánh giá thấp: ${mappedFeedback.rating} sao`, 'ERROR');
                           }
                       }
                   }
               }
-              // ... other listeners ...
               else if (table === 'tasks') {
                   if (eventType === 'DELETE') setTasks(prev => prev.filter(t => t.id !== oldRecord.id));
                   else {
                       const mappedTask = mapTaskFromDB(newRecord);
-                      setTasks(prev => eventType === 'INSERT' ? [mappedTask, ...prev] : prev.map(t => t.id === mappedTask.id ? mappedTask : t));
+                      setTasks(prev => eventType === 'INSERT' 
+                          ? (prev.some(t => t.id === mappedTask.id) ? prev : [mappedTask, ...prev]) 
+                          : prev.map(t => t.id === mappedTask.id ? mappedTask : t));
                   }
               }
               else if (table === 'employees') {
@@ -488,27 +503,33 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   else {
                       const mappedEmp = mapEmployeeFromDB(newRecord);
                       if (mappedEmp.id === 'admin') mappedEmp.role = EmployeeRole.DEV;
-                      setEmployees(prev => eventType === 'INSERT' ? [...prev, mappedEmp] : prev.map(e => e.id === mappedEmp.id ? mappedEmp : e));
+                      setEmployees(prev => eventType === 'INSERT' 
+                          ? (prev.some(e => e.id === mappedEmp.id) ? prev : [...prev, mappedEmp]) 
+                          : prev.map(e => e.id === mappedEmp.id ? mappedEmp : e));
                       if (currentUserRef.current?.id === mappedEmp.id) setCurrentUser(mappedEmp);
                   }
               }
               else if (table === 'attendance_logs') {
                   if (eventType !== 'DELETE') {
                       const mappedLog = mapLogFromDB(newRecord);
-                      setLogs(prev => eventType === 'INSERT' ? [mappedLog, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()) : prev.map(l => l.id === mappedLog.id ? mappedLog : l));
+                      setLogs(prev => eventType === 'INSERT' 
+                          ? (prev.some(l => l.id === mappedLog.id) ? prev : [mappedLog, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime())) 
+                          : prev.map(l => l.id === mappedLog.id ? mappedLog : l));
                   }
               }
               else if (table === 'payroll_adjustments') {
                   if (eventType === 'DELETE') setPayrollAdjustments(prev => prev.filter(a => a.id !== oldRecord.id));
                   else {
                       const mappedAdj = mapAdjustmentFromDB(newRecord);
-                      setPayrollAdjustments(prev => eventType === 'INSERT' ? [...prev, mappedAdj] : prev.map(a => a.id === mappedAdj.id ? mappedAdj : a));
+                      setPayrollAdjustments(prev => eventType === 'INSERT' 
+                          ? (prev.some(a => a.id === mappedAdj.id) ? prev : [...prev, mappedAdj]) 
+                          : prev.map(a => a.id === mappedAdj.id ? mappedAdj : a));
                   }
               }
               else if (table === 'requests') {
                   const mappedReq = mapRequestFromDB(newRecord);
                   if(eventType === 'INSERT') {
-                      setRequests(prev => [mappedReq, ...prev]);
+                      setRequests(prev => prev.some(r => r.id === mappedReq.id) ? prev : [mappedReq, ...prev]);
                       if (config.enableStaffRequest) dispatchNotification("📝 ĐƠN TỪ MỚI", `${mappedReq.employeeName} gửi đơn ${mappedReq.type}`);
                   } else if (eventType === 'UPDATE') {
                       setRequests(prev => prev.map(r => r.id === mappedReq.id ? mappedReq : r));
@@ -568,16 +589,80 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const updateSettings = (s: SystemSettings) => { setSettings(s); supabaseService.saveSettings(s); };
-  const addServingGroup = (g: ServingGroup) => { const prepList = generatePrepList(g); const newGroup = { ...g, prepList }; setServingGroups(prev => [newGroup, ...prev]); supabaseService.upsertServingGroup(newGroup); };
+  const addServingGroup = (group: ServingGroup) => { const prepList = generatePrepList(group); const newGroup = { ...group, prepList }; setServingGroups(prev => [newGroup, ...prev]); supabaseService.upsertServingGroup(newGroup); };
   const deleteServingGroup = (id: string) => { setServingGroups(prev => prev.filter(g => g.id !== id)); supabaseService.deleteServingGroup(id); };
-  const modifyGroup = useCallback((groupId: string, modifier: (g: ServingGroup) => ServingGroup) => { setServingGroups(prev => prev.map(g => { if (g.id !== groupId) return g; const updated = modifier(g); supabaseService.upsertServingGroup(updated).catch(e => console.error(e)); return updated; })); }, []);
+  
+  // OPTIMIZED MODIFY GROUP (Fix race condition + Fix Spam via Debounce)
+  const modifyGroup = useCallback(async (groupId: string, modifier: (g: ServingGroup) => ServingGroup) => {
+      // 1. Mark as pending to ignore incoming realtime echoes
+      pendingGroupUpdates.current.add(groupId);
+
+      let updatedGroup: ServingGroup | undefined;
+      
+      // 2. Optimistic Local Update
+      setServingGroups(prev => prev.map(g => { 
+          if (g.id !== groupId) return g; 
+          updatedGroup = modifier(g);
+          updatedGroup.version = (updatedGroup.version || 0) + 1; // Optimistic locking
+          return updatedGroup; 
+      }));
+
+      // 3. Debounced DB Save (Fix Double-Click Spam)
+      if (updatedGroup) {
+          // Clear existing timer for this group
+          if (pendingDBWrites.current[groupId]) {
+              clearTimeout(pendingDBWrites.current[groupId].timer);
+          }
+
+          // Set new timer
+          const timer = setTimeout(async () => {
+              const latestData = pendingDBWrites.current[groupId]?.data;
+              delete pendingDBWrites.current[groupId]; // Remove from pending queue before saving
+              
+              if (latestData) {
+                  try {
+                      const result = await supabaseService.upsertServingGroup(latestData);
+                      if (result && result.error && result.error.message === 'VERSION_CONFLICT') {
+                          console.warn("Version conflict detected, reloading...");
+                          // loadData(true); // Optional: Reload data
+                      }
+                  } catch (e) {
+                      console.error("DB Save Error:", e);
+                  } finally {
+                      // Release lock after save + delay
+                      setTimeout(() => {
+                          pendingGroupUpdates.current.delete(groupId);
+                      }, 1000);
+                  }
+              }
+          }, 500); // 500ms Debounce
+
+          // Update the pending write record
+          pendingDBWrites.current[groupId] = { timer, data: updatedGroup };
+      }
+  }, []);
+
   const updateServingGroup = (id: string, updates: Partial<ServingGroup>) => modifyGroup(id, g => ({ ...g, ...updates }));
-  const startServingGroup = (id: string) => { const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false}); modifyGroup(id, g => ({ ...g, startTime: time })); };
+  
+  const startServingGroup = (id: string) => {
+      const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
+      const group = servingGroups.find(g => g.id === id);
+      if (group) dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${group.name}\nBàn: ${group.location}`, 'SUCCESS');
+      modifyGroup(id, g => ({ ...g, startTime: time }));
+  };
+
   const addServingItem = (gId: string, item: ServingItem) => modifyGroup(gId, g => ({ ...g, items: [...g.items, item] }));
   const updateServingItem = (gId: string, iId: string, ups: Partial<ServingItem>) => modifyGroup(gId, g => ({ ...g, items: g.items.map(i => i.id === iId ? { ...i, ...ups } : i) }));
   const deleteServingItem = (gId: string, iId: string) => modifyGroup(gId, g => ({ ...g, items: g.items.filter(i => i.id !== iId) }));
   const incrementServedItem = (gId: string, iId: string) => modifyGroup(gId, g => ({ ...g, items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: i.servedQuantity + 1 } : i) }));
   const decrementServedItem = (gId: string, iId: string) => modifyGroup(gId, g => ({ ...g, items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity - 1) } : i) }));
+  
+  // NEW: Adjust Quantity (For batch updates)
+  const adjustServingItemQuantity = (gId: string, iId: string, delta: number) => modifyGroup(gId, g => ({ 
+      ...g, 
+      items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity + delta) } : i) 
+  }));
+
   const completeServingGroup = (id: string) => { const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false}); modifyGroup(id, g => ({ ...g, status: 'COMPLETED', completionTime: time })); };
   const toggleSauceItem = (gId: string, sName: string) => modifyGroup(gId, g => g.prepList ? { ...g, prepList: g.prepList.map(s => s.name === sName ? { ...s, isCompleted: !s.isCompleted } : s) } : g);
   
@@ -587,7 +672,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       if(log) {
           const updated = { ...log, isPinned: !log.isPinned };
           setHandoverLogs(prev => prev.map(l => l.id === id ? updated : l).sort((a, b) => { if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1; return new Date(b.date).getTime() - new Date(a.date).getTime(); }));
-          supabaseService.addHandover(updated); // Update
+          supabaseService.addHandover(updated); 
       }
   };
 
@@ -601,17 +686,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const deleteMenuItem = (id: string) => { setMenuItems(prev => prev.filter(i => i.id !== id)); supabaseService.deleteMenuItem(id); };
   const addTask = (task: Task) => { setTasks(prev => [task, ...prev]); supabaseService.upsertTask(task); };
   
-  // Payroll Adjustments
-  const addPayrollAdjustment = (adj: PayrollAdjustment) => {
-      setPayrollAdjustments(prev => [...prev, adj]);
-      supabaseService.upsertAdjustment(adj);
-  };
-  const deletePayrollAdjustment = (id: string) => {
-      setPayrollAdjustments(prev => prev.filter(a => a.id !== id));
-      supabaseService.deleteAdjustment(id);
-  };
+  const addPayrollAdjustment = (adj: PayrollAdjustment) => { setPayrollAdjustments(prev => [...prev, adj]); supabaseService.upsertAdjustment(adj); };
+  const deletePayrollAdjustment = (id: string) => { setPayrollAdjustments(prev => prev.filter(a => a.id !== id)); supabaseService.deleteAdjustment(id); };
 
-  // ... (Other Task functions same as before) ...
   const claimTask = (taskId: string, employeeId: string, participantIds: string[] = []) => { const task = tasks.find(t => t.id === taskId); const employee = employees.find(e => e.id === employeeId); if (task && task.status === TaskStatus.OPEN && employee) { const allParticipants = [employeeId, ...participantIds]; const updated = { ...task, status: TaskStatus.IN_PROGRESS, assigneeId: employeeId, assigneeName: employee.name, participants: allParticipants }; setTasks(prev => prev.map(t => t.id === taskId ? updated : t)); supabaseService.upsertTask(updated); if (currentUser?.id === employeeId) dispatchNotification("🚀 ĐÃ NHẬN VIỆC", `Bạn đã nhận nhiệm vụ "${task.title}"`, 'SUCCESS'); } };
   const submitTaskProof = (taskId: string, proofImage: string) => { const task = tasks.find(t => t.id === taskId); if (task) { const updated = { ...task, status: TaskStatus.COMPLETED, proofImage }; setTasks(prev => prev.map(t => t.id === taskId ? updated : t)); supabaseService.upsertTask(updated); } };
   const verifyTask = (taskId: string, managerId: string) => { const task = tasksRef.current.find(t => t.id === taskId); if (task && task.status === TaskStatus.COMPLETED) { const updated = { ...task, status: TaskStatus.VERIFIED, verifiedBy: managerId }; setTasks(prev => prev.map(t => t.id === taskId ? updated : t)); supabaseService.upsertTask(updated); const recipients = task.participants && task.participants.length > 0 ? task.participants : (task.assigneeId ? [task.assigneeId] : []); recipients.forEach(empId => { const emp = employeesRef.current.find(e => e.id === empId); if (emp) { const currentXp = (emp.xp || 0); const newXp = currentXp + task.xpReward; const newLevel = calculateRpgLevel(newXp); const updatedEmp = { ...emp, xp: newXp, level: newLevel }; updateEmployee(updatedEmp); if (empId === currentUserRef.current?.id) dispatchNotification("🎉 CHÚC MỪNG!", `Bạn nhận được +${task.xpReward} XP.`, 'SUCCESS'); } }); } };
@@ -644,7 +721,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       menuItems, addMenuItem, updateMenuItem, deleteMenuItem,
       prepTasks, addPrepTask, togglePrepTask, deletePrepTask,
       servingGroups, addServingGroup, updateServingGroup, deleteServingGroup, startServingGroup, 
-      addServingItem, updateServingItem, deleteServingItem, incrementServedItem, decrementServedItem, completeServingGroup, toggleSauceItem,
+      addServingItem, updateServingItem, deleteServingItem, incrementServedItem, decrementServedItem, adjustServingItemQuantity, completeServingGroup, toggleSauceItem,
       handoverLogs, addHandoverLog, togglePinHandover,
       schedules, assignShift, 
       tasks, addTask, claimTask, submitTaskProof, verifyTask, rejectTask, deleteTask,

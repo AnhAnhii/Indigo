@@ -55,7 +55,8 @@ export const mapGroupFromDB = (row: any): ServingGroup => ({
     status: row.status,
     items: row.items || [],
     prepList: row.prep_list || [],
-    completionTime: row.completion_time
+    completionTime: row.completion_time,
+    version: row.version // Mapped version for optimistic locking
 });
 
 export const mapRequestFromDB = (row: any): EmployeeRequest => ({
@@ -244,7 +245,7 @@ export const supabaseService = {
 
     // --- SERVING GROUPS ---
     upsertServingGroup: async (group: ServingGroup) => {
-        await supabase.from('serving_groups').upsert({
+        const { error } = await supabase.from('serving_groups').upsert({
             id: group.id,
             name: group.name,
             location: group.location,
@@ -256,8 +257,10 @@ export const supabaseService = {
             status: group.status,
             items: group.items,
             prep_list: group.prepList,
-            completion_time: group.completionTime
+            completion_time: group.completionTime,
+            version: group.version // Added version for optimistic locking
         });
+        return { error };
     },
 
     deleteServingGroup: async (id: string) => {
