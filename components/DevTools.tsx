@@ -129,27 +129,44 @@ create table if not exists public.payroll_adjustments (
 -- 8. FIX LỖI 3: CONCURRENT UPDATES (Add Version Column)
 ALTER TABLE public.serving_groups ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;
 
--- 9. (Optional) RPC Function for Strict Version Checking
--- Use this if you want the backend to reject conflicts explicitly
-CREATE OR REPLACE FUNCTION upsert_serving_group_with_version_check(
-    p_id TEXT,
-    p_data JSONB, -- Pass the whole row as JSONB if needed, or specific columns
-    p_version INTEGER
+-- 9. (IMPORTANT) ATOMIC UPDATE FUNCTION
+-- This allows updating quantity without overwriting other data
+CREATE OR REPLACE FUNCTION atomic_update_serving_item(
+    p_group_id TEXT,
+    p_item_id TEXT,
+    p_delta INTEGER
 ) RETURNS JSONB AS $$
 DECLARE
-    current_version INTEGER;
+    current_items JSONB;
+    new_items JSONB;
 BEGIN
-    -- Get current version
-    SELECT version INTO current_version FROM serving_groups WHERE id = p_id;
+    -- Get current items array
+    SELECT items INTO current_items FROM serving_groups WHERE id = p_group_id;
     
-    -- If record exists and version mismatch
-    IF current_version IS NOT NULL AND current_version != p_version THEN
-        RETURN jsonb_build_object('error', 'VERSION_CONFLICT', 'current_version', current_version);
+    IF current_items IS NULL THEN
+        RETURN jsonb_build_object('error', 'Group not found');
     END IF;
+
+    -- Update the specific item quantity using JSONB path (Postgres 12+)
+    -- Logic: Iterate array, find matching ID, update servedQuantity
     
-    -- Insert or Update (Standard Logic here, simplified for example)
-    -- This is a placeholder. For now, the app uses standard UPSERT.
-    -- Having the 'version' column (Step 8) is enough for the frontend logic to work correctly with Optimistic Locking.
+    SELECT jsonb_agg(
+        CASE 
+            WHEN elem->>'id' = p_item_id THEN 
+                jsonb_set(
+                    elem, 
+                    '{servedQuantity}', 
+                    to_jsonb(GREATEST(0, (elem->>'servedQuantity')::int + p_delta))
+                )
+            ELSE elem 
+        END
+    ) INTO new_items
+    FROM jsonb_array_elements(current_items) AS elem;
+
+    -- Update the record with new items and increment version
+    UPDATE serving_groups 
+    SET items = new_items, version = COALESCE(version, 0) + 1
+    WHERE id = p_group_id;
     
     RETURN jsonb_build_object('success', true);
 END;

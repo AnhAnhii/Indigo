@@ -1,4 +1,3 @@
-
 import { supabase } from './supabaseClient';
 import { 
     Employee, TimesheetLog, EmployeeRequest, 
@@ -245,6 +244,7 @@ export const supabaseService = {
 
     // --- SERVING GROUPS ---
     upsertServingGroup: async (group: ServingGroup) => {
+        // Try with version first
         const { error } = await supabase.from('serving_groups').upsert({
             id: group.id,
             name: group.name,
@@ -260,6 +260,43 @@ export const supabaseService = {
             completion_time: group.completionTime,
             version: group.version // Added version for optimistic locking
         });
+
+        // Fallback if version column missing (Error code 42703: undefined_column)
+        if (error && (error.code === '42703' || error.message.includes('version'))) {
+             console.warn("Version column missing or DB error, falling back to standard upsert");
+             const { error: retryError } = await supabase.from('serving_groups').upsert({
+                id: group.id,
+                name: group.name,
+                location: group.location,
+                guest_count: group.guestCount,
+                table_count: group.tableCount,
+                table_split: group.tableSplit,
+                start_time: group.startTime,
+                date: group.date,
+                status: group.status,
+                items: group.items,
+                prep_list: group.prepList,
+                completion_time: group.completionTime
+                // Exclude version
+            });
+            return { error: retryError };
+        }
+
+        return { error };
+    },
+
+    // NEW: Atomic RPC Update
+    updateServingItemQuantity: async (groupId: string, itemId: string, delta: number) => {
+        const { error } = await supabase.rpc('atomic_update_serving_item', {
+            p_group_id: groupId,
+            p_item_id: itemId,
+            p_delta: delta
+        });
+        if (error) {
+            console.error("RPC Error:", error);
+            // Fallback: If RPC doesn't exist, we might fail silently or try classic update.
+            // But implementing fallback logic in Context is better.
+        }
         return { error };
     },
 

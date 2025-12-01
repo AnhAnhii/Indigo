@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { 
   Employee, TimesheetLog, EmployeeRequest, 
@@ -427,6 +426,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   if (eventType === 'DELETE') setServingGroups(prev => prev.filter(g => g.id !== oldRecord.id));
                   else {
                       const mappedGroup = mapGroupFromDB(newRecord);
+                      const updateId = newRecord.data?._updateId; // Check if wrapped in data or directly on record
                       
                       // FIX: Skip if this is our own update (Locking mechanism)
                       if (pendingGroupUpdates.current.has(mappedGroup.id)) {
@@ -454,22 +454,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                               if (newQty > oldQty) dispatchNotification("🍳 KHÁCH GỌI MÓN", `Bàn ${mappedGroup.location}: Khách vừa đặt thêm món.`, 'ALERT');
                           }
 
-                          // SMART MERGE: Keep local servedQuantity if it's higher (prevent rollback)
+                          // SMART MERGE FIX: JUST OVERWRITE IF NOT LOCKED
+                          // We removed Math.max because it prevented decrementing quantity.
+                          // The `pendingGroupUpdates` lock handles the race condition enough.
                           setServingGroups(prev => prev.map(g => {
                               if (g.id !== mappedGroup.id) return g;
-                              
-                              const mergedItems = mappedGroup.items.map(newItem => {
-                                  const localItem = g.items.find(i => i.id === newItem.id);
-                                  if (!localItem) return newItem;
-                                  
-                                  return {
-                                      ...newItem,
-                                      // Preserve local progress if higher
-                                      servedQuantity: Math.max(localItem.servedQuantity, newItem.servedQuantity)
-                                  };
-                              });
-                              
-                              return { ...mappedGroup, items: mergedItems };
+                              // Just take the server truth
+                              return mappedGroup;
                           }));
                       }
                   }
@@ -592,8 +583,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const addServingGroup = (group: ServingGroup) => { const prepList = generatePrepList(group); const newGroup = { ...group, prepList }; setServingGroups(prev => [newGroup, ...prev]); supabaseService.upsertServingGroup(newGroup); };
   const deleteServingGroup = (id: string) => { setServingGroups(prev => prev.filter(g => g.id !== id)); supabaseService.deleteServingGroup(id); };
   
-  // OPTIMIZED MODIFY GROUP (Fix race condition + Fix Spam via Debounce)
-  const modifyGroup = useCallback(async (groupId: string, modifier: (g: ServingGroup) => ServingGroup) => {
+  // OPTIMIZED MODIFY GROUP (Fix race condition + Fix Spam via Debounce + Fix Reload Loss via Immediate Mode)
+  const modifyGroup = useCallback(async (groupId: string, modifier: (g: ServingGroup) => ServingGroup, immediate = false) => {
       // 1. Mark as pending to ignore incoming realtime echoes
       pendingGroupUpdates.current.add(groupId);
 
@@ -607,33 +598,49 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           return updatedGroup; 
       }));
 
-      // 3. Debounced DB Save (Fix Double-Click Spam)
-      if (updatedGroup) {
-          // Clear existing timer for this group
+      if (!updatedGroup) {
+          pendingGroupUpdates.current.delete(groupId);
+          return;
+      }
+
+      const saveToDb = async (data: ServingGroup) => {
+          try {
+              const result = await supabaseService.upsertServingGroup(data);
+              if (result && result.error && result.error.message === 'VERSION_CONFLICT') {
+                  console.warn("Version conflict detected, reloading...");
+                  // Could trigger reloadData here if needed
+              }
+          } catch (e) {
+              console.error("DB Save Error:", e);
+          } finally {
+              // Release lock after save + delay
+              setTimeout(() => {
+                  pendingGroupUpdates.current.delete(groupId);
+              }, 1000);
+          }
+      };
+
+      // 3. Debounced vs Immediate
+      if (immediate) {
+          // IMMEDIATE MODE: For critical actions (Start, Complete, Guest Order)
+          // Clear any pending debounce first
+          if (pendingDBWrites.current[groupId]) {
+              clearTimeout(pendingDBWrites.current[groupId].timer);
+              delete pendingDBWrites.current[groupId];
+          }
+          await saveToDb(updatedGroup);
+      } else {
+          // DEBOUNCE MODE: For spam actions (Quantity +/-)
           if (pendingDBWrites.current[groupId]) {
               clearTimeout(pendingDBWrites.current[groupId].timer);
           }
 
-          // Set new timer
           const timer = setTimeout(async () => {
               const latestData = pendingDBWrites.current[groupId]?.data;
               delete pendingDBWrites.current[groupId]; // Remove from pending queue before saving
               
               if (latestData) {
-                  try {
-                      const result = await supabaseService.upsertServingGroup(latestData);
-                      if (result && result.error && result.error.message === 'VERSION_CONFLICT') {
-                          console.warn("Version conflict detected, reloading...");
-                          // loadData(true); // Optional: Reload data
-                      }
-                  } catch (e) {
-                      console.error("DB Save Error:", e);
-                  } finally {
-                      // Release lock after save + delay
-                      setTimeout(() => {
-                          pendingGroupUpdates.current.delete(groupId);
-                      }, 1000);
-                  }
+                  await saveToDb(latestData);
               }
           }, 500); // 500ms Debounce
 
@@ -648,22 +655,52 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
       const group = servingGroups.find(g => g.id === id);
       if (group) dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${group.name}\nBàn: ${group.location}`, 'SUCCESS');
-      modifyGroup(id, g => ({ ...g, startTime: time }));
+      // IMMEDIATE UPDATE
+      modifyGroup(id, g => ({ ...g, startTime: time }), true);
   };
 
   const addServingItem = (gId: string, item: ServingItem) => modifyGroup(gId, g => ({ ...g, items: [...g.items, item] }));
   const updateServingItem = (gId: string, iId: string, ups: Partial<ServingItem>) => modifyGroup(gId, g => ({ ...g, items: g.items.map(i => i.id === iId ? { ...i, ...ups } : i) }));
   const deleteServingItem = (gId: string, iId: string) => modifyGroup(gId, g => ({ ...g, items: g.items.filter(i => i.id !== iId) }));
-  const incrementServedItem = (gId: string, iId: string) => modifyGroup(gId, g => ({ ...g, items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: i.servedQuantity + 1 } : i) }));
-  const decrementServedItem = (gId: string, iId: string) => modifyGroup(gId, g => ({ ...g, items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity - 1) } : i) }));
   
-  // NEW: Adjust Quantity (For batch updates)
-  const adjustServingItemQuantity = (gId: string, iId: string, delta: number) => modifyGroup(gId, g => ({ 
-      ...g, 
-      items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity + delta) } : i) 
-  }));
+  // OLD DEPRECATED FOR QUANTITY:
+  const incrementServedItem = (gId: string, iId: string) => adjustServingItemQuantity(gId, iId, 1);
+  const decrementServedItem = (gId: string, iId: string) => adjustServingItemQuantity(gId, iId, -1);
+  
+  // NEW: ATOMIC UPDATE FOR QUANTITY
+  const adjustServingItemQuantity = async (gId: string, iId: string, delta: number) => {
+      // 1. Lock Realtime
+      pendingGroupUpdates.current.add(gId);
 
-  const completeServingGroup = (id: string) => { const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false}); modifyGroup(id, g => ({ ...g, status: 'COMPLETED', completionTime: time })); };
+      // 2. Optimistic Update
+      setServingGroups(prev => prev.map(g => {
+          if (g.id !== gId) return g;
+          return {
+              ...g,
+              items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity + delta) } : i)
+          };
+      }));
+
+      // 3. Call Atomic RPC (No Debounce needed here because UI handles accumulation, 
+      // but to be safe and reduce network, we rely on the component debounce)
+      // Actually, if we use Component Debounce, we can send immediately here.
+      try {
+          await supabaseService.updateServingItemQuantity(gId, iId, delta);
+      } catch (e) {
+          console.error("Atomic update failed", e);
+      } finally {
+          setTimeout(() => {
+              pendingGroupUpdates.current.delete(gId);
+          }, 500);
+      }
+  };
+
+  const completeServingGroup = (id: string) => { 
+      const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false}); 
+      // IMMEDIATE UPDATE
+      modifyGroup(id, g => ({ ...g, status: 'COMPLETED', completionTime: time }), true); 
+  };
+  
   const toggleSauceItem = (gId: string, sName: string) => modifyGroup(gId, g => g.prepList ? { ...g, prepList: g.prepList.map(s => s.name === sName ? { ...s, isCompleted: !s.isCompleted } : s) } : g);
   
   const addHandoverLog = (log: HandoverLog) => { setHandoverLogs(prev => [log, ...prev]); supabaseService.addHandover(log); };
@@ -704,7 +741,12 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const newItems: ServingItem[] = cartItems.map((cartItem, idx) => ({ id: `${Date.now()}_${idx}`, name: cartItem.item.name, totalQuantity: cartItem.quantity, servedQuantity: 0, unit: cartItem.item.unit || 'Phần', note: 'Khách tự gọi' }));
       const existingGroup = servingGroups.find(g => g.status === 'ACTIVE' && g.location === tableId && g.date === todayStr);
       const nameSuffix = note ? ` (${note})` : '';
-      if (existingGroup) { const updatedItems = [...existingGroup.items, ...newItems]; const newGuestCount = guestCount > 0 ? guestCount : existingGroup.guestCount; modifyGroup(existingGroup.id, g => ({ ...g, items: updatedItems, guestCount: newGuestCount, name: g.name.includes('(') ? g.name : `${g.name}${nameSuffix}` })); } 
+      if (existingGroup) { 
+          const updatedItems = [...existingGroup.items, ...newItems]; 
+          const newGuestCount = guestCount > 0 ? guestCount : existingGroup.guestCount; 
+          // IMMEDIATE UPDATE for orders
+          modifyGroup(existingGroup.id, g => ({ ...g, items: updatedItems, guestCount: newGuestCount, name: g.name.includes('(') ? g.name : `${g.name}${nameSuffix}` }), true); 
+      } 
       else { const newGroup: ServingGroup = { id: Date.now().toString(), name: `Khách bàn ${tableId}${nameSuffix}`, location: tableId, guestCount: guestCount || 0, startTime: timeStr, date: todayStr, status: 'ACTIVE', items: newItems, tableCount: 1, tableSplit: '' }; addServingGroup(newGroup); }
   };
 
