@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode, Sparkles, TrendingUp, Users, Clock, AlertCircle, BellRing, Download, Smartphone, Lock, DollarSign, BarChart
+  MapPin, UserPlus, Calendar, LogIn, CheckCircle, Fingerprint, ScanFace, Mic, QrCode, Sparkles, TrendingUp, Users, Clock, AlertCircle, BellRing, Download, Smartphone, Lock, DollarSign, BarChart, X
 } from 'lucide-react';
 import { AppView, EmployeeRole } from '../types';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -77,7 +77,7 @@ const SimpleBarChart = ({ data, colorClass, labelUnit }: { data: { label: string
 };
 
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
-  const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission, notificationPermissionStatus, menuItems } = useGlobalContext();
+  const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission, notificationPermissionStatus, menuItems, activeAlerts, dismissedAlertIds, dismissAlert } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
   const [isIOS, setIsIOS] = useState(false);
@@ -104,6 +104,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   const dateOptions: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
   const dateDisplay = currentTime.toLocaleDateString('vi-VN', dateOptions);
   const timeDisplay = currentTime.toLocaleTimeString('vi-VN', { hour12: false });
+
+  const bannerAlerts = activeAlerts.filter(a => !dismissedAlertIds.has(a.id));
 
   // --- STATS CALCULATION ---
   const stats = useMemo(() => {
@@ -176,6 +178,44 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
   return (
     <div className="space-y-8 relative pb-20">
       
+      {bannerAlerts.length > 0 && (
+          <div className={`fixed top-0 left-0 right-0 z-50 text-white shadow-lg animate-in slide-in-from-top duration-300 ${bannerAlerts[0].severity === 'HIGH' ? 'bg-red-600' : 'bg-yellow-600'}`}>
+              <div className="max-w-7xl mx-auto px-4 py-2 flex items-start justify-between">
+                  <div className="flex items-start md:items-center flex-1">
+                      <div className="bg-white/20 p-2 rounded-full mr-3 animate-pulse mt-0.5 md:mt-0 shrink-0">
+                          <AlertCircle size={20} className="text-white" />
+                      </div>
+                      <div className="overflow-hidden">
+                          <p className="font-bold text-sm uppercase tracking-wide truncate">Cảnh báo hệ thống ({bannerAlerts.length})</p>
+                          <p className="text-xs md:text-sm text-white/90 line-clamp-2 md:line-clamp-1 break-words">
+                              {bannerAlerts[0].message} • {bannerAlerts[0].details}
+                          </p>
+                      </div>
+                  </div>
+                  <div className="flex items-center shrink-0 ml-2">
+                      <button 
+                        onClick={() => onViewChange(
+                            activeAlerts[0].type === 'LATE_SERVING' ? AppView.SERVING : 
+                            activeAlerts[0].type === 'BAD_FEEDBACK' ? AppView.FEEDBACK : 
+                            activeAlerts[0].type === 'GUEST_CALL' ? AppView.SERVING :
+                            AppView.TIMESHEET
+                        )}
+                        className={`hidden sm:block ml-4 bg-white text-xs font-bold px-3 py-1.5 rounded-lg whitespace-nowrap hover:bg-opacity-90 ${bannerAlerts[0].severity === 'HIGH' ? 'text-red-600' : 'text-yellow-700'}`}
+                      >
+                          Xem chi tiết
+                      </button>
+                      <button 
+                        onClick={() => dismissAlert(bannerAlerts[0].id)}
+                        className="ml-2 p-1 hover:bg-white/20 rounded-full"
+                        title="Tắt cảnh báo này"
+                      >
+                          <X size={18} />
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
       {/* NOTIFICATION & PWA ALERTS */}
       <div className="space-y-3">
         {notificationPermissionStatus === 'default' && (

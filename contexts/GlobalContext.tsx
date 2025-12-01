@@ -401,7 +401,20 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   if (eventType === 'DELETE') setServingGroups(prev => prev.filter(g => g.id !== oldRecord.id));
                   else {
                       const mappedGroup = mapGroupFromDB(newRecord);
-                      if (eventType === 'INSERT' && config.enableGuestArrival) dispatchNotification("🔔 KHÁCH MỚI ĐẾN", `Đoàn: ${mappedGroup.name}`);
+                      
+                      // 1. Notification Logic
+                      if (eventType === 'INSERT' && config.enableGuestArrival) {
+                          dispatchNotification("🔔 ĐÃ THÊM ĐOÀN MỚI", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
+                      }
+                      
+                      if (eventType === 'UPDATE') {
+                          const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(mappedGroup.id));
+                          // If start time was newly added/changed
+                          if (config.enableGuestArrival && (!oldGroupLocal || !oldGroupLocal.startTime) && !!mappedGroup.startTime) {
+                              dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
+                          }
+                      }
+
                       setServingGroups(prev => eventType === 'INSERT' ? [mappedGroup, ...prev] : prev.map(g => g.id === mappedGroup.id ? mappedGroup : g));
                   }
               }
@@ -442,7 +455,20 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   const mappedFeedback = mapFeedbackFromDB(newRecord);
                   if (eventType === 'INSERT') {
                       setFeedbacks(prev => [mappedFeedback, ...prev]);
-                      if (mappedFeedback.type === 'CALL_WAITER') dispatchNotification("🔔 KHÁCH GỌI", `Bàn: ${mappedFeedback.customerName}\nNội dung: ${mappedFeedback.comment}`, 'ALERT');
+                      if (mappedFeedback.type === 'CALL_WAITER') {
+                          const alertMsg = `Bàn: ${mappedFeedback.customerName} - ${mappedFeedback.comment}`;
+                          dispatchNotification("🔔 KHÁCH GỌI", alertMsg, 'ALERT');
+                          
+                          // ADD TO ACTIVE ALERTS TO SHOW IN RED BANNER
+                          setActiveAlerts(prev => [{
+                              id: `call_${mappedFeedback.id}`,
+                              type: 'GUEST_CALL',
+                              message: "KHÁCH GỌI HỖ TRỢ",
+                              details: alertMsg,
+                              severity: 'HIGH',
+                              timestamp: new Date().toLocaleTimeString('vi-VN')
+                          }, ...prev]);
+                      }
                   }
               }
               else if (table === 'requests') {

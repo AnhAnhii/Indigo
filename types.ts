@@ -254,7 +254,7 @@ export interface ServingGroup {
 
 export interface SystemAlert {
     id: string;
-    type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION' | 'BAD_FEEDBACK';
+    type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION' | 'BAD_FEEDBACK' | 'GUEST_CALL';
     message: string;
     details: string;
     groupId?: string; 
