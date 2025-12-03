@@ -5,7 +5,7 @@ import {
   AttendanceStatus, EmployeeRole, RequestStatus, 
   SystemSettings, MenuItem, PrepTask,
   HandoverLog, WorkSchedule, SystemAlert, RequestType,
-  SystemLog, OnlineUser, Task, TaskStatus, Feedback, PayrollAdjustment
+  SystemLog, OnlineUser, Task, TaskStatus, Feedback, PayrollAdjustment, GroupOrder, GroupOrderItem
 } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { 
@@ -16,7 +16,8 @@ import {
     mapFeedbackFromDB,
     mapMenuItemFromDB,
     mapRequestFromDB,
-    mapAdjustmentFromDB
+    mapAdjustmentFromDB,
+    mapGroupOrderFromDB
 } from '../services/supabaseService';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { analyzeFeedback } from '../services/geminiService';
@@ -74,6 +75,12 @@ interface GlobalContextType {
   payrollAdjustments: PayrollAdjustment[];
   addPayrollAdjustment: (adj: PayrollAdjustment) => void;
   deletePayrollAdjustment: (id: string) => void;
+
+  // GROUP MENU V2
+  groupOrders: GroupOrder[];
+  upsertGroupOrder: (order: GroupOrder) => void;
+  toggleGroupOrderItem: (orderId: string, itemIndex: number) => void;
+  completeGroupOrder: (orderId: string) => void;
 
   activeAlerts: SystemAlert[];
   dismissedAlertIds: Set<string>; 
@@ -152,6 +159,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [payrollAdjustments, setPayrollAdjustments] = useState<PayrollAdjustment[]>([]);
+  const [groupOrders, setGroupOrders] = useState<GroupOrder[]>([]);
   
   const [activeAlerts, setActiveAlerts] = useState<SystemAlert[]>([]);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<Set<string>>(new Set());
@@ -167,6 +175,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const settingsRef = useRef(settings); 
   const tasksRef = useRef(tasks);
   const employeesRef = useRef(employees);
+  const groupOrdersRef = useRef(groupOrders);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const audioUnlockedRef = useRef<boolean>(false);
@@ -265,6 +274,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   useEffect(() => { employeesRef.current = employees; }, [employees]);
+  useEffect(() => { groupOrdersRef.current = groupOrders; }, [groupOrders]);
 
   const addSystemLog = (event: string, details: string, type: 'INFO' | 'WARNING' | 'ERROR' | 'DB_CHANGE') => {
       setSystemLogs(prev => [{
@@ -348,6 +358,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setFeedbacks(data.feedbacks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
           setMenuItems(data.menuItems);
           setPayrollAdjustments(data.adjustments);
+          setGroupOrders(data.groupOrders);
 
           if (data.settings && Object.keys(data.settings).length > 0) setSettings(prev => ({...INITIAL_SETTINGS, ...data.settings}));
           const dismissedSet = new Set<string>(data.dismissedAlerts.map((a: any) => String(a.id)));
@@ -461,6 +472,25 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                       setRequests(prev => prev.map(r => r.id === mappedReq.id ? mappedReq : r));
                   }
               }
+              else if (table === 'group_orders') {
+                  if (eventType === 'DELETE') {
+                      setGroupOrders(prev => prev.filter(o => o.id !== oldRecord.id));
+                  } else {
+                      const mappedOrder = mapGroupOrderFromDB(newRecord);
+                      if (mappedOrder.status === 'COMPLETED') {
+                          setGroupOrders(prev => prev.filter(o => o.id !== mappedOrder.id));
+                      } else {
+                          setGroupOrders(prev => eventType === 'INSERT' 
+                              ? (prev.some(o => o.id === mappedOrder.id) ? prev : [mappedOrder, ...prev])
+                              : prev.map(o => o.id === mappedOrder.id ? mappedOrder : o)
+                          );
+                      }
+                      
+                      if (eventType === 'INSERT') {
+                          dispatchNotification("📢 KHÁCH ĐOÀN MỚI", `${mappedOrder.groupName} (${mappedOrder.location})`);
+                      }
+                  }
+              }
           })
           .subscribe((status) => {
               if (status === 'SUBSCRIBED') {
@@ -556,6 +586,33 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       requestAssistance(tableId, `Khách muốn gọi món (${cartItems.length} món)`);
   };
 
+  // GROUP ORDERS LOGIC
+  const upsertGroupOrder = (order: GroupOrder) => {
+      setGroupOrders(prev => {
+          const exists = prev.some(o => o.id === order.id);
+          if (exists) return prev.map(o => o.id === order.id ? order : o);
+          return [order, ...prev];
+      });
+      supabaseService.upsertGroupOrder(order);
+  };
+
+  const toggleGroupOrderItem = (orderId: string, itemIndex: number) => {
+      const order = groupOrdersRef.current.find(o => o.id === orderId);
+      if (order) {
+          const updatedItems = [...order.items];
+          updatedItems[itemIndex] = { ...updatedItems[itemIndex], isServed: !updatedItems[itemIndex].isServed };
+          const updatedOrder = { ...order, items: updatedItems };
+          // Optimistic update
+          setGroupOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+          supabaseService.upsertGroupOrder(updatedOrder);
+      }
+  };
+
+  const completeGroupOrder = (orderId: string) => {
+      setGroupOrders(prev => prev.filter(o => o.id !== orderId));
+      supabaseService.updateGroupOrderStatus(orderId, 'COMPLETED');
+  };
+
   const login = (idOrPhone: string, pass: string) => { const cleanInput = idOrPhone.replace(/\D/g, ''); const user = employees.find(e => { if (e.password !== pass) return false; if (e.id === idOrPhone) return true; const empPhone = e.phone.replace(/\D/g, ''); return cleanInput && empPhone && cleanInput === empPhone; }); if (user) { const finalUser = user.id === 'admin' ? { ...user, role: EmployeeRole.DEV } : user; setCurrentUser(finalUser); localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify({ userId: user.id, timestamp: Date.now() })); return true; } return false; };
   const logout = () => { setCurrentUser(null); localStorage.removeItem(STORAGE_SESSION_KEY); };
 
@@ -567,14 +624,12 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       settings, updateSettings,
       menuItems, addMenuItem, updateMenuItem, deleteMenuItem,
       prepTasks, addPrepTask, togglePrepTask, deletePrepTask,
-      servingGroups: [], // Empty
-      addServingGroup: () => {}, updateServingGroup: () => {}, deleteServingGroup: () => {}, startServingGroup: () => {}, 
-      addServingItem: () => {}, updateServingItem: () => {}, deleteServingItem: () => {}, incrementServedItem: () => {}, decrementServedItem: () => {}, adjustServingItemQuantity: () => {}, completeServingGroup: () => {}, toggleSauceItem: () => {},
       handoverLogs, addHandoverLog, togglePinHandover,
       schedules, assignShift, 
       tasks, addTask, claimTask, submitTaskProof, verifyTask, rejectTask, deleteTask,
       feedbacks, submitFeedback, trackReviewClick,
       payrollAdjustments, addPayrollAdjustment, deletePayrollAdjustment,
+      groupOrders, upsertGroupOrder, toggleGroupOrderItem, completeGroupOrder,
       activeAlerts, dismissedAlertIds, dismissAlert,
       currentUser, login, logout,
       isLoading, isRestoringSession, lastUpdated, connectionStatus,

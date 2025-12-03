@@ -10,7 +10,7 @@ export enum AppView {
   SETTINGS = 'SETTINGS',
   AI_ASSISTANT = 'AI_ASSISTANT',
   KITCHEN = 'KITCHEN',
-  // REMOVED: SERVING, RECEPTION
+  GROUP_MENU = 'GROUP_MENU', // NEW FEATURE
   HANDOVER = 'HANDOVER',
   PROFILE = 'PROFILE',
   NOTIFICATIONS = 'NOTIFICATIONS',
@@ -215,8 +215,6 @@ export interface PrepTask {
     assignee: string;
 }
 
-// REMOVED: ServingGroup, ServingItem, SauceItem
-
 export interface SystemAlert {
     id: string;
     type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION' | 'BAD_FEEDBACK' | 'GUEST_CALL';
@@ -309,6 +307,25 @@ export interface PayrollAdjustment {
     amount: number;
     reason: string;
     date: string;
+}
+
+// --- GROUP MENU MANAGER (NEW V2) ---
+export interface GroupOrderItem {
+    name: string;
+    quantity: number;
+    unit: string;
+    note?: string;
+    isServed: boolean;
+}
+
+export interface GroupOrder {
+    id: string;
+    groupName: string;
+    location: string; // Table or Area
+    guestCount: number;
+    items: GroupOrderItem[];
+    status: 'PENDING' | 'SERVING' | 'COMPLETED';
+    createdAt: string;
 }
 
 export const RESTAURANT_LOCATION = {

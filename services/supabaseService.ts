@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
     Employee, TimesheetLog, EmployeeRequest, 
     HandoverLog, WorkSchedule, 
-    PrepTask, SystemSettings, WifiConfig, Task, Feedback, MenuItem, PayrollAdjustment
+    PrepTask, SystemSettings, WifiConfig, Task, Feedback, MenuItem, PayrollAdjustment, GroupOrder
 } from '../types';
 
 // --- MAPPERS (Snake_case DB <-> CamelCase App) ---
@@ -125,6 +125,16 @@ export const mapAdjustmentFromDB = (row: any): PayrollAdjustment => ({
     date: row.date
 });
 
+export const mapGroupOrderFromDB = (row: any): GroupOrder => ({
+    id: row.id,
+    groupName: row.group_name,
+    location: row.location,
+    guestCount: row.guest_count,
+    items: row.items || [],
+    status: row.status,
+    createdAt: row.created_at
+});
+
 
 // --- SERVICE METHODS ---
 
@@ -136,7 +146,6 @@ export const supabaseService = {
             { data: employees },
             { data: logs },
             { data: requests },
-            // REMOVED: serving_groups fetch
             { data: settings },
             { data: handovers },
             { data: schedules },
@@ -145,12 +154,12 @@ export const supabaseService = {
             { data: staffTasks },
             { data: feedbacks },
             { data: menuItems },
-            { data: adjustments }
+            { data: adjustments },
+            { data: groupOrders }
         ] = await Promise.all([
             supabase.from('employees').select('*'),
             supabase.from('attendance_logs').select('*'),
             supabase.from('requests').select('*'),
-            // supabase.from('serving_groups').select('*'),
             supabase.from('system_settings').select('settings').eq('id', 1).single(),
             supabase.from('handover_logs').select('*'),
             supabase.from('work_schedules').select('*'),
@@ -159,14 +168,14 @@ export const supabaseService = {
             supabase.from('tasks').select('*'),
             supabase.from('feedback').select('*'),
             supabase.from('menu_items').select('*'),
-            supabase.from('payroll_adjustments').select('*')
+            supabase.from('payroll_adjustments').select('*'),
+            supabase.from('group_orders').select('*').neq('status', 'COMPLETED')
         ]);
 
         return {
             employees: employees?.map(mapEmployeeFromDB) || [],
             logs: logs?.map(mapLogFromDB) || [],
             requests: requests?.map(mapRequestFromDB) || [],
-            // servingGroups: [],
             settings: settings?.settings || {},
             handoverLogs: handovers?.map((h: any) => ({
                 ...h, 
@@ -183,7 +192,8 @@ export const supabaseService = {
             tasks: staffTasks?.map(mapTaskFromDB) || [],
             feedbacks: feedbacks?.map(mapFeedbackFromDB) || [],
             menuItems: menuItems?.map(mapMenuItemFromDB) || [],
-            adjustments: adjustments?.map(mapAdjustmentFromDB) || []
+            adjustments: adjustments?.map(mapAdjustmentFromDB) || [],
+            groupOrders: groupOrders?.map(mapGroupOrderFromDB) || []
         };
     },
 
@@ -226,8 +236,6 @@ export const supabaseService = {
             shift_code: encodedShiftCode
         });
     },
-
-    // --- REMOVED SERVING GROUPS METHODS ---
 
     // --- REQUESTS ---
     upsertRequest: async (req: EmployeeRequest) => {
@@ -394,5 +402,24 @@ export const supabaseService = {
 
     deleteAdjustment: async (id: string) => {
         await supabase.from('payroll_adjustments').delete().eq('id', id);
+    },
+
+    // --- GROUP ORDERS (NEW) ---
+    upsertGroupOrder: async (order: GroupOrder) => {
+        const { error } = await supabase.from('group_orders').upsert({
+            id: order.id,
+            group_name: order.groupName,
+            location: order.location,
+            guest_count: order.guestCount,
+            items: order.items,
+            status: order.status,
+            created_at: order.createdAt
+        });
+        // Improved Error Logging for Debugging
+        if (error) console.error("Group Order Upsert Failed:", JSON.stringify(error, null, 2));
+    },
+
+    updateGroupOrderStatus: async (id: string, status: string) => {
+        await supabase.from('group_orders').update({ status }).eq('id', id);
     }
 };

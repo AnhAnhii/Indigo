@@ -36,14 +36,13 @@ export const DevTools: React.FC = () => {
 
   const SQL_SCRIPTS = `
 -- ==========================================
--- 1. CLEANUP (XÓA TÍNH NĂNG RA ĐỒ)
+-- 1. CLEANUP (XÓA TÍNH NĂNG CŨ)
 -- ==========================================
--- CẢNH BÁO: Lệnh dưới đây sẽ xóa hoàn toàn bảng Ra đồ và dữ liệu bên trong.
 DROP TABLE IF EXISTS public.serving_groups CASCADE;
 DROP FUNCTION IF EXISTS atomic_update_serving_item;
 
 -- ==========================================
--- 2. SETUP CÁC BẢNG CÒN LẠI
+-- 2. SETUP CÁC BẢNG (VERSION 2)
 -- ==========================================
 
 -- Tasks Table (Nhiệm vụ & Gamification)
@@ -117,29 +116,41 @@ create table if not exists public.payroll_adjustments (
     date text
 );
 
+-- Group Orders Table (Thực đơn Đoàn - New V2)
+-- To prevent "Upsert Failed", we use TEXT ID to compatible with Date.now() ID gen.
+create table if not exists public.group_orders (
+    id text primary key,
+    group_name text not null,
+    location text,
+    guest_count int default 0,
+    items jsonb default '[]'::jsonb, -- Array of {name, quantity, unit, note, isServed}
+    status text default 'PENDING', -- PENDING, SERVING, COMPLETED
+    created_at timestamptz default now()
+);
+
 -- ==========================================
 -- 3. ENABLE RLS & POLICIES (BẢO MẬT)
 -- ==========================================
 
--- Tasks
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public Access Tasks" ON public.tasks;
 CREATE POLICY "Public Access Tasks" ON public.tasks FOR ALL USING (true) WITH CHECK (true);
 
--- Feedback
 ALTER TABLE public.feedback ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public Access Feedback" ON public.feedback;
 CREATE POLICY "Public Access Feedback" ON public.feedback FOR ALL USING (true) WITH CHECK (true);
 
--- Menu Items
 ALTER TABLE public.menu_items ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public Access Menu" ON public.menu_items;
 CREATE POLICY "Public Access Menu" ON public.menu_items FOR ALL USING (true) WITH CHECK (true);
 
--- Payroll
 ALTER TABLE public.payroll_adjustments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Public Access Payroll" ON public.payroll_adjustments;
 CREATE POLICY "Public Access Payroll" ON public.payroll_adjustments FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.group_orders ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Group Orders" ON public.group_orders;
+CREATE POLICY "Public Access Group Orders" ON public.group_orders FOR ALL USING (true) WITH CHECK (true);
 `;
 
   const handleCopySQL = () => {
@@ -242,7 +253,7 @@ CREATE POLICY "Public Access Payroll" ON public.payroll_adjustments FOR ALL USIN
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h3 className="text-white font-bold text-lg flex items-center"><Server className="mr-2 text-teal-500"/> Clean & Setup Database</h3>
-                            <p className="text-gray-500 mt-1">Copy đoạn code SQL dưới đây và chạy trong Supabase SQL Editor để xóa sạch dữ liệu cũ và cập nhật bảng mới.</p>
+                            <p className="text-gray-500 mt-1">Copy đoạn code SQL dưới đây và chạy trong Supabase SQL Editor để cập nhật bảng mới nhất.</p>
                         </div>
                         <button 
                             onClick={handleCopySQL}
@@ -254,9 +265,6 @@ CREATE POLICY "Public Access Payroll" ON public.payroll_adjustments FOR ALL USIN
                     </div>
 
                     <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 font-mono text-xs leading-relaxed text-blue-200 overflow-x-auto relative">
-                        <div className="absolute top-2 right-2 flex items-center gap-1 bg-red-900/50 text-red-200 px-2 py-1 rounded text-[10px] border border-red-800">
-                            <AlertOctagon size={12}/> DROP TABLE INCLUDED
-                        </div>
                         <pre>{SQL_SCRIPTS}</pre>
                     </div>
 
@@ -267,12 +275,10 @@ CREATE POLICY "Public Access Payroll" ON public.payroll_adjustments FOR ALL USIN
                             <li>Vào mục <strong>SQL Editor</strong> ở menu bên trái.</li>
                             <li>Bấm <strong>New Query</strong>.</li>
                             <li>Dán (Paste) đoạn mã trên vào và bấm <strong>RUN</strong>.</li>
-                            <li>Thao tác này sẽ xóa bảng <code>serving_groups</code> vĩnh viễn.</li>
                         </ol>
                     </div>
                 </div>
             )}
         </div>
-    </div>
-  );
+    );
 };

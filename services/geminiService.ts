@@ -56,52 +56,57 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
     try {
         const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
-        // PROMPT V17: STRICT LOCATION ZONES + V16 GROUP NAME + V15 NEM LOGIC
+        // PROMPT V19: MULTI-GROUP DETECTION & SMART CONSOLIDATED NOTES
         const prompt = `
-            Bạn là Quản lý nhà hàng (AI Order Parser). Nhiệm vụ: Số hóa phiếu order từ ảnh menu.
+            Bạn là Quản lý nhà hàng (AI Order Parser). Nhiệm vụ: Phân tích ảnh menu viết tay/in để trích xuất danh sách order.
 
-            QUY TẮC V17 - NHẬN DIỆN VỊ TRÍ & LOGIC CŨ:
+            QUAN TRỌNG: 1 ẢNH CÓ THỂ CHỨA NHIỀU ĐOÀN KHÁCH KHÁC NHAU. Hãy tìm tất cả các khối thông tin tách biệt và trả về mảng chứa nhiều object.
 
-            1. VỊ TRÍ (location) - TỰ ĐỘNG NHẬN DIỆN THEO KHU VỰC:
-               - Hãy tìm thông tin bàn/khu vực ở phần đầu phiếu.
-               - CHỈ CHẤP NHẬN các khu vực sau:
-                 + Khu A1, A2, B1, B2, C1, C2: Số bàn từ 1 đến 14. (Ví dụ: "A1-5", "Bàn 10 C2", "C1 2").
-                 + Khu Ban công (BC): Số bàn từ 1 đến 6. (Ví dụ: "BC 3", "Ban công 1", "BC-2").
-               - Nếu tìm thấy chữ viết tay khớp quy tắc trên -> Điền vào field "location".
-               - Nếu không tìm thấy hoặc không thuộc các khu trên -> Để chuỗi rỗng "".
+            QUY TẮC XỬ LÝ (V19):
 
-            2. TÊN ĐOÀN (groupName):
-               - Cấu trúc: "{Số khách} {Loại khách} ({Tên Cty/Người đặt})".
-               - Ví dụ: "17 Âu (Vido)", "33 Do Thái (Mr. Vương)".
+            1. NHẬN DIỆN ĐOÀN (Groups):
+               - Tìm các cụm từ chỉ vị trí bàn (A1, B2, VIP...) hoặc tên đoàn (Đoàn Hưng, Khách Âu...).
+               - Các đoàn thường ngăn cách nhau bằng dòng kẻ ngang hoặc khoảng trắng lớn.
+               - Mỗi đoàn là một object riêng biệt trong mảng kết quả.
 
-            3. LOGIC MÓN NEM (V15):
-               - Món Nem (Rau/Tôm/Thập cẩm...): KHÔNG TÁCH DÒNG.
-               - Quantity = Tổng số bàn.
-               - Note: Tạo hướng dẫn chia (VD: "2 đĩa cho bàn 7 người • 1 đĩa cho bàn 6 người").
+            2. LOGIC MÓN ĂN CHUNG (Shared Dishes) & GHI CHÚ GỘP (Consolidated Notes):
+               - Áp dụng cho: Nem, Rau, Gà, Bò, Canh, Lẩu... (Món đặt giữa bàn).
+               - Tự động tính tổng số lượng (Quantity) dựa trên số bàn.
+               - LOGIC GHI CHÚ GỘP: 
+                 + Nếu có nhiều bàn cùng số lượng người (VD: 2 bàn 7 người), HÃY GỘP GHI CHÚ.
+                 + Đừng ghi: "1 đĩa bàn 7, 1 đĩa bàn 7".
+                 + HÃY GHI: "2 đĩa cho bàn 7" hoặc "2 đĩa/tô (chia theo bàn)".
+                 + Ví dụ phức tạp: Đoàn có 2 bàn 10 và 1 bàn 6. Tổng 3 đĩa. Note: "2 đĩa bàn 10 • 1 đĩa bàn 6".
 
-            4. LOGIC CHUNG:
-               - Súp/Cháo: Quantity = Tổng khách (Unit: Bát).
-               - Món khác (Lẩu, Gà, Rau...): Quantity = Tổng số bàn (Unit: Đĩa/Nồi).
-               - Bỏ qua các dòng ghi chú nội bộ (NB, Nbo...) ở cuối phiếu.
+            3. LOGIC CANH (Soup/Broth):
+               - Canh Việt Nam (Canh chua, Canh rau...) là MÓN CHUNG.
+               - Quantity = Số tô lớn (theo số bàn).
+               - Note: Áp dụng logic gộp như trên.
 
-            OUTPUT JSON (Array):
+            4. SÚP ÂU / CHÁO (Individual Portion):
+               - Quantity = Tổng số khách.
+               - Note: Không cần chia.
+
+            OUTPUT JSON FORM (Array):
             [
                 {
-                    "groupName": "17 Âu (Vido)", 
-                    "location": "A1-5", 
-                    "guestCount": 17,
-                    "tableCount": 3,
-                    "tableSplit": "2x7, 1x3", 
-                    "confidence": 95,
-                    "warnings": [], 
+                    "groupName": "Đoàn 14 khách (A)", 
+                    "location": "A1-A2", 
+                    "guestCount": 14,
                     "items": [
                         { 
-                            "name": "Nem thập cẩm", 
-                            "quantity": 3, 
+                            "name": "Ngọn su su xào tỏi", 
+                            "quantity": 2, 
                             "unit": "Đĩa", 
-                            "note": "2 đĩa cho bàn 7 người • 1 đĩa cho bàn 3 người" 
+                            "note": "2 đĩa cho bàn 7 (Mỗi bàn 1 đĩa)" 
                         }
                     ]
+                },
+                {
+                    "groupName": "Khách lẻ (B)", 
+                    "location": "B5", 
+                    "guestCount": 4,
+                    "items": [...]
                 }
             ]
         `;
@@ -138,13 +143,12 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
         
         try {
             const result = JSON.parse(jsonString);
-            return result.map((g: any) => ({
+            // Ensure result is always an array
+            const finalArray = Array.isArray(result) ? result : [result];
+
+            return finalArray.map((g: any) => ({
                 ...g,
                 guestCount: Number(g.guestCount) || 0,
-                tableCount: Number(g.tableCount) || 1,
-                tableSplit: g.tableSplit || '', 
-                confidence: Number(g.confidence) || 70,
-                warnings: Array.isArray(g.warnings) ? g.warnings : [],
                 items: Array.isArray(g.items) ? g.items.map((i: any) => ({
                     ...i,
                     quantity: Number(i.quantity) || 1,

@@ -23,6 +23,7 @@ import { FeedbackManager } from './components/FeedbackManager';
 import { StaffReviewQr } from './components/StaffReviewQr'; 
 import { ReviewRedirect } from './components/ReviewRedirect'; 
 import { MarketingView } from './components/MarketingView';
+import { GroupOrderManager } from './components/GroupOrderManager'; // Import New Component
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
@@ -135,6 +136,7 @@ const AppContent: React.FC = () => {
       case AppView.TIMESHEET: return <TimesheetView />;
       case AppView.SETTINGS: return isAdmin ? <SettingsView /> : null;
       case AppView.KITCHEN: return <KitchenView />;
+      case AppView.GROUP_MENU: return <GroupOrderManager />; // NEW VIEW
       case AppView.HANDOVER: return <HandoverView />;
       case AppView.PROFILE: return <ProfileView />;
       case AppView.NOTIFICATIONS: return <NotificationsView onViewChange={setCurrentView} />;
@@ -228,8 +230,9 @@ const AppContent: React.FC = () => {
           <NavItem view={AppView.SCHEDULE} icon={Calendar} label="Lịch làm việc" />
           
           <div className="pt-4 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Vận hành</div>
+          <NavItem view={AppView.GROUP_MENU} icon={ClipboardList} label="Thực Đơn Đoàn" /> 
           <NavItem view={AppView.ATTENDANCE} icon={Clock} label="Chấm công" />
-          <NavItem view={AppView.KITCHEN} icon={ClipboardList} label="Công việc bếp" />
+          <NavItem view={AppView.KITCHEN} icon={ConciergeBell} label="Công việc bếp" />
           <NavItem view={AppView.REQUESTS} icon={FileText} label="Đơn từ & Duyệt" />
           <NavItem view={AppView.PAYROLL} icon={DollarSign} label="Bảng lương" />
           <NavItem view={AppView.EMPLOYEES} icon={Users} label="Nhân sự" restricted={true} />
