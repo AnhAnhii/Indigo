@@ -10,8 +10,7 @@ export enum AppView {
   SETTINGS = 'SETTINGS',
   AI_ASSISTANT = 'AI_ASSISTANT',
   KITCHEN = 'KITCHEN',
-  SERVING = 'SERVING',
-  RECEPTION = 'RECEPTION', // New View
+  // REMOVED: SERVING, RECEPTION
   HANDOVER = 'HANDOVER',
   PROFILE = 'PROFILE',
   NOTIFICATIONS = 'NOTIFICATIONS',
@@ -158,10 +157,6 @@ export interface WorkRule {
     allowedLateMinutes: number;
 }
 
-export interface ServingConfig {
-    lateAlertMinutes: number;
-}
-
 export interface LocationConfig {
     latitude: number;
     longitude: number;
@@ -185,7 +180,7 @@ export interface SystemSettings {
     location: LocationConfig;
     wifis: WifiConfig[];
     rules: WorkRule;
-    servingConfig?: ServingConfig; 
+    servingConfig?: { lateAlertMinutes: number }; // Deprecated but kept to avoid settings break
     shiftConfigs: ShiftConfig[];
     notificationConfig: NotificationConfig; 
     timeConfig: TimeConfig; 
@@ -196,30 +191,21 @@ export interface SystemSettings {
     };
 }
 
-// Updated MenuItem for Digital Menu with Multi-language
 export interface MenuItem {
     id: string;
     name: string;
     nameEn?: string;
     nameKo?: string; // Korean
     nameFr?: string; // French
-    category: string; // Changed to string to allow dynamic categories
+    category: string; 
     price: number;
-    unit?: string; // Added unit (Đĩa, Bát, Nồi...)
+    unit?: string; 
     description?: string;
     descriptionEn?: string;
     descriptionKo?: string;
     descriptionFr?: string;
     image?: string;
     isAvailable: boolean;
-}
-
-export interface SauceItem {
-    name: string;
-    quantity: number;
-    unit: string;
-    isCompleted: boolean;
-    note?: string; 
 }
 
 export interface PrepTask {
@@ -229,30 +215,7 @@ export interface PrepTask {
     assignee: string;
 }
 
-export interface ServingItem {
-    id: string;
-    name: string; 
-    totalQuantity: number; 
-    servedQuantity: number;
-    unit: string;
-    note?: string; 
-}
-
-export interface ServingGroup {
-    id: string;
-    name: string; 
-    location: string;
-    guestCount: number; 
-    startTime: string | null; 
-    date: string; 
-    items: ServingItem[];
-    status: 'ACTIVE' | 'COMPLETED';
-    tableCount?: number;
-    tableSplit?: string; 
-    prepList?: SauceItem[]; 
-    completionTime?: string; 
-    // version removed for simplicity
-}
+// REMOVED: ServingGroup, ServingItem, SauceItem
 
 export interface SystemAlert {
     id: string;

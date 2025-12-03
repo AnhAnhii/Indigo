@@ -2,7 +2,7 @@
 import { supabase } from './supabaseClient';
 import { 
     Employee, TimesheetLog, EmployeeRequest, 
-    ServingGroup, HandoverLog, WorkSchedule, 
+    HandoverLog, WorkSchedule, 
     PrepTask, SystemSettings, WifiConfig, Task, Feedback, MenuItem, PayrollAdjustment
 } from '../types';
 
@@ -42,21 +42,6 @@ export const mapLogFromDB = (row: any): TimesheetLog => {
         session: session as 'MORNING' | 'AFTERNOON' | undefined
     };
 };
-
-export const mapGroupFromDB = (row: any): ServingGroup => ({
-    id: row.id,
-    name: row.name,
-    location: row.location,
-    guestCount: Number(row.guest_count),
-    tableCount: Number(row.table_count),
-    tableSplit: row.table_split,
-    startTime: row.start_time,
-    date: row.date,
-    status: row.status,
-    items: row.items || [],
-    prepList: row.prep_list || [],
-    completionTime: row.completion_time
-});
 
 export const mapRequestFromDB = (row: any): EmployeeRequest => ({
     id: row.id,
@@ -151,7 +136,7 @@ export const supabaseService = {
             { data: employees },
             { data: logs },
             { data: requests },
-            { data: groups },
+            // REMOVED: serving_groups fetch
             { data: settings },
             { data: handovers },
             { data: schedules },
@@ -165,7 +150,7 @@ export const supabaseService = {
             supabase.from('employees').select('*'),
             supabase.from('attendance_logs').select('*'),
             supabase.from('requests').select('*'),
-            supabase.from('serving_groups').select('*'),
+            // supabase.from('serving_groups').select('*'),
             supabase.from('system_settings').select('settings').eq('id', 1).single(),
             supabase.from('handover_logs').select('*'),
             supabase.from('work_schedules').select('*'),
@@ -181,7 +166,7 @@ export const supabaseService = {
             employees: employees?.map(mapEmployeeFromDB) || [],
             logs: logs?.map(mapLogFromDB) || [],
             requests: requests?.map(mapRequestFromDB) || [],
-            servingGroups: groups?.map(mapGroupFromDB) || [],
+            // servingGroups: [],
             settings: settings?.settings || {},
             handoverLogs: handovers?.map((h: any) => ({
                 ...h, 
@@ -242,30 +227,7 @@ export const supabaseService = {
         });
     },
 
-    // --- SERVING GROUPS ---
-    upsertServingGroup: async (group: ServingGroup) => {
-        const { error } = await supabase.from('serving_groups').upsert({
-            id: group.id,
-            name: group.name,
-            location: group.location,
-            guest_count: group.guestCount,
-            table_count: group.tableCount,
-            table_split: group.tableSplit,
-            start_time: group.startTime,
-            date: group.date,
-            status: group.status,
-            items: group.items,
-            prep_list: group.prepList,
-            completion_time: group.completionTime
-        });
-
-        if (error) console.error("Serving Group Save Error:", error);
-        return { error };
-    },
-
-    deleteServingGroup: async (id: string) => {
-        await supabase.from('serving_groups').delete().eq('id', id);
-    },
+    // --- REMOVED SERVING GROUPS METHODS ---
 
     // --- REQUESTS ---
     upsertRequest: async (req: EmployeeRequest) => {

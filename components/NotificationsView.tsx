@@ -105,7 +105,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({ onViewChan
                                   
                                   <div className="flex items-center gap-3 mt-3 pt-2">
                                       <button 
-                                          onClick={() => onViewChange(alert.type === 'LATE_SERVING' ? AppView.SERVING : AppView.TIMESHEET)}
+                                          onClick={() => onViewChange(alert.type === 'LATE_SERVING' ? AppView.KITCHEN : AppView.TIMESHEET)}
                                           className="text-xs font-bold text-teal-600 hover:text-teal-800 flex items-center"
                                       >
                                           Xem chi tiết <ArrowRight size={12} className="ml-1"/>

@@ -4,14 +4,12 @@ import {
   Employee, TimesheetLog, EmployeeRequest, 
   AttendanceStatus, EmployeeRole, RequestStatus, 
   SystemSettings, MenuItem, PrepTask,
-  ServingGroup, ServingItem, SauceItem,
   HandoverLog, WorkSchedule, SystemAlert, RequestType,
   SystemLog, OnlineUser, Task, TaskStatus, Feedback, PayrollAdjustment
 } from '../types';
 import { supabase } from '../services/supabaseClient';
 import { 
     supabaseService, 
-    mapGroupFromDB, 
     mapTaskFromDB, 
     mapEmployeeFromDB, 
     mapLogFromDB, 
@@ -52,20 +50,7 @@ interface GlobalContextType {
   togglePrepTask: (id: string) => void;
   deletePrepTask: (id: string) => void;
   
-  servingGroups: ServingGroup[];
-  addServingGroup: (group: ServingGroup) => void;
-  updateServingGroup: (groupId: string, updates: Partial<ServingGroup>) => void;
-  deleteServingGroup: (groupId: string) => void; 
-  startServingGroup: (groupId: string) => void; 
-  addServingItem: (groupId: string, item: ServingItem) => void;
-  updateServingItem: (groupId: string, itemId: string, updates: Partial<ServingItem>) => void;
-  deleteServingItem: (groupId: string, itemId: string) => void;
-  incrementServedItem: (groupId: string, itemId: string) => void;
-  decrementServedItem: (groupId: string, itemId: string) => void;
-  adjustServingItemQuantity: (groupId: string, itemId: string, delta: number) => void;
-  completeServingGroup: (groupId: string) => void;
-
-  toggleSauceItem: (groupId: string, sauceName: string) => void;
+  // REMOVED: Serving Group functions
 
   handoverLogs: HandoverLog[];
   addHandoverLog: (log: HandoverLog) => void;
@@ -129,7 +114,7 @@ const INITIAL_SETTINGS: SystemSettings = {
     location: { latitude: 21.0285, longitude: 105.8542, radiusMeters: 100, name: "Nhà hàng Trung tâm" },
     wifis: [],
     rules: { allowedLateMinutes: 15 },
-    servingConfig: { lateAlertMinutes: 15 },
+    // servingConfig removed
     shiftConfigs: [],
     notificationConfig: {
         enableGuestArrival: true,
@@ -160,7 +145,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [logs, setLogs] = useState<TimesheetLog[]>([]);
   const [requests, setRequests] = useState<EmployeeRequest[]>([]);
   const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
-  const [servingGroups, setServingGroups] = useState<ServingGroup[]>([]);
+  // REMOVED: servingGroups state
   const [handoverLogs, setHandoverLogs] = useState<HandoverLog[]>([]);
   const [schedules, setSchedules] = useState<WorkSchedule[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -179,7 +164,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const channelRef = useRef<RealtimeChannel | null>(null);
   
   const currentUserRef = useRef(currentUser);
-  const servingGroupsRef = useRef(servingGroups);
   const settingsRef = useRef(settings); 
   const tasksRef = useRef(tasks);
   const employeesRef = useRef(employees);
@@ -278,7 +262,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
-  useEffect(() => { servingGroupsRef.current = servingGroups; }, [servingGroups]);
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   useEffect(() => { employeesRef.current = employees; }, [employees]);
@@ -307,7 +290,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           silent: false
       };
 
-      // Try Service Worker first (Better for Mobile)
       if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
           try {
               navigator.serviceWorker.controller.postMessage({ type: 'SHOW_NOTIFICATION', title, body, tag });
@@ -315,7 +297,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           } catch(e) { console.error("SW notification failed, falling back", e); }
       }
       
-      // Fallback to native
       try { 
           const n = new Notification(title, options); 
           n.onclick = () => { window.focus(); n.close(); }; 
@@ -356,7 +337,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setEmployees(processedEmployees);
           setLogs(data.logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
           setRequests(data.requests);
-          setServingGroups(data.servingGroups);
+          // Removed Serving Groups
           setHandoverLogs(data.handoverLogs.sort((a: HandoverLog, b: HandoverLog) => {
               if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
               return new Date(b.date).getTime() - new Date(a.date).getTime();
@@ -417,38 +398,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
               const { table, eventType, new: newRecord, old: oldRecord } = payload;
 
-              if (table === 'serving_groups') {
-                  if (eventType === 'DELETE') {
-                      setServingGroups(prev => prev.filter(g => g.id !== oldRecord.id));
-                  } else {
-                      const mappedGroup = mapGroupFromDB(newRecord);
-                      
-                      // Notification Logic
-                      if (eventType === 'INSERT') {
-                          if (config.enableGuestArrival) dispatchNotification("🔔 ĐÃ THÊM ĐOÀN MỚI", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
-                      } else if (eventType === 'UPDATE') {
-                          const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(mappedGroup.id));
-                          if (config.enableGuestArrival && !!mappedGroup.startTime && (!oldGroupLocal || oldGroupLocal.startTime !== mappedGroup.startTime)) {
-                              dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
-                          }
-                          if (oldGroupLocal) {
-                              const oldQty = oldGroupLocal.items.reduce((sum, i) => sum + i.totalQuantity, 0);
-                              const newQty = mappedGroup.items.reduce((sum, i) => sum + i.totalQuantity, 0);
-                              if (newQty > oldQty) dispatchNotification("🍳 KHÁCH GỌI MÓN", `Bàn ${mappedGroup.location}: Khách vừa đặt thêm món.`, 'ALERT');
-                          }
-                      }
+              // REMOVED: Serving Group realtime logic
 
-                      // SIMPLE MERGE: ALWAYS TRUST SERVER
-                      setServingGroups(prev => {
-                          if (eventType === 'INSERT') {
-                              if (prev.some(g => g.id === mappedGroup.id)) return prev;
-                              return [mappedGroup, ...prev];
-                          }
-                          return prev.map(g => g.id === mappedGroup.id ? mappedGroup : g);
-                      });
-                  }
-              }
-              else if (table === 'feedback') {
+              if (table === 'feedback') {
                   const mappedFeedback = mapFeedbackFromDB(newRecord);
                   if (eventType === 'INSERT') {
                       setFeedbacks(prev => prev.some(f => f.id === mappedFeedback.id) ? prev : [mappedFeedback, ...prev]);
@@ -563,61 +515,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const updateSettings = (s: SystemSettings) => { setSettings(s); supabaseService.saveSettings(s); };
-  const addServingGroup = (group: ServingGroup) => { const prepList = generatePrepList(group); const newGroup = { ...group, prepList }; setServingGroups(prev => [newGroup, ...prev]); supabaseService.upsertServingGroup(newGroup); };
-  const deleteServingGroup = (id: string) => { setServingGroups(prev => prev.filter(g => g.id !== id)); supabaseService.deleteServingGroup(id); };
   
-  // SIMPLIFIED MODIFY GROUP - OPTIMISTIC UPDATE + DIRECT SAVE
-  const modifyGroup = useCallback(async (groupId: string, modifier: (g: ServingGroup) => ServingGroup) => {
-      let updatedGroup: ServingGroup | undefined;
-      
-      // 1. Optimistic Update (Immediate UI feedback)
-      setServingGroups(prev => prev.map(g => { 
-          if (g.id !== groupId) return g; 
-          updatedGroup = modifier(g);
-          return updatedGroup; 
-      }));
-
-      // 2. Fire & Forget Save (No complex debouncing/locking here, relying on UI debounce)
-      if (updatedGroup) {
-          try {
-              await supabaseService.upsertServingGroup(updatedGroup);
-          } catch (e) {
-              console.error("DB Save Error:", e);
-              // In a more complex app, we might revert state here, but for now we assume eventual consistency via realtime
-          }
-      }
-  }, []);
-
-  const updateServingGroup = (id: string, updates: Partial<ServingGroup>) => modifyGroup(id, g => ({ ...g, ...updates }));
-  
-  const startServingGroup = (id: string) => {
-      const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
-      const group = servingGroups.find(g => g.id === id);
-      if (group) dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${group.name}\nBàn: ${group.location}`, 'SUCCESS');
-      modifyGroup(id, g => ({ ...g, startTime: time }));
-  };
-
-  const addServingItem = (gId: string, item: ServingItem) => modifyGroup(gId, g => ({ ...g, items: [...g.items, item] }));
-  const updateServingItem = (gId: string, iId: string, ups: Partial<ServingItem>) => modifyGroup(gId, g => ({ ...g, items: g.items.map(i => i.id === iId ? { ...i, ...ups } : i) }));
-  const deleteServingItem = (gId: string, iId: string) => modifyGroup(gId, g => ({ ...g, items: g.items.filter(i => i.id !== iId) }));
-  
-  const incrementServedItem = (gId: string, iId: string) => adjustServingItemQuantity(gId, iId, 1);
-  const decrementServedItem = (gId: string, iId: string) => adjustServingItemQuantity(gId, iId, -1);
-  
-  // ADJUST QUANTITY - Simple Optimistic + Save
-  const adjustServingItemQuantity = (gId: string, iId: string, delta: number) => {
-      modifyGroup(gId, g => ({ 
-          ...g, 
-          items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity + delta) } : i) 
-      }));
-  };
-
-  const completeServingGroup = (id: string) => { 
-      const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false}); 
-      modifyGroup(id, g => ({ ...g, status: 'COMPLETED', completionTime: time })); 
-  };
-  
-  const toggleSauceItem = (gId: string, sName: string) => modifyGroup(gId, g => g.prepList ? { ...g, prepList: g.prepList.map(s => s.name === sName ? { ...s, isCompleted: !s.isCompleted } : s) } : g);
+  // REMOVED: Serving Group CRUD functions
   
   const addHandoverLog = (log: HandoverLog) => { setHandoverLogs(prev => [log, ...prev]); supabaseService.addHandover(log); };
   const togglePinHandover = (id: string) => { 
@@ -651,23 +550,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const trackReviewClick = async (staffId: string) => { const staff = employees.find(e => e.id === staffId); const newRecord: Feedback = { id: Date.now().toString(), type: 'GOOGLE_REVIEW_CLICK', createdAt: new Date().toISOString(), isResolved: true, staffId: staffId, staffName: staff?.name, rating: 5 }; setFeedbacks(prev => [newRecord, ...prev]); await supabaseService.upsertFeedback(newRecord); };
   const requestAssistance = (tableId: string, type: string) => { const newFeedback: Feedback = { id: Date.now().toString(), type: 'CALL_WAITER', customerName: `Bàn ${tableId}`, comment: type, createdAt: new Date().toISOString(), isResolved: false }; supabaseService.upsertFeedback(newFeedback); };
   
+  // MODIFIED: Just a helper to notify staff, no DB serving group creation
   const submitGuestOrder = async (tableId: string, cartItems: {item: MenuItem, quantity: number}[], guestCount: number, note: string) => {
-      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit' });
-      const timeStr = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
-      const newItems: ServingItem[] = cartItems.map((cartItem, idx) => ({ id: `${Date.now()}_${idx}`, name: cartItem.item.name, totalQuantity: cartItem.quantity, servedQuantity: 0, unit: cartItem.item.unit || 'Phần', note: 'Khách tự gọi' }));
-      const existingGroup = servingGroups.find(g => g.status === 'ACTIVE' && g.location === tableId && g.date === todayStr);
-      const nameSuffix = note ? ` (${note})` : '';
-      if (existingGroup) { 
-          const updatedItems = [...existingGroup.items, ...newItems]; 
-          const newGuestCount = guestCount > 0 ? guestCount : existingGroup.guestCount; 
-          modifyGroup(existingGroup.id, g => ({ ...g, items: updatedItems, guestCount: newGuestCount, name: g.name.includes('(') ? g.name : `${g.name}${nameSuffix}` })); 
-      } 
-      else { const newGroup: ServingGroup = { id: Date.now().toString(), name: `Khách bàn ${tableId}${nameSuffix}`, location: tableId, guestCount: guestCount || 0, startTime: timeStr, date: todayStr, status: 'ACTIVE', items: newItems, tableCount: 1, tableSplit: '' }; addServingGroup(newGroup); }
+      // Feature Disabled: Just call waiter instead
+      requestAssistance(tableId, `Khách muốn gọi món (${cartItems.length} món)`);
   };
 
   const login = (idOrPhone: string, pass: string) => { const cleanInput = idOrPhone.replace(/\D/g, ''); const user = employees.find(e => { if (e.password !== pass) return false; if (e.id === idOrPhone) return true; const empPhone = e.phone.replace(/\D/g, ''); return cleanInput && empPhone && cleanInput === empPhone; }); if (user) { const finalUser = user.id === 'admin' ? { ...user, role: EmployeeRole.DEV } : user; setCurrentUser(finalUser); localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify({ userId: user.id, timestamp: Date.now() })); return true; } return false; };
   const logout = () => { setCurrentUser(null); localStorage.removeItem(STORAGE_SESSION_KEY); };
-  const generatePrepList = (group: ServingGroup): SauceItem[] => { const tableCount = group.tableCount || Math.ceil(group.guestCount / 6); const itemsLower = group.items.map(i => i.name.toLowerCase()); return [{ name: "Xì dầu", quantity: tableCount, unit: "Bát", isCompleted: false }, { name: "Nước mắm", quantity: tableCount * 2, unit: "Bát", isCompleted: false }, ...(itemsLower.some(n => n.includes('lẩu')) ? [{ name: "Bếp ga", quantity: tableCount, unit: "Chiếc", isCompleted: false }] : [])]; };
 
   return (
     <GlobalContext.Provider value={{ 
@@ -677,8 +567,9 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       settings, updateSettings,
       menuItems, addMenuItem, updateMenuItem, deleteMenuItem,
       prepTasks, addPrepTask, togglePrepTask, deletePrepTask,
-      servingGroups, addServingGroup, updateServingGroup, deleteServingGroup, startServingGroup, 
-      addServingItem, updateServingItem, deleteServingItem, incrementServedItem, decrementServedItem, adjustServingItemQuantity, completeServingGroup, toggleSauceItem,
+      servingGroups: [], // Empty
+      addServingGroup: () => {}, updateServingGroup: () => {}, deleteServingGroup: () => {}, startServingGroup: () => {}, 
+      addServingItem: () => {}, updateServingItem: () => {}, deleteServingItem: () => {}, incrementServedItem: () => {}, decrementServedItem: () => {}, adjustServingItemQuantity: () => {}, completeServingGroup: () => {}, toggleSauceItem: () => {},
       handoverLogs, addHandoverLog, togglePinHandover,
       schedules, assignShift, 
       tasks, addTask, claimTask, submitTaskProof, verifyTask, rejectTask, deleteTask,

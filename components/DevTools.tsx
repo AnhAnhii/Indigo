@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Terminal, Users, Database, Clock, Activity, ShieldCheck, Laptop, Smartphone, Search, Trash2, Copy, Check, Server } from 'lucide-react';
+import { Terminal, Users, Database, Clock, Activity, ShieldCheck, Laptop, Smartphone, Search, Trash2, Copy, Check, Server, AlertOctagon } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { EmployeeRole } from '../types';
 
@@ -36,10 +36,17 @@ export const DevTools: React.FC = () => {
 
   const SQL_SCRIPTS = `
 -- ==========================================
--- 1. SETUP CƠ BẢN (TABLES & COLUMNS)
+-- 1. CLEANUP (XÓA TÍNH NĂNG RA ĐỒ)
+-- ==========================================
+-- CẢNH BÁO: Lệnh dưới đây sẽ xóa hoàn toàn bảng Ra đồ và dữ liệu bên trong.
+DROP TABLE IF EXISTS public.serving_groups CASCADE;
+DROP FUNCTION IF EXISTS atomic_update_serving_item;
+
+-- ==========================================
+-- 2. SETUP CÁC BẢNG CÒN LẠI
 -- ==========================================
 
--- Tasks Table
+-- Tasks Table (Nhiệm vụ & Gamification)
 create table if not exists public.tasks (
     id text primary key,
     title text not null,
@@ -63,7 +70,7 @@ create table if not exists public.tasks (
     required_shifts text[] default '{}'
 );
 
--- Feedback Table
+-- Feedback Table (Review khách hàng)
 create table if not exists public.feedback (
     id text primary key,
     customer_name text,
@@ -80,7 +87,7 @@ create table if not exists public.feedback (
     type text default 'INTERNAL_FEEDBACK'
 );
 
--- Menu Items Table
+-- Menu Items Table (Thực đơn Guest)
 create table if not exists public.menu_items (
     id text primary key,
     name text not null,
@@ -99,7 +106,7 @@ create table if not exists public.menu_items (
     created_at text
 );
 
--- Payroll Adjustments Table
+-- Payroll Adjustments Table (Thưởng/Phạt lương)
 create table if not exists public.payroll_adjustments (
     id text primary key,
     employee_id text not null,
@@ -111,23 +118,8 @@ create table if not exists public.payroll_adjustments (
 );
 
 -- ==========================================
--- 2. REVERT TO SIMPLE ARCHITECTURE (CLEANUP)
+-- 3. ENABLE RLS & POLICIES (BẢO MẬT)
 -- ==========================================
-
--- Xóa cột version (nếu đã tạo)
-ALTER TABLE public.serving_groups DROP COLUMN IF EXISTS version;
-
--- Xóa hàm RPC Atomic (nếu đã tạo)
-DROP FUNCTION IF EXISTS atomic_update_serving_item(text, text, integer);
-
--- ==========================================
--- 3. ENABLE RLS & POLICIES (BẮT BUỘC)
--- ==========================================
-
--- Serving Groups
-ALTER TABLE public.serving_groups ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Enable all access for serving groups" ON public.serving_groups;
-CREATE POLICY "Enable all access for serving groups" ON public.serving_groups FOR ALL USING (true) WITH CHECK (true);
 
 -- Tasks
 ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
@@ -249,8 +241,8 @@ CREATE POLICY "Public Access Payroll" ON public.payroll_adjustments FOR ALL USIN
                 <div className="flex-1 overflow-y-auto p-6">
                     <div className="flex items-center justify-between mb-4">
                         <div>
-                            <h3 className="text-white font-bold text-lg flex items-center"><Server className="mr-2 text-teal-500"/> Khởi tạo Tables</h3>
-                            <p className="text-gray-500 mt-1">Copy đoạn code SQL dưới đây và chạy trong Supabase SQL Editor để cấu hình lại Database (Simple Mode).</p>
+                            <h3 className="text-white font-bold text-lg flex items-center"><Server className="mr-2 text-teal-500"/> Clean & Setup Database</h3>
+                            <p className="text-gray-500 mt-1">Copy đoạn code SQL dưới đây và chạy trong Supabase SQL Editor để xóa sạch dữ liệu cũ và cập nhật bảng mới.</p>
                         </div>
                         <button 
                             onClick={handleCopySQL}
@@ -261,18 +253,21 @@ CREATE POLICY "Public Access Payroll" ON public.payroll_adjustments FOR ALL USIN
                         </button>
                     </div>
 
-                    <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 font-mono text-xs leading-relaxed text-blue-200 overflow-x-auto">
+                    <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 font-mono text-xs leading-relaxed text-blue-200 overflow-x-auto relative">
+                        <div className="absolute top-2 right-2 flex items-center gap-1 bg-red-900/50 text-red-200 px-2 py-1 rounded text-[10px] border border-red-800">
+                            <AlertOctagon size={12}/> DROP TABLE INCLUDED
+                        </div>
                         <pre>{SQL_SCRIPTS}</pre>
                     </div>
 
                     <div className="mt-6 bg-gray-800/50 p-4 rounded-xl border border-gray-700">
-                        <h4 className="text-white font-bold mb-2 text-sm">Hướng dẫn nhanh:</h4>
+                        <h4 className="text-white font-bold mb-2 text-sm">Hướng dẫn xóa sạch dữ liệu:</h4>
                         <ol className="list-decimal list-inside text-gray-400 space-y-1">
                             <li>Truy cập <a href="https://supabase.com/dashboard/project/vnuchrpjvfxbghnrqfrq/sql" target="_blank" className="text-blue-400 hover:underline">Supabase Dashboard</a></li>
                             <li>Vào mục <strong>SQL Editor</strong> ở menu bên trái.</li>
                             <li>Bấm <strong>New Query</strong>.</li>
                             <li>Dán (Paste) đoạn mã trên vào và bấm <strong>RUN</strong>.</li>
-                            <li>Quay lại app và tải lại trang (F5).</li>
+                            <li>Thao tác này sẽ xóa bảng <code>serving_groups</code> vĩnh viễn.</li>
                         </ol>
                     </div>
                 </div>

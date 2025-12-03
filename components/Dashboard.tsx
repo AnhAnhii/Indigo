@@ -29,55 +29,8 @@ const MethodCard = ({ title, sub, icon: Icon, gradient, onClick, labelBtn, disab
   </div>
 );
 
-const normalizeDate = (dateStr: string | undefined): string => {
-    if (!dateStr) return '';
-    if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) return dateStr;
-    if (dateStr.includes('/')) {
-        const parts = dateStr.split('/');
-        if (parts.length === 3) {
-             const d = parts[0].padStart(2, '0');
-             const m = parts[1].padStart(2, '0');
-             const y = parts[2];
-             return `${y}-${m}-${d}`;
-        }
-    }
-    if (dateStr.includes('T')) return dateStr.split('T')[0];
-    if (dateStr.includes('-')) {
-         const parts = dateStr.split('-');
-         if (parts.length === 3) {
-             const y = parts[0];
-             const m = parts[1].padStart(2, '0');
-             const d = parts[2].padStart(2, '0');
-             return `${y}-${m}-${d}`;
-         }
-    }
-    return dateStr;
-};
-
-// --- SIMPLE CSS BAR CHART COMPONENT ---
-const SimpleBarChart = ({ data, colorClass, labelUnit }: { data: { label: string, value: number }[], colorClass: string, labelUnit: string }) => {
-    const maxValue = Math.max(...data.map(d => d.value), 1);
-    
-    return (
-        <div className="flex items-end justify-between h-40 gap-2 mt-4">
-            {data.map((d, i) => (
-                <div key={i} className="flex flex-col items-center flex-1 h-full justify-end group">
-                    <div className="text-[10px] font-bold text-gray-500 mb-1 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                        {d.value.toLocaleString()} {labelUnit}
-                    </div>
-                    <div 
-                        className={`w-full rounded-t-lg transition-all duration-500 ${colorClass}`}
-                        style={{ height: `${(d.value / maxValue) * 100}%` }}
-                    ></div>
-                    <div className="text-[10px] font-bold text-gray-400 mt-2 truncate w-full text-center">{d.label}</div>
-                </div>
-            ))}
-        </div>
-    );
-};
-
 export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
-  const { logs, currentUser, isLoading, servingGroups, schedules, settings, requestNotificationPermission, notificationPermissionStatus, menuItems, activeAlerts, dismissedAlertIds, dismissAlert } = useGlobalContext();
+  const { logs, currentUser, isLoading, schedules, settings, requestNotificationPermission, notificationPermissionStatus, activeAlerts, dismissedAlertIds, dismissAlert } = useGlobalContext();
   const [currentTime, setCurrentTime] = useState(new Date());
   
   const [isIOS, setIsIOS] = useState(false);
@@ -107,38 +60,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
 
   const bannerAlerts = activeAlerts.filter(a => !dismissedAlertIds.has(a.id));
 
-  // --- STATS CALCULATION ---
-  const stats = useMemo(() => {
-      // 1. Chart Data: Last 7 Days Revenue (Estimated)
-      const last7Days = Array.from({length: 7}, (_, i) => {
-          const d = new Date();
-          d.setDate(d.getDate() - (6 - i));
-          return new Intl.DateTimeFormat('en-CA').format(d);
-      });
-
-      const revenueData = last7Days.map(date => {
-          const dayGroups = servingGroups.filter(g => normalizeDate(g.date) === date && g.status === 'COMPLETED');
-          // Estimate revenue: Sum of (Item Price * Qty)
-          // Since ServingItem doesn't have price, match name with MenuItems
-          let total = 0;
-          dayGroups.forEach(g => {
-              g.items.forEach(item => {
-                  const menuItem = menuItems.find(m => m.name === item.name);
-                  if (menuItem) total += menuItem.price * item.servedQuantity;
-              });
-          });
-          return { label: date.split('-')[2] + '/' + date.split('-')[1], value: total };
-      });
-
-      const guestData = last7Days.map(date => {
-          const dayGroups = servingGroups.filter(g => normalizeDate(g.date) === date);
-          const totalGuests = dayGroups.reduce((sum, g) => sum + g.guestCount, 0);
-          return { label: date.split('-')[2] + '/' + date.split('-')[1], value: totalGuests };
-      });
-
-      return { revenueData, guestData };
-  }, [servingGroups, menuItems]);
-
   const aiInsights = useMemo(() => {
       if (!currentUser) return null;
       const hour = currentTime.getHours();
@@ -146,15 +67,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
       if (hour < 12) greeting = "Chào buổi sáng";
       else if (hour < 18) greeting = "Chào buổi chiều";
       else greeting = "Chào buổi tối";
-
-      const activeGroups = servingGroups.filter(g => g.status !== 'COMPLETED');
-      const activeGuests = activeGroups.reduce((sum, g) => sum + (Number(g.guestCount) || 0), 0);
-      const isBusy = activeGuests > 100;
-
-      let guestMessage = "";
-      if (activeGuests === 0) guestMessage = `Hiện tại chưa có khách đang ăn.`;
-      else if (isBusy) guestMessage = `🔥 Nhà hàng đang phục vụ ${activeGuests} khách. Rất đông! Hãy tập trung cao độ nhé! 💪`;
-      else guestMessage = `Nhà hàng đang phục vụ ${activeGuests} khách. Nhịp độ ổn định.`;
 
       let personalMessage = "";
       const mySchedule = schedules.find(s => s.employeeId === currentUser.id && s.date === todayStr);
@@ -170,8 +82,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
           else personalMessage = "Bạn chưa chấm công hôm nay.";
       }
 
-      return { greeting: `${greeting}, ${currentUser.name.split(' ').pop()}!`, guestMessage, personalMessage, isBusy, totalGuests: activeGuests };
-  }, [currentUser, servingGroups, todayLog, schedules, currentTime, settings, todayStr]);
+      return { greeting: `${greeting}, ${currentUser.name.split(' ').pop()}!`, personalMessage };
+  }, [currentUser, todayLog, schedules, currentTime, settings, todayStr]);
 
   const handleEnableNotification = async () => { await requestNotificationPermission(); };
 
@@ -195,9 +107,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
                   <div className="flex items-center shrink-0 ml-2">
                       <button 
                         onClick={() => onViewChange(
-                            activeAlerts[0].type === 'LATE_SERVING' ? AppView.SERVING : 
                             activeAlerts[0].type === 'BAD_FEEDBACK' ? AppView.FEEDBACK : 
-                            activeAlerts[0].type === 'GUEST_CALL' ? AppView.SERVING :
                             AppView.TIMESHEET
                         )}
                         className={`hidden sm:block ml-4 bg-white text-xs font-bold px-3 py-1.5 rounded-lg whitespace-nowrap hover:bg-opacity-90 ${bannerAlerts[0].severity === 'HIGH' ? 'text-red-600' : 'text-yellow-700'}`}
@@ -222,7 +132,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
             <div onClick={handleEnableNotification} className="bg-blue-600 text-white p-4 rounded-xl shadow-lg shadow-blue-200 cursor-pointer hover:bg-blue-700 transition-colors flex items-center justify-between animate-pulse">
                 <div className="flex items-center">
                     <div className="bg-white/20 p-2 rounded-full mr-3"><BellRing size={20} /></div>
-                    <div><h4 className="font-bold">Bật thông báo ngay</h4><p className="text-xs text-blue-100">Để nhận tin nhắn khi có khách mới hoặc đơn từ.</p></div>
+                    <div><h4 className="font-bold">Bật thông báo ngay</h4><p className="text-xs text-blue-100">Để nhận tin nhắn khi có đơn từ.</p></div>
                 </div>
                 <div className="bg-white text-blue-700 text-xs font-bold px-3 py-2 rounded-lg">Kích hoạt</div>
             </div>
@@ -237,45 +147,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ onViewChange }) => {
 
       {/* AI INSIGHTS CARD */}
       {aiInsights && (
-          <div className={`rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden transition-all duration-500 ${aiInsights.isBusy ? 'bg-gradient-to-r from-orange-500 to-red-600' : 'bg-gradient-to-r from-indigo-600 to-purple-700'}`}>
+          <div className="rounded-3xl p-6 md:p-8 text-white shadow-xl relative overflow-hidden transition-all duration-500 bg-gradient-to-r from-indigo-600 to-purple-700">
               <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
-              <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                  <div className="md:col-span-2 space-y-3">
+              <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+                  <div className="space-y-3">
                       <div className="flex items-center space-x-2 opacity-90"><Sparkles size={18} className="text-yellow-300 animate-pulse"/><span className="text-xs font-bold uppercase tracking-widest">Bản tin Vận hành</span></div>
                       <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight">{aiInsights.greeting}</h1>
-                      <p className="text-lg text-white/90 font-medium leading-relaxed max-w-xl">{aiInsights.guestMessage}</p>
-                      <div className="flex items-center gap-4 pt-2">
-                          <div className="flex items-center bg-white/20 rounded-lg px-3 py-1.5 text-sm backdrop-blur-sm"><Users size={16} className="mr-2 text-blue-200"/><span className="font-bold">{aiInsights.totalGuests} Khách đang ăn</span></div>
-                          {aiInsights.isBusy && <div className="flex items-center bg-red-500/30 border border-red-200/50 rounded-lg px-3 py-1.5 text-sm backdrop-blur-sm animate-pulse"><TrendingUp size={16} className="mr-2 text-white"/><span className="font-bold">Cao điểm</span></div>}
-                      </div>
                   </div>
                   <div className="bg-white/10 backdrop-blur-md rounded-2xl p-5 border border-white/20">
                       <h3 className="text-sm font-bold text-indigo-100 flex items-center mb-2"><Fingerprint size={16} className="mr-2"/> Trạng thái của bạn</h3>
                       <p className="text-white font-medium text-sm leading-relaxed">{aiInsights.personalMessage}</p>
                       <div className="mt-3 w-full bg-white/20 h-1.5 rounded-full overflow-hidden"><div className={`h-full ${isCheckedOut ? 'bg-green-400' : isCheckedIn ? 'bg-yellow-400' : 'bg-gray-400'} w-full origin-left duration-1000 scale-x-100`}></div></div>
                   </div>
-              </div>
-          </div>
-      )}
-
-      {/* DASHBOARD CHARTS (ADMIN ONLY) */}
-      {isAdmin && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                  <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-bold text-gray-800 flex items-center gap-2"><DollarSign size={20} className="text-teal-600"/> Doanh thu ước tính (7 ngày)</h3>
-                      <span className="text-xs bg-teal-50 text-teal-700 px-2 py-1 rounded font-bold">Real-time</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mb-4">Dựa trên đơn giá menu và số lượng món đã ra.</p>
-                  <SimpleBarChart data={stats.revenueData} colorClass="bg-teal-500 hover:bg-teal-600" labelUnit="đ" />
-              </div>
-              <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
-                  <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-bold text-gray-800 flex items-center gap-2"><Users size={20} className="text-indigo-600"/> Lượt khách (7 ngày)</h3>
-                      <span className="text-xs bg-indigo-50 text-indigo-700 px-2 py-1 rounded font-bold">Pax</span>
-                  </div>
-                  <p className="text-xs text-gray-500 mb-4">Tổng số khách đến nhà hàng.</p>
-                  <SimpleBarChart data={stats.guestData} colorClass="bg-indigo-500 hover:bg-indigo-600" labelUnit="khách" />
               </div>
           </div>
       )}
