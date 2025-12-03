@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { 
   Employee, TimesheetLog, EmployeeRequest, 
@@ -177,12 +178,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const channelRef = useRef<RealtimeChannel | null>(null);
   
-  // FIX RACE CONDITION: Track pending updates to ignore echoed realtime events
-  const pendingGroupUpdates = useRef<Set<string>>(new Set());
-  
-  // FIX SPAM: Track pending DB writes to debounce them
-  const pendingDBWrites = useRef<{[key: string]: { timer: ReturnType<typeof setTimeout>, data: ServingGroup }}>({});
-
   const currentUserRef = useRef(currentUser);
   const servingGroupsRef = useRef(servingGroups);
   const settingsRef = useRef(settings); 
@@ -423,28 +418,16 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               const { table, eventType, new: newRecord, old: oldRecord } = payload;
 
               if (table === 'serving_groups') {
-                  if (eventType === 'DELETE') setServingGroups(prev => prev.filter(g => g.id !== oldRecord.id));
-                  else {
+                  if (eventType === 'DELETE') {
+                      setServingGroups(prev => prev.filter(g => g.id !== oldRecord.id));
+                  } else {
                       const mappedGroup = mapGroupFromDB(newRecord);
-                      const updateId = newRecord.data?._updateId; // Check if wrapped in data or directly on record
                       
-                      // FIX: Skip if this is our own update (Locking mechanism)
-                      if (pendingGroupUpdates.current.has(mappedGroup.id)) {
-                          console.log(`[Realtime] Skipping update for ${mappedGroup.id} (Pending Local Update)`);
-                          return;
-                      }
-
+                      // Notification Logic
                       if (eventType === 'INSERT') {
-                          setServingGroups(prev => {
-                              if (prev.some(g => g.id === mappedGroup.id)) return prev;
-                              if (config.enableGuestArrival) dispatchNotification("🔔 ĐÃ THÊM ĐOÀN MỚI", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
-                              return [mappedGroup, ...prev];
-                          });
-                      }
-                      else if (eventType === 'UPDATE') {
+                          if (config.enableGuestArrival) dispatchNotification("🔔 ĐÃ THÊM ĐOÀN MỚI", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
+                      } else if (eventType === 'UPDATE') {
                           const oldGroupLocal = servingGroupsRef.current.find(g => String(g.id) === String(mappedGroup.id));
-                          
-                          // Notification Logic
                           if (config.enableGuestArrival && !!mappedGroup.startTime && (!oldGroupLocal || oldGroupLocal.startTime !== mappedGroup.startTime)) {
                               dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${mappedGroup.name}\nBàn: ${mappedGroup.location}`);
                           }
@@ -453,16 +436,16 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                               const newQty = mappedGroup.items.reduce((sum, i) => sum + i.totalQuantity, 0);
                               if (newQty > oldQty) dispatchNotification("🍳 KHÁCH GỌI MÓN", `Bàn ${mappedGroup.location}: Khách vừa đặt thêm món.`, 'ALERT');
                           }
-
-                          // SMART MERGE FIX: JUST OVERWRITE IF NOT LOCKED
-                          // We removed Math.max because it prevented decrementing quantity.
-                          // The `pendingGroupUpdates` lock handles the race condition enough.
-                          setServingGroups(prev => prev.map(g => {
-                              if (g.id !== mappedGroup.id) return g;
-                              // Just take the server truth
-                              return mappedGroup;
-                          }));
                       }
+
+                      // SIMPLE MERGE: ALWAYS TRUST SERVER
+                      setServingGroups(prev => {
+                          if (eventType === 'INSERT') {
+                              if (prev.some(g => g.id === mappedGroup.id)) return prev;
+                              return [mappedGroup, ...prev];
+                          }
+                          return prev.map(g => g.id === mappedGroup.id ? mappedGroup : g);
+                      });
                   }
               }
               else if (table === 'feedback') {
@@ -583,69 +566,25 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const addServingGroup = (group: ServingGroup) => { const prepList = generatePrepList(group); const newGroup = { ...group, prepList }; setServingGroups(prev => [newGroup, ...prev]); supabaseService.upsertServingGroup(newGroup); };
   const deleteServingGroup = (id: string) => { setServingGroups(prev => prev.filter(g => g.id !== id)); supabaseService.deleteServingGroup(id); };
   
-  // OPTIMIZED MODIFY GROUP (Fix race condition + Fix Spam via Debounce + Fix Reload Loss via Immediate Mode)
-  const modifyGroup = useCallback(async (groupId: string, modifier: (g: ServingGroup) => ServingGroup, immediate = false) => {
-      // 1. Mark as pending to ignore incoming realtime echoes
-      pendingGroupUpdates.current.add(groupId);
-
+  // SIMPLIFIED MODIFY GROUP - OPTIMISTIC UPDATE + DIRECT SAVE
+  const modifyGroup = useCallback(async (groupId: string, modifier: (g: ServingGroup) => ServingGroup) => {
       let updatedGroup: ServingGroup | undefined;
       
-      // 2. Optimistic Local Update
+      // 1. Optimistic Update (Immediate UI feedback)
       setServingGroups(prev => prev.map(g => { 
           if (g.id !== groupId) return g; 
           updatedGroup = modifier(g);
-          updatedGroup.version = (updatedGroup.version || 0) + 1; // Optimistic locking
           return updatedGroup; 
       }));
 
-      if (!updatedGroup) {
-          pendingGroupUpdates.current.delete(groupId);
-          return;
-      }
-
-      const saveToDb = async (data: ServingGroup) => {
+      // 2. Fire & Forget Save (No complex debouncing/locking here, relying on UI debounce)
+      if (updatedGroup) {
           try {
-              const result = await supabaseService.upsertServingGroup(data);
-              if (result && result.error && result.error.message === 'VERSION_CONFLICT') {
-                  console.warn("Version conflict detected, reloading...");
-                  // Could trigger reloadData here if needed
-              }
+              await supabaseService.upsertServingGroup(updatedGroup);
           } catch (e) {
               console.error("DB Save Error:", e);
-          } finally {
-              // Release lock after save + delay
-              setTimeout(() => {
-                  pendingGroupUpdates.current.delete(groupId);
-              }, 1000);
+              // In a more complex app, we might revert state here, but for now we assume eventual consistency via realtime
           }
-      };
-
-      // 3. Debounced vs Immediate
-      if (immediate) {
-          // IMMEDIATE MODE: For critical actions (Start, Complete, Guest Order)
-          // Clear any pending debounce first
-          if (pendingDBWrites.current[groupId]) {
-              clearTimeout(pendingDBWrites.current[groupId].timer);
-              delete pendingDBWrites.current[groupId];
-          }
-          await saveToDb(updatedGroup);
-      } else {
-          // DEBOUNCE MODE: For spam actions (Quantity +/-)
-          if (pendingDBWrites.current[groupId]) {
-              clearTimeout(pendingDBWrites.current[groupId].timer);
-          }
-
-          const timer = setTimeout(async () => {
-              const latestData = pendingDBWrites.current[groupId]?.data;
-              delete pendingDBWrites.current[groupId]; // Remove from pending queue before saving
-              
-              if (latestData) {
-                  await saveToDb(latestData);
-              }
-          }, 500); // 500ms Debounce
-
-          // Update the pending write record
-          pendingDBWrites.current[groupId] = { timer, data: updatedGroup };
       }
   }, []);
 
@@ -655,50 +594,27 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false});
       const group = servingGroups.find(g => g.id === id);
       if (group) dispatchNotification("🚀 KHÁCH ĐÃ ĐẾN", `Đoàn: ${group.name}\nBàn: ${group.location}`, 'SUCCESS');
-      // IMMEDIATE UPDATE
-      modifyGroup(id, g => ({ ...g, startTime: time }), true);
+      modifyGroup(id, g => ({ ...g, startTime: time }));
   };
 
   const addServingItem = (gId: string, item: ServingItem) => modifyGroup(gId, g => ({ ...g, items: [...g.items, item] }));
   const updateServingItem = (gId: string, iId: string, ups: Partial<ServingItem>) => modifyGroup(gId, g => ({ ...g, items: g.items.map(i => i.id === iId ? { ...i, ...ups } : i) }));
   const deleteServingItem = (gId: string, iId: string) => modifyGroup(gId, g => ({ ...g, items: g.items.filter(i => i.id !== iId) }));
   
-  // OLD DEPRECATED FOR QUANTITY:
   const incrementServedItem = (gId: string, iId: string) => adjustServingItemQuantity(gId, iId, 1);
   const decrementServedItem = (gId: string, iId: string) => adjustServingItemQuantity(gId, iId, -1);
   
-  // NEW: ATOMIC UPDATE FOR QUANTITY
-  const adjustServingItemQuantity = async (gId: string, iId: string, delta: number) => {
-      // 1. Lock Realtime
-      pendingGroupUpdates.current.add(gId);
-
-      // 2. Optimistic Update
-      setServingGroups(prev => prev.map(g => {
-          if (g.id !== gId) return g;
-          return {
-              ...g,
-              items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity + delta) } : i)
-          };
+  // ADJUST QUANTITY - Simple Optimistic + Save
+  const adjustServingItemQuantity = (gId: string, iId: string, delta: number) => {
+      modifyGroup(gId, g => ({ 
+          ...g, 
+          items: g.items.map(i => i.id === iId ? { ...i, servedQuantity: Math.max(0, i.servedQuantity + delta) } : i) 
       }));
-
-      // 3. Call Atomic RPC (No Debounce needed here because UI handles accumulation, 
-      // but to be safe and reduce network, we rely on the component debounce)
-      // Actually, if we use Component Debounce, we can send immediately here.
-      try {
-          await supabaseService.updateServingItemQuantity(gId, iId, delta);
-      } catch (e) {
-          console.error("Atomic update failed", e);
-      } finally {
-          setTimeout(() => {
-              pendingGroupUpdates.current.delete(gId);
-          }, 500);
-      }
   };
 
   const completeServingGroup = (id: string) => { 
       const time = new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit', hour12: false}); 
-      // IMMEDIATE UPDATE
-      modifyGroup(id, g => ({ ...g, status: 'COMPLETED', completionTime: time }), true); 
+      modifyGroup(id, g => ({ ...g, status: 'COMPLETED', completionTime: time })); 
   };
   
   const toggleSauceItem = (gId: string, sName: string) => modifyGroup(gId, g => g.prepList ? { ...g, prepList: g.prepList.map(s => s.name === sName ? { ...s, isCompleted: !s.isCompleted } : s) } : g);
@@ -744,8 +660,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       if (existingGroup) { 
           const updatedItems = [...existingGroup.items, ...newItems]; 
           const newGuestCount = guestCount > 0 ? guestCount : existingGroup.guestCount; 
-          // IMMEDIATE UPDATE for orders
-          modifyGroup(existingGroup.id, g => ({ ...g, items: updatedItems, guestCount: newGuestCount, name: g.name.includes('(') ? g.name : `${g.name}${nameSuffix}` }), true); 
+          modifyGroup(existingGroup.id, g => ({ ...g, items: updatedItems, guestCount: newGuestCount, name: g.name.includes('(') ? g.name : `${g.name}${nameSuffix}` })); 
       } 
       else { const newGroup: ServingGroup = { id: Date.now().toString(), name: `Khách bàn ${tableId}${nameSuffix}`, location: tableId, guestCount: guestCount || 0, startTime: timeStr, date: todayStr, status: 'ACTIVE', items: newItems, tableCount: 1, tableSplit: '' }; addServingGroup(newGroup); }
   };

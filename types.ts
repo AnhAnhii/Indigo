@@ -251,7 +251,7 @@ export interface ServingGroup {
     tableSplit?: string; 
     prepList?: SauceItem[]; 
     completionTime?: string; 
-    version?: number; // Optimistic locking
+    // version removed for simplicity
 }
 
 export interface SystemAlert {

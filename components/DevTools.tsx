@@ -35,7 +35,11 @@ export const DevTools: React.FC = () => {
   }
 
   const SQL_SCRIPTS = `
--- 1. Create Tasks Table
+-- ==========================================
+-- 1. SETUP CƠ BẢN (TABLES & COLUMNS)
+-- ==========================================
+
+-- Tasks Table
 create table if not exists public.tasks (
     id text primary key,
     title text not null,
@@ -59,7 +63,7 @@ create table if not exists public.tasks (
     required_shifts text[] default '{}'
 );
 
--- 2. Create Feedback Table
+-- Feedback Table
 create table if not exists public.feedback (
     id text primary key,
     customer_name text,
@@ -76,7 +80,7 @@ create table if not exists public.feedback (
     type text default 'INTERNAL_FEEDBACK'
 );
 
--- 3. Create Menu Items Table
+-- Menu Items Table
 create table if not exists public.menu_items (
     id text primary key,
     name text not null,
@@ -95,27 +99,7 @@ create table if not exists public.menu_items (
     created_at text
 );
 
-ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_en text;
-ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_ko text;
-ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS name_fr text;
-ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS unit text DEFAULT 'Phần';
-ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS description_en text;
-ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS description_ko text;
-ALTER TABLE public.menu_items ADD COLUMN IF NOT EXISTS description_fr text;
-
--- 4. Update Employees Table (For Gamification)
-alter table public.employees add column if not exists xp int default 0;
-alter table public.employees add column if not exists level int default 1;
-
--- 5. Update Handover Logs (Image & Pin)
-alter table public.handover_logs add column if not exists image text;
-alter table public.handover_logs add column if not exists is_pinned boolean default false;
-
--- 6. Update Requests (Approval Info)
-alter table public.requests add column if not exists approved_by text;
-alter table public.requests add column if not exists approved_at text;
-
--- 7. Create Payroll Adjustments Table
+-- Payroll Adjustments Table
 create table if not exists public.payroll_adjustments (
     id text primary key,
     employee_id text not null,
@@ -126,68 +110,44 @@ create table if not exists public.payroll_adjustments (
     date text
 );
 
--- 8. FIX LỖI 3: CONCURRENT UPDATES (Add Version Column)
-ALTER TABLE public.serving_groups ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1;
+-- ==========================================
+-- 2. REVERT TO SIMPLE ARCHITECTURE (CLEANUP)
+-- ==========================================
 
--- 9. (IMPORTANT) ATOMIC UPDATE FUNCTION
--- This allows updating quantity without overwriting other data
-CREATE OR REPLACE FUNCTION atomic_update_serving_item(
-    p_group_id TEXT,
-    p_item_id TEXT,
-    p_delta INTEGER
-) RETURNS JSONB AS $$
-DECLARE
-    current_items JSONB;
-    new_items JSONB;
-BEGIN
-    -- Get current items array
-    SELECT items INTO current_items FROM serving_groups WHERE id = p_group_id;
-    
-    IF current_items IS NULL THEN
-        RETURN jsonb_build_object('error', 'Group not found');
-    END IF;
+-- Xóa cột version (nếu đã tạo)
+ALTER TABLE public.serving_groups DROP COLUMN IF EXISTS version;
 
-    -- Update the specific item quantity using JSONB path (Postgres 12+)
-    -- Logic: Iterate array, find matching ID, update servedQuantity
-    
-    SELECT jsonb_agg(
-        CASE 
-            WHEN elem->>'id' = p_item_id THEN 
-                jsonb_set(
-                    elem, 
-                    '{servedQuantity}', 
-                    to_jsonb(GREATEST(0, (elem->>'servedQuantity')::int + p_delta))
-                )
-            ELSE elem 
-        END
-    ) INTO new_items
-    FROM jsonb_array_elements(current_items) AS elem;
+-- Xóa hàm RPC Atomic (nếu đã tạo)
+DROP FUNCTION IF EXISTS atomic_update_serving_item(text, text, integer);
 
-    -- Update the record with new items and increment version
-    UPDATE serving_groups 
-    SET items = new_items, version = COALESCE(version, 0) + 1
-    WHERE id = p_group_id;
-    
-    RETURN jsonb_build_object('success', true);
-END;
-$$ LANGUAGE plpgsql;
+-- ==========================================
+-- 3. ENABLE RLS & POLICIES (BẮT BUỘC)
+-- ==========================================
 
--- Enable RLS (Idempotent)
-alter table public.tasks enable row level security;
-drop policy if exists "Public Access Tasks" on public.tasks;
-create policy "Public Access Tasks" on public.tasks for all using (true) with check (true);
+-- Serving Groups
+ALTER TABLE public.serving_groups ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Enable all access for serving groups" ON public.serving_groups;
+CREATE POLICY "Enable all access for serving groups" ON public.serving_groups FOR ALL USING (true) WITH CHECK (true);
 
-alter table public.feedback enable row level security;
-drop policy if exists "Public Access Feedback" on public.feedback;
-create policy "Public Access Feedback" on public.feedback for all using (true) with check (true);
+-- Tasks
+ALTER TABLE public.tasks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Tasks" ON public.tasks;
+CREATE POLICY "Public Access Tasks" ON public.tasks FOR ALL USING (true) WITH CHECK (true);
 
-alter table public.menu_items enable row level security;
-drop policy if exists "Public Access Menu" on public.menu_items;
-create policy "Public Access Menu" on public.menu_items for all using (true) with check (true);
+-- Feedback
+ALTER TABLE public.feedback ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Feedback" ON public.feedback;
+CREATE POLICY "Public Access Feedback" ON public.feedback FOR ALL USING (true) WITH CHECK (true);
 
-alter table public.payroll_adjustments enable row level security;
-drop policy if exists "Public Access Payroll" on public.payroll_adjustments;
-create policy "Public Access Payroll" on public.payroll_adjustments for all using (true) with check (true);
+-- Menu Items
+ALTER TABLE public.menu_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Menu" ON public.menu_items;
+CREATE POLICY "Public Access Menu" ON public.menu_items FOR ALL USING (true) WITH CHECK (true);
+
+-- Payroll
+ALTER TABLE public.payroll_adjustments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Public Access Payroll" ON public.payroll_adjustments;
+CREATE POLICY "Public Access Payroll" ON public.payroll_adjustments FOR ALL USING (true) WITH CHECK (true);
 `;
 
   const handleCopySQL = () => {
@@ -290,7 +250,7 @@ create policy "Public Access Payroll" on public.payroll_adjustments for all usin
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h3 className="text-white font-bold text-lg flex items-center"><Server className="mr-2 text-teal-500"/> Khởi tạo Tables</h3>
-                            <p className="text-gray-500 mt-1">Copy đoạn code SQL dưới đây và chạy trong Supabase SQL Editor để tạo bảng dữ liệu.</p>
+                            <p className="text-gray-500 mt-1">Copy đoạn code SQL dưới đây và chạy trong Supabase SQL Editor để cấu hình lại Database (Simple Mode).</p>
                         </div>
                         <button 
                             onClick={handleCopySQL}
