@@ -176,6 +176,10 @@ export interface TimeConfig {
     timezone: string;
 }
 
+export interface AiConfig {
+    groupMenuPrompt?: string; // Custom prompt for Gemini
+}
+
 export interface SystemSettings {
     location: LocationConfig;
     wifis: WifiConfig[];
@@ -184,6 +188,7 @@ export interface SystemSettings {
     shiftConfigs: ShiftConfig[];
     notificationConfig: NotificationConfig; 
     timeConfig: TimeConfig; 
+    aiConfig?: AiConfig; // NEW
     webhook?: {
         url: string;
         enabled: boolean;
@@ -323,6 +328,7 @@ export interface GroupOrder {
     groupName: string;
     location: string; // Table or Area
     guestCount: number;
+    tableAllocation?: string; // e.g., "2 bàn 10, 1 bàn 6"
     items: GroupOrderItem[];
     status: 'PENDING' | 'SERVING' | 'COMPLETED';
     createdAt: string;

@@ -375,6 +375,15 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   useEffect(() => {
       const initApp = async () => {
+          // SAFETY TIMEOUT: Force stop loading after 5 seconds if fetch hangs
+          const safetyTimer = setTimeout(() => {
+              if (isLoading) {
+                  console.warn("Safety Timeout: Forcing app load...");
+                  setIsLoading(false);
+                  setIsRestoringSession(false);
+              }
+          }, 5000);
+
           const loadedEmployees = await loadData(false);
           const sessionJson = localStorage.getItem(STORAGE_SESSION_KEY);
           if (sessionJson) {
@@ -387,6 +396,7 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               } catch (e) { localStorage.removeItem(STORAGE_SESSION_KEY); }
           }
           setIsRestoringSession(false);
+          clearTimeout(safetyTimer);
       };
       initApp();
 
@@ -477,14 +487,13 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                       setGroupOrders(prev => prev.filter(o => o.id !== oldRecord.id));
                   } else {
                       const mappedOrder = mapGroupOrderFromDB(newRecord);
-                      if (mappedOrder.status === 'COMPLETED') {
-                          setGroupOrders(prev => prev.filter(o => o.id !== mappedOrder.id));
-                      } else {
-                          setGroupOrders(prev => eventType === 'INSERT' 
-                              ? (prev.some(o => o.id === mappedOrder.id) ? prev : [mappedOrder, ...prev])
-                              : prev.map(o => o.id === mappedOrder.id ? mappedOrder : o)
-                          );
-                      }
+                      // Update logic: Always update state regardless of status, let components filter
+                      setGroupOrders(prev => {
+                          const exists = prev.some(o => o.id === mappedOrder.id);
+                          return exists 
+                              ? prev.map(o => o.id === mappedOrder.id ? mappedOrder : o)
+                              : [mappedOrder, ...prev];
+                      });
                       
                       if (eventType === 'INSERT') {
                           dispatchNotification("📢 KHÁCH ĐOÀN MỚI", `${mappedOrder.groupName} (${mappedOrder.location})`);
@@ -609,7 +618,8 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   };
 
   const completeGroupOrder = (orderId: string) => {
-      setGroupOrders(prev => prev.filter(o => o.id !== orderId));
+      // CHANGED: Update status locally instead of removing
+      setGroupOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'COMPLETED' } : o));
       supabaseService.updateGroupOrderStatus(orderId, 'COMPLETED');
   };
 

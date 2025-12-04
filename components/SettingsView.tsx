@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router, Cloud, ToggleRight, Smartphone, MessageSquare, Utensils, Image as ImageIcon, Sparkles, Download, Upload } from 'lucide-react';
+import { MapPin, Wifi, Shield, Save, Globe, Clock, Trash2, Plus, Database, CheckCircle, AlertTriangle, HelpCircle, X, Crosshair, BellRing, Loader2, Info, Edit2, Router, Cloud, ToggleRight, Smartphone, MessageSquare, Utensils, Image as ImageIcon, Sparkles, Download, Upload, Bot } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
 import { WifiConfig, ShiftConfig, MenuItem, SystemSettings } from '../types';
 import { generateMenuItemDetails } from '../services/geminiService';
 
-type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE' | 'NOTIFICATION' | 'TIME' | 'MENU';
+type SettingsTab = 'LOCATION' | 'WIFI' | 'RULES' | 'DATABASE' | 'NOTIFICATION' | 'TIME' | 'MENU' | 'AI';
 
 export const SettingsView: React.FC = () => {
   const { settings, updateSettings, testNotification, menuItems, addMenuItem, updateMenuItem, deleteMenuItem } = useGlobalContext();
@@ -27,15 +27,27 @@ export const SettingsView: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null); // For Restore
 
+  // AI Prompt State
+  const [aiPrompt, setAiPrompt] = useState('');
+
   // Unique categories for datalist
   const existingCategories = Array.from(new Set(menuItems.map(i => i.category)));
 
   useEffect(() => {
       setLocalSettings(settings);
+      setAiPrompt(settings.aiConfig?.groupMenuPrompt || '');
   }, [settings]);
 
   const handleSave = () => {
-      updateSettings(localSettings);
+      // Save AI Config to settings before updating
+      const updatedSettings = {
+          ...localSettings,
+          aiConfig: {
+              ...localSettings.aiConfig,
+              groupMenuPrompt: aiPrompt
+          }
+      };
+      updateSettings(updatedSettings);
       alert("Đã lưu cấu hình hệ thống lên Cloud!");
   }
 
@@ -335,6 +347,11 @@ export const SettingsView: React.FC = () => {
       }));
   };
 
+  const resetAiPrompt = () => {
+      // Default prompt from geminiService.ts (Optional: you can copy it here or just clear to let service use default)
+      setAiPrompt('');
+  };
+
   if (!localSettings || !localSettings.rules) {
       return (
           <div className="flex items-center justify-center h-64">
@@ -374,7 +391,13 @@ export const SettingsView: React.FC = () => {
                     onClick={() => setActiveTab('MENU')}
                     className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'MENU' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
                 >
-                    <Utensils size={18} className="mr-3"/> Quản lý Menu (Mới)
+                    <Utensils size={18} className="mr-3"/> Quản lý Menu (Guest)
+                </button>
+                <button 
+                    onClick={() => setActiveTab('AI')}
+                    className={`w-full text-left px-4 py-3 font-medium rounded-lg flex items-center transition-colors ${activeTab === 'AI' ? 'bg-teal-50 text-teal-700 border border-teal-100 font-bold' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                    <Bot size={18} className="mr-3"/> Cấu hình AI
                 </button>
                 <button 
                     onClick={() => setActiveTab('NOTIFICATION')}
@@ -530,6 +553,37 @@ export const SettingsView: React.FC = () => {
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* TAB: AI CONFIG */}
+                {activeTab === 'AI' && (
+                    <div className="space-y-6 animate-in fade-in">
+                        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                            <div className="flex justify-between items-start mb-4">
+                                <div>
+                                    <h3 className="font-bold text-gray-900 flex items-center"><Bot className="mr-2 text-teal-600" size={20}/> Cấu hình Gemini AI</h3>
+                                    <p className="text-sm text-gray-500 mt-1">Tùy chỉnh Prompt để điều khiển cách AI đọc menu.</p>
+                                </div>
+                                <button onClick={resetAiPrompt} className="text-xs font-bold text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg border border-red-200">
+                                    Khôi phục mặc định
+                                </button>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                <label className="block text-sm font-bold text-gray-700">Prompt Nhập Menu (Vision API)</label>
+                                <textarea 
+                                    value={aiPrompt}
+                                    onChange={(e) => setAiPrompt(e.target.value)}
+                                    placeholder="Nhập prompt tùy chỉnh cho AI..."
+                                    className="w-full h-64 border rounded-xl p-4 text-sm font-mono text-gray-800 bg-gray-50 focus:ring-2 focus:ring-teal-500 outline-none resize-y"
+                                ></textarea>
+                                <p className="text-xs text-gray-500 italic">
+                                    * Lưu ý: Prompt cần giữ nguyên định dạng JSON Output yêu cầu để hệ thống hoạt động đúng.
+                                    Nếu để trống, hệ thống sẽ sử dụng prompt mặc định.
+                                </p>
                             </div>
                         </div>
                     </div>

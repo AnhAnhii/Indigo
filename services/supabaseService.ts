@@ -23,7 +23,6 @@ export const mapEmployeeFromDB = (row: any): Employee => ({
 });
 
 export const mapLogFromDB = (row: any): TimesheetLog => {
-    // DECODE COMPOSITE SHIFT CODE (FORMAT: "CODE|SESSION")
     const rawShiftCode = row.shift_code || '';
     const [code, session] = rawShiftCode.includes('|') ? rawShiftCode.split('|') : [rawShiftCode, undefined];
 
@@ -130,6 +129,7 @@ export const mapGroupOrderFromDB = (row: any): GroupOrder => ({
     groupName: row.group_name,
     location: row.location,
     guestCount: row.guest_count,
+    tableAllocation: row.table_allocation,
     items: row.items || [],
     status: row.status,
     createdAt: row.created_at
@@ -142,62 +142,87 @@ export const supabaseService = {
     
     // --- FETCH ALL ---
     fetchAllData: async () => {
-        const [
-            { data: employees },
-            { data: logs },
-            { data: requests },
-            { data: settings },
-            { data: handovers },
-            { data: schedules },
-            { data: tasks },
-            { data: dismissed },
-            { data: staffTasks },
-            { data: feedbacks },
-            { data: menuItems },
-            { data: adjustments },
-            { data: groupOrders }
-        ] = await Promise.all([
-            supabase.from('employees').select('*'),
-            supabase.from('attendance_logs').select('*'),
-            supabase.from('requests').select('*'),
-            supabase.from('system_settings').select('settings').eq('id', 1).single(),
-            supabase.from('handover_logs').select('*'),
-            supabase.from('work_schedules').select('*'),
-            supabase.from('prep_tasks').select('*'),
-            supabase.from('dismissed_alerts').select('*'),
-            supabase.from('tasks').select('*'),
-            supabase.from('feedback').select('*'),
-            supabase.from('menu_items').select('*'),
-            supabase.from('payroll_adjustments').select('*'),
-            supabase.from('group_orders').select('*').neq('status', 'COMPLETED')
-        ]);
+        try {
+            const [
+                { data: employees },
+                { data: logs },
+                { data: requests },
+                { data: settings },
+                { data: handovers },
+                { data: schedules },
+                { data: tasks },
+                { data: dismissed },
+                { data: staffTasks },
+                { data: feedbacks },
+                { data: menuItems },
+                { data: adjustments }
+            ] = await Promise.all([
+                supabase.from('employees').select('*'),
+                supabase.from('attendance_logs').select('*'),
+                supabase.from('requests').select('*'),
+                supabase.from('system_settings').select('settings, ai_config').eq('id', 1).single(),
+                supabase.from('handover_logs').select('*'),
+                supabase.from('work_schedules').select('*'),
+                supabase.from('prep_tasks').select('*'),
+                supabase.from('dismissed_alerts').select('*'),
+                supabase.from('tasks').select('*'),
+                supabase.from('feedback').select('*'),
+                supabase.from('menu_items').select('*'),
+                supabase.from('payroll_adjustments').select('*')
+            ]);
 
-        return {
-            employees: employees?.map(mapEmployeeFromDB) || [],
-            logs: logs?.map(mapLogFromDB) || [],
-            requests: requests?.map(mapRequestFromDB) || [],
-            settings: settings?.settings || {},
-            handoverLogs: handovers?.map((h: any) => ({
-                ...h, 
-                id: String(h.id),
-                isPinned: h.is_pinned // New field
-            })) || [],
-            schedules: schedules?.map((s: any) => ({
-                id: s.id, employeeId: s.employee_id, date: s.date, shiftCode: s.shift_code
-            })) || [],
-            prepTasks: tasks?.map((t: any) => ({
-                id: t.id, task: t.task, isCompleted: t.is_completed, assignee: t.assignee
-            })) || [],
-            dismissedAlerts: dismissed || [],
-            tasks: staffTasks?.map(mapTaskFromDB) || [],
-            feedbacks: feedbacks?.map(mapFeedbackFromDB) || [],
-            menuItems: menuItems?.map(mapMenuItemFromDB) || [],
-            adjustments: adjustments?.map(mapAdjustmentFromDB) || [],
-            groupOrders: groupOrders?.map(mapGroupOrderFromDB) || []
-        };
+            // Fail-safe fetch for group_orders
+            let groupOrdersData: any[] = [];
+            try {
+                // Fetch ALL orders (active + history) without status filter
+                const { data, error } = await supabase.from('group_orders').select('*'); 
+                if (!error && data) {
+                    groupOrdersData = data;
+                } else if (error) {
+                    console.warn("Group Orders Fetch Warning:", error.message);
+                }
+            } catch (e) {
+                console.warn("Group Orders Fetch Exception:", e);
+            }
+
+            const rawSettings = settings?.settings || {};
+            const aiConfig = settings?.ai_config || {};
+
+            return {
+                employees: employees?.map(mapEmployeeFromDB) || [],
+                logs: logs?.map(mapLogFromDB) || [],
+                requests: requests?.map(mapRequestFromDB) || [],
+                settings: { ...rawSettings, aiConfig }, // Merge AI Config
+                handoverLogs: handovers?.map((h: any) => ({
+                    ...h, 
+                    id: String(h.id),
+                    isPinned: h.is_pinned
+                })) || [],
+                schedules: schedules?.map((s: any) => ({
+                    id: s.id, employeeId: s.employee_id, date: s.date, shiftCode: s.shift_code
+                })) || [],
+                prepTasks: tasks?.map((t: any) => ({
+                    id: t.id, task: t.task, isCompleted: t.is_completed, assignee: t.assignee
+                })) || [],
+                dismissedAlerts: dismissed || [],
+                tasks: staffTasks?.map(mapTaskFromDB) || [],
+                feedbacks: feedbacks?.map(mapFeedbackFromDB) || [],
+                menuItems: menuItems?.map(mapMenuItemFromDB) || [],
+                adjustments: adjustments?.map(mapAdjustmentFromDB) || [],
+                // Ensure array type for groupOrders
+                groupOrders: (groupOrdersData || []).map(mapGroupOrderFromDB)
+            };
+        } catch (error) {
+            console.error("CRITICAL SYNC ERROR:", error);
+            return {
+                employees: [], logs: [], requests: [], settings: {}, handoverLogs: [], 
+                schedules: [], prepTasks: [], dismissedAlerts: [], tasks: [], 
+                feedbacks: [], menuItems: [], adjustments: [], groupOrders: []
+            };
+        }
     },
 
-    // --- EMPLOYEES ---
+    // ... (Keep existing CRUD methods unchanged, except ensure GroupOrder methods use mapGroupOrderFromDB fields if needed)
     upsertEmployee: async (emp: Employee) => {
         const { error } = await supabase.from('employees').upsert({
             id: emp.id,
@@ -219,7 +244,6 @@ export const supabaseService = {
         await supabase.from('employees').delete().eq('id', id);
     },
 
-    // --- LOGS ---
     upsertLog: async (log: TimesheetLog) => {
         const encodedShiftCode = log.session ? `${log.shiftCode}|${log.session}` : log.shiftCode;
         await supabase.from('attendance_logs').upsert({
@@ -237,7 +261,6 @@ export const supabaseService = {
         });
     },
 
-    // --- REQUESTS ---
     upsertRequest: async (req: EmployeeRequest) => {
         await supabase.from('requests').upsert({
             id: req.id,
@@ -256,15 +279,17 @@ export const supabaseService = {
         });
     },
 
-    // --- SETTINGS ---
     saveSettings: async (settings: SystemSettings) => {
+        // Separate AI Config if present
+        const { aiConfig, ...jsonSettings } = settings;
+        
         await supabase.from('system_settings').upsert({
             id: 1,
-            settings: settings
+            settings: jsonSettings,
+            ai_config: aiConfig || {}
         });
     },
 
-    // --- HANDOVER ---
     addHandover: async (log: HandoverLog) => {
         await supabase.from('handover_logs').upsert({
             id: log.id,
@@ -279,7 +304,6 @@ export const supabaseService = {
         });
     },
 
-    // --- SCHEDULES ---
     upsertSchedule: async (schedule: WorkSchedule) => {
         await supabase.from('work_schedules').upsert({
             id: schedule.id,
@@ -289,7 +313,6 @@ export const supabaseService = {
         });
     },
 
-    // --- TASKS & ALERTS ---
     upsertPrepTask: async (task: PrepTask) => {
         await supabase.from('prep_tasks').upsert({
             id: task.id,
@@ -310,9 +333,8 @@ export const supabaseService = {
         });
     },
 
-    // --- STAFF TASKS ---
     upsertTask: async (task: Task) => {
-        const { error } = await supabase.from('tasks').upsert({
+        await supabase.from('tasks').upsert({
             id: task.id,
             title: task.title,
             description: task.description,
@@ -334,16 +356,14 @@ export const supabaseService = {
             shift_code: task.shiftCode,
             required_shifts: task.requiredShifts
         });
-        if (error) console.error("Task Save Failed:", error);
     },
 
     deleteTask: async (id: string) => {
         await supabase.from('tasks').delete().eq('id', id);
     },
 
-    // --- FEEDBACK ---
     upsertFeedback: async (feedback: Feedback) => {
-        const { error } = await supabase.from('feedback').upsert({
+        await supabase.from('feedback').upsert({
             id: feedback.id,
             type: feedback.type,
             customer_name: feedback.customerName,
@@ -358,12 +378,10 @@ export const supabaseService = {
             staff_id: feedback.staffId,
             staff_name: feedback.staffName
         });
-        if (error) console.error("Feedback Save Failed:", error);
     },
 
-    // --- MENU ITEMS ---
     upsertMenuItem: async (item: MenuItem) => {
-        const { error } = await supabase.from('menu_items').upsert({
+        await supabase.from('menu_items').upsert({
             id: item.id,
             name: item.name,
             name_en: item.nameEn,
@@ -380,14 +398,12 @@ export const supabaseService = {
             is_available: item.isAvailable,
             created_at: new Date().toISOString()
         });
-        if (error) console.error("Menu Item Save Failed:", error);
     },
 
     deleteMenuItem: async (id: string) => {
         await supabase.from('menu_items').delete().eq('id', id);
     },
 
-    // --- PAYROLL ADJUSTMENTS ---
     upsertAdjustment: async (adj: PayrollAdjustment) => {
         await supabase.from('payroll_adjustments').upsert({
             id: adj.id,
@@ -411,11 +427,11 @@ export const supabaseService = {
             group_name: order.groupName,
             location: order.location,
             guest_count: order.guestCount,
+            table_allocation: order.tableAllocation, // Map to DB column
             items: order.items,
             status: order.status,
             created_at: order.createdAt
         });
-        // Improved Error Logging for Debugging
         if (error) console.error("Group Order Upsert Failed:", JSON.stringify(error, null, 2));
     },
 

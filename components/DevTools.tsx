@@ -45,6 +45,10 @@ DROP FUNCTION IF EXISTS atomic_update_serving_item;
 -- 2. SETUP CÁC BẢNG (VERSION 2)
 -- ==========================================
 
+-- System Settings Update (Thêm AI Config)
+alter table if exists public.system_settings 
+add column if not exists ai_config jsonb default '{}'::jsonb;
+
 -- Tasks Table (Nhiệm vụ & Gamification)
 create table if not exists public.tasks (
     id text primary key,
@@ -117,12 +121,13 @@ create table if not exists public.payroll_adjustments (
 );
 
 -- Group Orders Table (Thực đơn Đoàn - New V2)
--- To prevent "Upsert Failed", we use TEXT ID to compatible with Date.now() ID gen.
+-- Using uuid as ID to ensure uniqueness and prevent upsert errors
 create table if not exists public.group_orders (
-    id text primary key,
+    id uuid primary key default gen_random_uuid(),
     group_name text not null,
     location text,
     guest_count int default 0,
+    table_allocation text,
     items jsonb default '[]'::jsonb, -- Array of {name, quantity, unit, note, isServed}
     status text default 'PENDING', -- PENDING, SERVING, COMPLETED
     created_at timestamptz default now()

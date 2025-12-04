@@ -46,7 +46,7 @@ export const askAiAssistant = async (prompt: string, contextData: string): Promi
   }
 };
 
-export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
+export const parseMenuImage = async (base64Image: string, customPrompt?: string): Promise<any[]> => {
     const ai = getAiInstance();
     if (!ai) {
         console.error("Aborting image parse: No API instance");
@@ -56,60 +56,34 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
     try {
         const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
-        // PROMPT V19: MULTI-GROUP DETECTION & SMART CONSOLIDATED NOTES
-        const prompt = `
-            Bạn là Quản lý nhà hàng (AI Order Parser). Nhiệm vụ: Phân tích ảnh menu viết tay/in để trích xuất danh sách order.
+        // PROMPT V25: SMART ALLOCATION EXTRACTION
+        const defaultPrompt = `
+            Bạn là Quản lý nhà hàng. Nhiệm vụ: Phân tích ảnh menu viết tay/in để trích xuất danh sách order.
 
-            QUAN TRỌNG: 1 ẢNH CÓ THỂ CHỨA NHIỀU ĐOÀN KHÁCH KHÁC NHAU. Hãy tìm tất cả các khối thông tin tách biệt và trả về mảng chứa nhiều object.
+            QUAN TRỌNG:
+            1. Tìm và trích xuất trường "tableAllocation" (Phân chia bàn) nếu có thông tin dạng "2 bàn 10", "2x6", "3 mâm 6", v.v.
+            2. Trả về JSON Array (vì 1 ảnh có thể có nhiều đoàn).
 
-            QUY TẮC XỬ LÝ (V19):
-
-            1. NHẬN DIỆN ĐOÀN (Groups):
-               - Tìm các cụm từ chỉ vị trí bàn (A1, B2, VIP...) hoặc tên đoàn (Đoàn Hưng, Khách Âu...).
-               - Các đoàn thường ngăn cách nhau bằng dòng kẻ ngang hoặc khoảng trắng lớn.
-               - Mỗi đoàn là một object riêng biệt trong mảng kết quả.
-
-            2. LOGIC MÓN ĂN CHUNG (Shared Dishes) & GHI CHÚ GỘP (Consolidated Notes):
-               - Áp dụng cho: Nem, Rau, Gà, Bò, Canh, Lẩu... (Món đặt giữa bàn).
-               - Tự động tính tổng số lượng (Quantity) dựa trên số bàn.
-               - LOGIC GHI CHÚ GỘP: 
-                 + Nếu có nhiều bàn cùng số lượng người (VD: 2 bàn 7 người), HÃY GỘP GHI CHÚ.
-                 + Đừng ghi: "1 đĩa bàn 7, 1 đĩa bàn 7".
-                 + HÃY GHI: "2 đĩa cho bàn 7" hoặc "2 đĩa/tô (chia theo bàn)".
-                 + Ví dụ phức tạp: Đoàn có 2 bàn 10 và 1 bàn 6. Tổng 3 đĩa. Note: "2 đĩa bàn 10 • 1 đĩa bàn 6".
-
-            3. LOGIC CANH (Soup/Broth):
-               - Canh Việt Nam (Canh chua, Canh rau...) là MÓN CHUNG.
-               - Quantity = Số tô lớn (theo số bàn).
-               - Note: Áp dụng logic gộp như trên.
-
-            4. SÚP ÂU / CHÁO (Individual Portion):
-               - Quantity = Tổng số khách.
-               - Note: Không cần chia.
-
-            OUTPUT JSON FORM (Array):
+            OUTPUT FORMAT:
             [
                 {
-                    "groupName": "Đoàn 14 khách (A)", 
-                    "location": "A1-A2", 
-                    "guestCount": 14,
+                    "groupName": "Tên đoàn / Bàn", 
+                    "location": "Vị trí", 
+                    "guestCount": 0,
+                    "tableAllocation": "2 bàn 10", // TRÍCH XUẤT CHÍNH XÁC CHUỖI NÀY
                     "items": [
                         { 
-                            "name": "Ngọn su su xào tỏi", 
-                            "quantity": 2, 
-                            "unit": "Đĩa", 
-                            "note": "2 đĩa cho bàn 7 (Mỗi bàn 1 đĩa)" 
+                            "name": "Tên món", 
+                            "quantity": 1, 
+                            "unit": "Đĩa/Nồi/Kg...", 
+                            "note": "Ghi chú nếu có" 
                         }
                     ]
-                },
-                {
-                    "groupName": "Khách lẻ (B)", 
-                    "location": "B5", 
-                    "guestCount": 4,
-                    "items": [...]
                 }
             ]
         `;
+
+        const promptToUse = customPrompt && customPrompt.length > 20 ? customPrompt : defaultPrompt;
 
         const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
@@ -117,7 +91,7 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
                 {
                     role: 'user',
                     parts: [
-                        { text: prompt },
+                        { text: promptToUse },
                         { inlineData: { mimeType: 'image/jpeg', data: cleanBase64 } }
                     ]
                 }
@@ -126,7 +100,6 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
 
         const text = response.text || "[]";
         
-        // Clean JSON formatting
         let jsonString = text;
         const arrayMatch = text.match(/\[\s*\{.*\}\s*\]/s);
         
@@ -143,12 +116,12 @@ export const parseMenuImage = async (base64Image: string): Promise<any[]> => {
         
         try {
             const result = JSON.parse(jsonString);
-            // Ensure result is always an array
             const finalArray = Array.isArray(result) ? result : [result];
 
             return finalArray.map((g: any) => ({
                 ...g,
                 guestCount: Number(g.guestCount) || 0,
+                tableAllocation: g.tableAllocation || '', 
                 items: Array.isArray(g.items) ? g.items.map((i: any) => ({
                     ...i,
                     quantity: Number(i.quantity) || 1,
@@ -284,7 +257,6 @@ export const generateMarketingContent = async (topic: string): Promise<{ story: 
     if (!ai) return { story: 'Lỗi AI', trend: 'Lỗi AI', professional: 'Lỗi AI', review: 'Lỗi AI', fun: 'Lỗi AI', chef: 'Lỗi AI' };
 
     try {
-        // STYLE: "HEM SAIGON" BUT FOR "INDIGO SAPA" + 3 NEW STYLES
         const prompt = `
             Bạn là Content Creator cho nhà hàng 'Indigo Restaurant' - Lá Chàm Sapa.
             Hãy viết 6 nội dung Facebook khác nhau về chủ đề: "${topic}".
