@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Terminal, Users, Database, Clock, Activity, ShieldCheck, Laptop, Smartphone, Search, Trash2, Copy, Check, Server, AlertOctagon } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -285,5 +284,6 @@ CREATE POLICY "Public Access Group Orders" ON public.group_orders FOR ALL USING 
                 </div>
             )}
         </div>
-    );
+    </div>
+  );
 };
