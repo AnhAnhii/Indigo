@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Clock, BarChart2, MessageSquare, Menu, X, FileText, DollarSign, Settings, Table, ClipboardList, LogOut, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal, CheckSquare, Smile, Star, Sparkles, ConciergeBell } from 'lucide-react';
+import { Users, Calendar, Clock, BarChart2, MessageSquare, Menu, X, FileText, DollarSign, Settings, Table, ClipboardList, LogOut, BookOpen, AlertTriangle, Bell, QrCode, Wifi, WifiOff, Loader2, Terminal, CheckSquare, Smile, Star, Sparkles, ConciergeBell, BellRing } from 'lucide-react';
 import { Dashboard } from './components/Dashboard';
 import { EmployeeList } from './components/EmployeeList';
 import { AttendanceKiosk } from './components/AttendanceKiosk';
@@ -23,7 +23,8 @@ import { FeedbackManager } from './components/FeedbackManager';
 import { StaffReviewQr } from './components/StaffReviewQr'; 
 import { ReviewRedirect } from './components/ReviewRedirect'; 
 import { MarketingView } from './components/MarketingView';
-import { GroupOrderManager } from './components/GroupOrderManager'; // Import New Component
+import { GroupOrderManager } from './components/GroupOrderManager'; 
+import { ReceptionistView } from './components/ReceptionistView'; // Import New Component
 import { AppView, EmployeeRole } from './types';
 import { GlobalProvider, useGlobalContext } from './contexts/GlobalContext';
 
@@ -41,6 +42,8 @@ const AppContent: React.FC = () => {
 
   const isAdmin = currentUser?.role === EmployeeRole.MANAGER || currentUser?.role === EmployeeRole.DEV || currentUser?.role === EmployeeRole.DEPARTMENT_HEAD;
   const isDev = currentUser?.role === EmployeeRole.DEV;
+  // Allow Receptionist role to access specific views
+  const isReceptionist = currentUser?.role === EmployeeRole.RECEPTIONIST || isAdmin;
 
   const bannerAlerts = activeAlerts.filter(a => !dismissedAlertIds.has(a.id));
   const alertCount = bannerAlerts.length;
@@ -136,7 +139,8 @@ const AppContent: React.FC = () => {
       case AppView.TIMESHEET: return <TimesheetView />;
       case AppView.SETTINGS: return isAdmin ? <SettingsView /> : null;
       case AppView.KITCHEN: return <KitchenView />;
-      case AppView.GROUP_MENU: return <GroupOrderManager />; // NEW VIEW
+      case AppView.GROUP_MENU: return <GroupOrderManager />;
+      case AppView.RECEPTIONIST: return <ReceptionistView />; // NEW VIEW
       case AppView.HANDOVER: return <HandoverView />;
       case AppView.PROFILE: return <ProfileView />;
       case AppView.NOTIFICATIONS: return <NotificationsView onViewChange={setCurrentView} />;
@@ -222,6 +226,9 @@ const AppContent: React.FC = () => {
         <nav className="p-4 space-y-1.5 flex-1 overflow-y-auto no-scrollbar">
           <div className="pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-widest">Tổng quan</div>
           <NavItem view={AppView.DASHBOARD} icon={BarChart2} label="Trang chủ" />
+          {isReceptionist && (
+              <NavItem view={AppView.RECEPTIONIST} icon={BellRing} label="Báo Khách Đến" />
+          )}
           <NavItem view={AppView.TASKS} icon={CheckSquare} label="Nhiệm vụ & KPI" />
           <NavItem view={AppView.REVIEW_QR} icon={Star} label="QR Xin Review" />
           <NavItem view={AppView.NOTIFICATIONS} icon={Bell} label="Thông báo" badge={alertCount} />

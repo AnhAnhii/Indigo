@@ -132,7 +132,8 @@ export const mapGroupOrderFromDB = (row: any): GroupOrder => ({
     tableAllocation: row.table_allocation,
     items: row.items || [],
     status: row.status,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    guestArrivalNotifiedAt: row.guest_arrival_notified_at
 });
 
 
@@ -222,7 +223,7 @@ export const supabaseService = {
         }
     },
 
-    // ... (Keep existing CRUD methods unchanged, except ensure GroupOrder methods use mapGroupOrderFromDB fields if needed)
+    // ... (Keep existing CRUD methods unchanged)
     upsertEmployee: async (emp: Employee) => {
         const { error } = await supabase.from('employees').upsert({
             id: emp.id,
@@ -280,9 +281,7 @@ export const supabaseService = {
     },
 
     saveSettings: async (settings: SystemSettings) => {
-        // Separate AI Config if present
         const { aiConfig, ...jsonSettings } = settings;
-        
         await supabase.from('system_settings').upsert({
             id: 1,
             settings: jsonSettings,
@@ -427,15 +426,28 @@ export const supabaseService = {
             group_name: order.groupName,
             location: order.location,
             guest_count: order.guestCount,
-            table_allocation: order.tableAllocation, // Map to DB column
+            table_allocation: order.tableAllocation,
             items: order.items,
             status: order.status,
-            created_at: order.createdAt
+            created_at: order.createdAt,
+            guest_arrival_notified_at: order.guestArrivalNotifiedAt
         });
         if (error) console.error("Group Order Upsert Failed:", JSON.stringify(error, null, 2));
     },
 
     updateGroupOrderStatus: async (id: string, status: string) => {
         await supabase.from('group_orders').update({ status }).eq('id', id);
+    },
+
+    // New: Notify Guest Arrival
+    notifyGuestArrival: async (orderId: string) => {
+        const now = new Date().toISOString();
+        const { error } = await supabase
+            .from('group_orders')
+            .update({ guest_arrival_notified_at: now })
+            .eq('id', orderId);
+        
+        if (error) console.error("Error notifying guest arrival:", error);
+        return { success: !error };
     }
 };

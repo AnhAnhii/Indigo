@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Terminal, Users, Database, Clock, Activity, ShieldCheck, Laptop, Smartphone, Search, Trash2, Copy, Check, Server, AlertOctagon } from 'lucide-react';
 import { useGlobalContext } from '../contexts/GlobalContext';
@@ -131,6 +132,10 @@ create table if not exists public.group_orders (
     status text default 'PENDING', -- PENDING, SERVING, COMPLETED
     created_at timestamptz default now()
 );
+
+-- Add guest_arrival_notified_at column if missing
+ALTER TABLE public.group_orders 
+ADD COLUMN IF NOT EXISTS guest_arrival_notified_at timestamptz;
 
 -- ==========================================
 -- 3. ENABLE RLS & POLICIES (BẢO MẬT)

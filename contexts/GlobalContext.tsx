@@ -51,8 +51,6 @@ interface GlobalContextType {
   togglePrepTask: (id: string) => void;
   deletePrepTask: (id: string) => void;
   
-  // REMOVED: Serving Group functions
-
   handoverLogs: HandoverLog[];
   addHandoverLog: (log: HandoverLog) => void;
   togglePinHandover: (id: string) => void;
@@ -81,6 +79,7 @@ interface GlobalContextType {
   upsertGroupOrder: (order: GroupOrder) => void;
   toggleGroupOrderItem: (orderId: string, itemIndex: number) => void;
   completeGroupOrder: (orderId: string) => void;
+  notifyGuestArrival: (orderId: string) => Promise<void>; // New Function
 
   activeAlerts: SystemAlert[];
   dismissedAlertIds: Set<string>; 
@@ -121,7 +120,6 @@ const INITIAL_SETTINGS: SystemSettings = {
     location: { latitude: 21.0285, longitude: 105.8542, radiusMeters: 100, name: "Nhà hàng Trung tâm" },
     wifis: [],
     rules: { allowedLateMinutes: 15 },
-    // servingConfig removed
     shiftConfigs: [],
     notificationConfig: {
         enableGuestArrival: true,
@@ -152,7 +150,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const [logs, setLogs] = useState<TimesheetLog[]>([]);
   const [requests, setRequests] = useState<EmployeeRequest[]>([]);
   const [settings, setSettings] = useState<SystemSettings>(INITIAL_SETTINGS);
-  // REMOVED: servingGroups state
   const [handoverLogs, setHandoverLogs] = useState<HandoverLog[]>([]);
   const [schedules, setSchedules] = useState<WorkSchedule[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -347,7 +344,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           setEmployees(processedEmployees);
           setLogs(data.logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
           setRequests(data.requests);
-          // Removed Serving Groups
           setHandoverLogs(data.handoverLogs.sort((a: HandoverLog, b: HandoverLog) => {
               if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
               return new Date(b.date).getTime() - new Date(a.date).getTime();
@@ -375,7 +371,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   useEffect(() => {
       const initApp = async () => {
-          // SAFETY TIMEOUT: Force stop loading after 5 seconds if fetch hangs
           const safetyTimer = setTimeout(() => {
               if (isLoading) {
                   console.warn("Safety Timeout: Forcing app load...");
@@ -418,8 +413,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               addSystemLog('DB_CHANGE', `${payload.table} : ${payload.eventType}`, 'DB_CHANGE');
               const config = settingsRef.current.notificationConfig || INITIAL_SETTINGS.notificationConfig;
               const { table, eventType, new: newRecord, old: oldRecord } = payload;
-
-              // REMOVED: Serving Group realtime logic
 
               if (table === 'feedback') {
                   const mappedFeedback = mapFeedbackFromDB(newRecord);
@@ -487,7 +480,6 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                       setGroupOrders(prev => prev.filter(o => o.id !== oldRecord.id));
                   } else {
                       const mappedOrder = mapGroupOrderFromDB(newRecord);
-                      // Update logic: Always update state regardless of status, let components filter
                       setGroupOrders(prev => {
                           const exists = prev.some(o => o.id === mappedOrder.id);
                           return exists 
@@ -495,8 +487,19 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                               : [mappedOrder, ...prev];
                       });
                       
+                      // Notification logic
                       if (eventType === 'INSERT') {
                           dispatchNotification("📢 KHÁCH ĐOÀN MỚI", `${mappedOrder.groupName} (${mappedOrder.location})`);
+                      } else if (eventType === 'UPDATE' && newRecord.guest_arrival_notified_at && (!oldRecord.guest_arrival_notified_at || newRecord.guest_arrival_notified_at !== oldRecord.guest_arrival_notified_at)) {
+                          dispatchNotification("🔔 KHÁCH ĐẾN", `${mappedOrder.groupName} - ${mappedOrder.guestCount} khách - ${mappedOrder.location}`, 'SUCCESS');
+                          setActiveAlerts(prev => [{ 
+                              id: `arrival_${mappedOrder.id}`, 
+                              type: 'GUEST_ARRIVAL', 
+                              message: "KHÁCH ĐÃ ĐẾN", 
+                              details: `${mappedOrder.groupName} (${mappedOrder.location})`, 
+                              severity: 'MEDIUM', 
+                              timestamp: new Date().toLocaleTimeString('vi-VN') 
+                          }, ...prev]);
                       }
                   }
               }
@@ -518,116 +521,260 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                   name: currentUser.name,
                   role: currentUser.role,
                   online_at: new Date().toISOString(),
-                  platform: /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
+                  platform: /iPhone|iPad/.test(navigator.userAgent) ? 'Mobile' : 'Desktop'
               });
           };
           trackPresence();
       }
-  }, [currentUser, connectionStatus]);
+  }, [currentUser]);
 
-  // --- CRUD HELPERS ---
-  const addEmployee = (e: Employee) => { setEmployees(prev => [...prev, e]); supabaseService.upsertEmployee(e); };
-  const updateEmployee = (e: Employee) => { setEmployees(prev => prev.map(x => x.id === e.id ? e : x)); if (currentUser?.id === e.id) setCurrentUser(e); supabaseService.upsertEmployee(e); };
-  const deleteEmployee = (id: string) => { setEmployees(prev => prev.filter(x => x.id !== id)); supabaseService.deleteEmployee(id); };
-  const registerEmployeeFace = (id: string, img: string) => { const emp = employees.find(e => e.id === id); if (emp) updateEmployee({ ...emp, avatar: img }); };
-  const changePassword = (id: string, newPass: string) => { const emp = employees.find(e => e.id === id); if (emp) updateEmployee({ ...emp, password: newPass }); };
-  const addAttendanceLog = (log: TimesheetLog) => { setLogs(prev => [log, ...prev]); supabaseService.upsertLog(log); };
-  const updateAttendanceLog = (log: TimesheetLog) => { setLogs(prev => prev.map(l => l.id === log.id ? log : l)); supabaseService.upsertLog(log); };
-  const addRequest = (req: EmployeeRequest) => { setRequests(prev => [req, ...prev]); supabaseService.upsertRequest(req); };
-  
-  const updateRequestStatus = (id: string, status: RequestStatus) => { 
-      const req = requests.find(r => r.id === id); 
-      if (req && currentUser) { 
-          const updated = { 
-              ...req, 
-              status, 
-              approvedBy: currentUser.name, 
-              approvedAt: new Date().toLocaleString('vi-VN') 
-          }; 
-          setRequests(prev => prev.map(r => r.id === id ? updated : r)); 
-          supabaseService.upsertRequest(updated); 
-          if (status === RequestStatus.APPROVED) {
-              if (req.type === RequestType.LEAVE) assignShift(req.employeeId, req.date, 'OFF');
-              else if (req.type === RequestType.SHIFT_SWAP && req.targetShift) assignShift(req.employeeId, req.date, req.targetShift);
-          }
-      } 
+  const addEmployee = async (emp: Employee) => {
+      const isDuplicate = employees.some(e => e.id === emp.id || e.name === emp.name);
+      if (isDuplicate) { alert("Nhân viên đã tồn tại!"); return; }
+      await supabaseService.upsertEmployee(emp);
   };
 
-  const updateSettings = (s: SystemSettings) => { setSettings(s); supabaseService.saveSettings(s); };
-  
-  // REMOVED: Serving Group CRUD functions
-  
-  const addHandoverLog = (log: HandoverLog) => { setHandoverLogs(prev => [log, ...prev]); supabaseService.addHandover(log); };
-  const togglePinHandover = (id: string) => { 
-      const log = handoverLogs.find(l => l.id === id);
-      if(log) {
-          const updated = { ...log, isPinned: !log.isPinned };
-          setHandoverLogs(prev => prev.map(l => l.id === id ? updated : l).sort((a, b) => { if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1; return new Date(b.date).getTime() - new Date(a.date).getTime(); }));
-          supabaseService.addHandover(updated); 
+  const updateEmployee = async (emp: Employee) => { await supabaseService.upsertEmployee(emp); };
+  const deleteEmployee = async (id: string) => { await supabaseService.deleteEmployee(id); };
+  const registerEmployeeFace = async (id: string, image: string) => {
+      const emp = employees.find(e => e.id === id);
+      if (emp) await supabaseService.upsertEmployee({ ...emp, avatar: image });
+  };
+  const changePassword = async (id: string, newPass: string) => {
+      const emp = employees.find(e => e.id === id);
+      if (emp) await supabaseService.upsertEmployee({ ...emp, password: newPass });
+  };
+
+  const addAttendanceLog = async (log: TimesheetLog) => { await supabaseService.upsertLog(log); };
+  const updateAttendanceLog = async (log: TimesheetLog) => { await supabaseService.upsertLog(log); };
+
+  const addRequest = async (req: EmployeeRequest) => { await supabaseService.upsertRequest(req); };
+  const updateRequestStatus = async (id: string, status: RequestStatus) => {
+      const req = requests.find(r => r.id === id);
+      if (req) {
+          await supabaseService.upsertRequest({ 
+              ...req, 
+              status,
+              approvedBy: currentUser?.name,
+              approvedAt: new Date().toLocaleString('vi-VN')
+          });
       }
   };
 
-  const assignShift = (employeeId: string, date: string, shiftCode: string) => { const s: WorkSchedule = { id: `${employeeId}_${date}`, employeeId, date, shiftCode }; setSchedules(prev => [...prev.filter(x => x.id !== s.id), s]); supabaseService.upsertSchedule(s); };
-  const dismissAlert = (id: string) => { setDismissedAlertIds(prev => new Set(prev).add(id)); supabaseService.dismissAlert(id); };
-  const addPrepTask = (task: PrepTask) => { setPrepTasks(prev => [task, ...prev]); supabaseService.upsertPrepTask(task); };
-  const togglePrepTask = (id: string) => { const t = prepTasks.find(x => x.id === id); if (t) { const u = { ...t, isCompleted: !t.isCompleted }; setPrepTasks(prev => prev.map(x => x.id === id ? u : x)); supabaseService.upsertPrepTask(u); } };
-  const deletePrepTask = (id: string) => { setPrepTasks(prev => prev.filter(x => x.id !== id)); supabaseService.deletePrepTask(id); };
-  const addMenuItem = (item: MenuItem) => { setMenuItems(prev => [...prev, item]); supabaseService.upsertMenuItem(item); };
-  const updateMenuItem = (item: MenuItem) => { setMenuItems(prev => prev.map(i => i.id === item.id ? item : i)); supabaseService.upsertMenuItem(item); };
-  const deleteMenuItem = (id: string) => { setMenuItems(prev => prev.filter(i => i.id !== id)); supabaseService.deleteMenuItem(id); };
-  const addTask = (task: Task) => { setTasks(prev => [task, ...prev]); supabaseService.upsertTask(task); };
-  
-  const addPayrollAdjustment = (adj: PayrollAdjustment) => { setPayrollAdjustments(prev => [...prev, adj]); supabaseService.upsertAdjustment(adj); };
-  const deletePayrollAdjustment = (id: string) => { setPayrollAdjustments(prev => prev.filter(a => a.id !== id)); supabaseService.deleteAdjustment(id); };
+  const updateSettings = async (newSettings: SystemSettings) => { await supabaseService.saveSettings(newSettings); setSettings(newSettings); };
 
-  const claimTask = (taskId: string, employeeId: string, participantIds: string[] = []) => { const task = tasks.find(t => t.id === taskId); const employee = employees.find(e => e.id === employeeId); if (task && task.status === TaskStatus.OPEN && employee) { const allParticipants = [employeeId, ...participantIds]; const updated = { ...task, status: TaskStatus.IN_PROGRESS, assigneeId: employeeId, assigneeName: employee.name, participants: allParticipants }; setTasks(prev => prev.map(t => t.id === taskId ? updated : t)); supabaseService.upsertTask(updated); if (currentUser?.id === employeeId) dispatchNotification("🚀 ĐÃ NHẬN VIỆC", `Bạn đã nhận nhiệm vụ "${task.title}"`, 'SUCCESS'); } };
-  const submitTaskProof = (taskId: string, proofImage: string) => { const task = tasks.find(t => t.id === taskId); if (task) { const updated = { ...task, status: TaskStatus.COMPLETED, proofImage }; setTasks(prev => prev.map(t => t.id === taskId ? updated : t)); supabaseService.upsertTask(updated); } };
-  const verifyTask = (taskId: string, managerId: string) => { const task = tasksRef.current.find(t => t.id === taskId); if (task && task.status === TaskStatus.COMPLETED) { const updated = { ...task, status: TaskStatus.VERIFIED, verifiedBy: managerId }; setTasks(prev => prev.map(t => t.id === taskId ? updated : t)); supabaseService.upsertTask(updated); const recipients = task.participants && task.participants.length > 0 ? task.participants : (task.assigneeId ? [task.assigneeId] : []); recipients.forEach(empId => { const emp = employeesRef.current.find(e => e.id === empId); if (emp) { const currentXp = (emp.xp || 0); const newXp = currentXp + task.xpReward; const newLevel = calculateRpgLevel(newXp); const updatedEmp = { ...emp, xp: newXp, level: newLevel }; updateEmployee(updatedEmp); if (empId === currentUserRef.current?.id) dispatchNotification("🎉 CHÚC MỪNG!", `Bạn nhận được +${task.xpReward} XP.`, 'SUCCESS'); } }); } };
-  const rejectTask = (taskId: string, reason: string, penalty: number) => { const task = tasksRef.current.find(t => t.id === taskId); if (task) { const updated = { ...task, status: TaskStatus.REJECTED, rejectionReason: reason, penaltyXp: penalty }; setTasks(prev => prev.map(t => t.id === taskId ? updated : t)); supabaseService.upsertTask(updated); const recipients = task.participants && task.participants.length > 0 ? task.participants : (task.assigneeId ? [task.assigneeId] : []); recipients.forEach(empId => { const emp = employeesRef.current.find(e => e.id === empId); if (emp && penalty > 0) { const currentXp = emp.xp || 0; const newXp = Math.max(0, currentXp - penalty); const newLevel = calculateRpgLevel(newXp); const updatedEmp = { ...emp, xp: newXp, level: newLevel }; updateEmployee(updatedEmp); } }); } };
-  const deleteTask = (taskId: string) => { setTasks(prev => prev.filter(t => t.id !== taskId)); supabaseService.deleteTask(taskId); }
-  const submitFeedback = async (data: any) => { const aiAnalysis = await analyzeFeedback(data.comment || '', data.rating); const newFeedback: Feedback = { id: Date.now().toString(), type: 'INTERNAL_FEEDBACK', customerName: data.name, phone: data.phone, rating: data.rating, npsScore: data.npsScore, comment: data.comment, tags: aiAnalysis.tags, sentiment: aiAnalysis.sentiment, createdAt: new Date().toISOString(), isResolved: data.rating > 2, staffId: '', staffName: '' }; setFeedbacks(prev => [newFeedback, ...prev]); supabaseService.upsertFeedback(newFeedback); if (newFeedback.rating <= 2 || newFeedback.sentiment === 'NEGATIVE') dispatchNotification("🚨 BÁO ĐỘNG ĐỎ", `Khách đánh giá thấp: ${newFeedback.rating} sao`, 'ERROR'); };
-  const trackReviewClick = async (staffId: string) => { const staff = employees.find(e => e.id === staffId); const newRecord: Feedback = { id: Date.now().toString(), type: 'GOOGLE_REVIEW_CLICK', createdAt: new Date().toISOString(), isResolved: true, staffId: staffId, staffName: staff?.name, rating: 5 }; setFeedbacks(prev => [newRecord, ...prev]); await supabaseService.upsertFeedback(newRecord); };
-  const requestAssistance = (tableId: string, type: string) => { const newFeedback: Feedback = { id: Date.now().toString(), type: 'CALL_WAITER', customerName: `Bàn ${tableId}`, comment: type, createdAt: new Date().toISOString(), isResolved: false }; supabaseService.upsertFeedback(newFeedback); };
-  
-  // MODIFIED: Just a helper to notify staff, no DB serving group creation
-  const submitGuestOrder = async (tableId: string, cartItems: {item: MenuItem, quantity: number}[], guestCount: number, note: string) => {
-      // Feature Disabled: Just call waiter instead
-      requestAssistance(tableId, `Khách muốn gọi món (${cartItems.length} món)`);
+  const addHandoverLog = async (log: HandoverLog) => { await supabaseService.addHandover(log); };
+  const togglePinHandover = async (id: string) => {
+      const log = handoverLogs.find(l => l.id === id);
+      if (log) await supabaseService.addHandover({ ...log, isPinned: !log.isPinned });
   };
 
-  // GROUP ORDERS LOGIC
-  const upsertGroupOrder = (order: GroupOrder) => {
+  const assignShift = async (employeeId: string, date: string, shiftCode: string) => {
+      const id = `${employeeId}_${date}`;
+      await supabaseService.upsertSchedule({ id, employeeId, date, shiftCode });
+  };
+
+  const addPrepTask = async (task: PrepTask) => { await supabaseService.upsertPrepTask(task); };
+  const togglePrepTask = async (id: string) => {
+      const t = prepTasks.find(p => p.id === id);
+      if (t) await supabaseService.upsertPrepTask({ ...t, isCompleted: !t.isCompleted });
+  };
+  const deletePrepTask = async (id: string) => { await supabaseService.deletePrepTask(id); };
+
+  const addTask = async (task: Task) => { await supabaseService.upsertTask(task); };
+  const claimTask = async (taskId: string, employeeId: string, participantIds: string[] = []) => {
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return;
+      
+      const assigneeName = employees.find(e => e.id === employeeId)?.name || 'Unknown';
+      const participants = [employeeId, ...participantIds];
+      
+      await supabaseService.upsertTask({ 
+          ...task, 
+          status: TaskStatus.IN_PROGRESS, 
+          assigneeId: employeeId, 
+          assigneeName,
+          participants
+      });
+  };
+  const submitTaskProof = async (taskId: string, proofImage: string) => {
+      const task = tasks.find(t => t.id === taskId);
+      if (task) await supabaseService.upsertTask({ ...task, status: TaskStatus.COMPLETED, proofImage });
+  };
+  const verifyTask = async (taskId: string, managerId: string) => {
+      const task = tasks.find(t => t.id === taskId);
+      const managerName = employees.find(e => e.id === managerId)?.name || 'Manager';
+      if (task) {
+          await supabaseService.upsertTask({ ...task, status: TaskStatus.VERIFIED, verifiedBy: managerName });
+          // Award XP to all participants
+          const xp = task.xpReward || 0;
+          for (const pid of (task.participants || [])) {
+              const emp = employees.find(e => e.id === pid);
+              if (emp) {
+                  const newXp = (emp.xp || 0) + xp;
+                  const newLevel = calculateRpgLevel(newXp);
+                  await supabaseService.upsertEmployee({ ...emp, xp: newXp, level: newLevel });
+                  if (pid === currentUser?.id) dispatchNotification("🎉 NHIỆM VỤ HOÀN THÀNH", `Bạn nhận được ${xp} XP!`);
+              }
+          }
+      }
+  };
+  const rejectTask = async (taskId: string, reason: string, penalty: number) => {
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+          await supabaseService.upsertTask({ ...task, status: TaskStatus.REJECTED, rejectionReason: reason, penaltyXp: penalty });
+          // Deduct XP
+          if (penalty > 0) {
+              for (const pid of (task.participants || [])) {
+                  const emp = employees.find(e => e.id === pid);
+                  if (emp) {
+                      const newXp = Math.max(0, (emp.xp || 0) - penalty);
+                      await supabaseService.upsertEmployee({ ...emp, xp: newXp });
+                  }
+              }
+          }
+      }
+  };
+  const deleteTask = async (taskId: string) => { await supabaseService.deleteTask(taskId); };
+
+  const submitFeedback = async (data: any) => {
+      const aiAnalysis = await analyzeFeedback(data.comment, data.rating);
+      const newFeedback: Feedback = {
+          id: Date.now().toString(),
+          type: 'INTERNAL_FEEDBACK',
+          createdAt: new Date().toISOString(),
+          isResolved: false,
+          sentiment: aiAnalysis.sentiment,
+          tags: aiAnalysis.tags,
+          ...data
+      };
+      await supabaseService.upsertFeedback(newFeedback);
+  };
+
+  const trackReviewClick = async (staffId: string) => {
+      const staff = employees.find(e => e.id === staffId);
+      const newFeedback: Feedback = {
+          id: Date.now().toString(),
+          type: 'GOOGLE_REVIEW_CLICK',
+          createdAt: new Date().toISOString(),
+          isResolved: true,
+          staffId,
+          staffName: staff?.name,
+          rating: 5 // Implicit positive intent
+      };
+      await supabaseService.upsertFeedback(newFeedback);
+  };
+
+  const addMenuItem = async (item: MenuItem) => { await supabaseService.upsertMenuItem(item); };
+  const updateMenuItem = async (item: MenuItem) => { await supabaseService.upsertMenuItem(item); };
+  const deleteMenuItem = async (id: string) => { await supabaseService.deleteMenuItem(id); };
+
+  const addPayrollAdjustment = async (adj: PayrollAdjustment) => { await supabaseService.upsertAdjustment(adj); };
+  const deletePayrollAdjustment = async (id: string) => { await supabaseService.deleteAdjustment(id); };
+
+  const upsertGroupOrder = async (order: GroupOrder) => {
+      // Optimistic update
       setGroupOrders(prev => {
           const exists = prev.some(o => o.id === order.id);
-          if (exists) return prev.map(o => o.id === order.id ? order : o);
-          return [order, ...prev];
+          return exists ? prev.map(o => o.id === order.id ? order : o) : [order, ...prev];
       });
-      supabaseService.upsertGroupOrder(order);
+      await supabaseService.upsertGroupOrder(order);
   };
 
-  const toggleGroupOrderItem = (orderId: string, itemIndex: number) => {
-      const order = groupOrdersRef.current.find(o => o.id === orderId);
-      if (order) {
-          const updatedItems = [...order.items];
-          updatedItems[itemIndex] = { ...updatedItems[itemIndex], isServed: !updatedItems[itemIndex].isServed };
-          const updatedOrder = { ...order, items: updatedItems };
-          // Optimistic update
-          setGroupOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
-          supabaseService.upsertGroupOrder(updatedOrder);
+  const toggleGroupOrderItem = async (orderId: string, itemIndex: number) => {
+      const order = groupOrders.find(o => o.id === orderId);
+      if (!order) return;
+      const newItems = [...order.items];
+      newItems[itemIndex] = { ...newItems[itemIndex], isServed: !newItems[itemIndex].isServed };
+      
+      const updatedOrder = { ...order, items: newItems };
+      // Optimistic
+      setGroupOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+      await supabaseService.upsertGroupOrder(updatedOrder);
+  };
+
+  const completeGroupOrder = async (orderId: string) => {
+      const order = groupOrders.find(o => o.id === orderId);
+      if (!order) return;
+      const updatedOrder = { ...order, status: 'COMPLETED' as const };
+      
+      setGroupOrders(prev => prev.map(o => o.id === orderId ? updatedOrder : o));
+      await supabaseService.upsertGroupOrder(updatedOrder);
+  };
+
+  const notifyGuestArrival = async (orderId: string) => {
+      // Optimistic Update
+      setGroupOrders(prev => prev.map(o => 
+          o.id === orderId 
+              ? { ...o, guestArrivalNotifiedAt: new Date().toISOString() } 
+              : o
+      ));
+      
+      await supabaseService.notifyGuestArrival(orderId);
+  };
+
+  const dismissAlert = async (id: string) => {
+      setDismissedAlertIds(prev => new Set(prev).add(id));
+      await supabaseService.dismissAlert(id);
+  };
+
+  const login = (idOrPhone: string, pass: string) => {
+      const user = employees.find(e => (e.id === idOrPhone || e.phone === idOrPhone) && (e.password || '123456') === pass);
+      if (user) {
+          setCurrentUser(user);
+          localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify({ userId: user.id, timestamp: Date.now() }));
+          return true;
       }
+      return false;
   };
 
-  const completeGroupOrder = (orderId: string) => {
-      // CHANGED: Update status locally instead of removing
-      setGroupOrders(prev => prev.map(o => o.id === orderId ? { ...o, status: 'COMPLETED' } : o));
-      supabaseService.updateGroupOrderStatus(orderId, 'COMPLETED');
+  const logout = () => {
+      setCurrentUser(null);
+      localStorage.removeItem(STORAGE_SESSION_KEY);
   };
 
-  const login = (idOrPhone: string, pass: string) => { const cleanInput = idOrPhone.replace(/\D/g, ''); const user = employees.find(e => { if (e.password !== pass) return false; if (e.id === idOrPhone) return true; const empPhone = e.phone.replace(/\D/g, ''); return cleanInput && empPhone && cleanInput === empPhone; }); if (user) { const finalUser = user.id === 'admin' ? { ...user, role: EmployeeRole.DEV } : user; setCurrentUser(finalUser); localStorage.setItem(STORAGE_SESSION_KEY, JSON.stringify({ userId: user.id, timestamp: Date.now() })); return true; } return false; };
-  const logout = () => { setCurrentUser(null); localStorage.removeItem(STORAGE_SESSION_KEY); };
+  const submitGuestOrder = async (tableId: string, cartItems: {item: MenuItem, quantity: number}[], guestCount: number, note: string) => {
+      // Create a GroupOrder from Guest Cart
+      const items = cartItems.map(ci => ({
+          name: ci.item.name,
+          quantity: ci.quantity,
+          unit: ci.item.unit || 'Phần',
+          note: note ? note : undefined,
+          isServed: false
+      }));
+
+      const newOrder: GroupOrder = {
+          id: Date.now().toString() + Math.random(), // Temporary ID until UUID fixed
+          groupName: `Khách lẻ - Bàn ${tableId}`,
+          location: tableId,
+          guestCount: guestCount,
+          tableAllocation: '',
+          items: items,
+          status: 'PENDING',
+          createdAt: new Date().toISOString()
+      };
+
+      await upsertGroupOrder(newOrder);
+  };
+
+  const requestAssistance = (tableId: string, type: string) => {
+      // Create feedback alert
+      const feedback: Feedback = {
+          id: Date.now().toString(),
+          type: 'CALL_WAITER',
+          customerName: tableId,
+          comment: `Yêu cầu hỗ trợ: ${type}`,
+          rating: 5,
+          createdAt: new Date().toISOString(),
+          isResolved: false
+      };
+      supabaseService.upsertFeedback(feedback);
+  };
+
+  const reloadData = () => loadData(false);
 
   return (
-    <GlobalContext.Provider value={{ 
+    <GlobalContext.Provider value={{
       employees, addEmployee, updateEmployee, deleteEmployee, registerEmployeeFace, changePassword,
       logs, addAttendanceLog, updateAttendanceLog,
       requests, addRequest, updateRequestStatus,
@@ -635,16 +782,14 @@ export const GlobalProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       menuItems, addMenuItem, updateMenuItem, deleteMenuItem,
       prepTasks, addPrepTask, togglePrepTask, deletePrepTask,
       handoverLogs, addHandoverLog, togglePinHandover,
-      schedules, assignShift, 
+      schedules, assignShift,
       tasks, addTask, claimTask, submitTaskProof, verifyTask, rejectTask, deleteTask,
       feedbacks, submitFeedback, trackReviewClick,
       payrollAdjustments, addPayrollAdjustment, deletePayrollAdjustment,
-      groupOrders, upsertGroupOrder, toggleGroupOrderItem, completeGroupOrder,
+      groupOrders, upsertGroupOrder, toggleGroupOrderItem, completeGroupOrder, notifyGuestArrival,
       activeAlerts, dismissedAlertIds, dismissAlert,
       currentUser, login, logout,
-      isLoading, isRestoringSession, lastUpdated, connectionStatus,
-      reloadData: () => loadData(false),
-      testNotification, requestNotificationPermission, unlockAudio, notificationPermissionStatus,
+      isLoading, isRestoringSession, lastUpdated, connectionStatus, reloadData, testNotification, requestNotificationPermission, unlockAudio, notificationPermissionStatus,
       submitGuestOrder, requestAssistance,
       onlineUsers, systemLogs
     }}>

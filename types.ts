@@ -20,7 +20,8 @@ export enum AppView {
   TASKS = 'TASKS',
   FEEDBACK = 'FEEDBACK',
   REVIEW_QR = 'REVIEW_QR',
-  MARKETING = 'MARKETING'
+  MARKETING = 'MARKETING',
+  RECEPTIONIST = 'RECEPTIONIST' // NEW
 }
 
 export enum EmployeeRole {
@@ -30,6 +31,7 @@ export enum EmployeeRole {
   CHEF = 'Bếp trưởng',
   WAITER = 'Phục vụ',
   BARTENDER = 'Pha chế',
+  RECEPTIONIST = 'Lễ tân' // Added Role if needed, though existing roles can access
 }
 
 export enum AttendanceStatus {
@@ -222,7 +224,7 @@ export interface PrepTask {
 
 export interface SystemAlert {
     id: string;
-    type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION' | 'BAD_FEEDBACK' | 'GUEST_CALL';
+    type: 'LATE_SERVING' | 'ATTENDANCE_VIOLATION' | 'BAD_FEEDBACK' | 'GUEST_CALL' | 'GUEST_ARRIVAL'; // Added GUEST_ARRIVAL
     message: string;
     details: string;
     groupId?: string; 
@@ -332,6 +334,7 @@ export interface GroupOrder {
     items: GroupOrderItem[];
     status: 'PENDING' | 'SERVING' | 'COMPLETED';
     createdAt: string;
+    guestArrivalNotifiedAt?: string; // NEW: Timestamp when receptionist notified arrival
 }
 
 export const RESTAURANT_LOCATION = {
